@@ -21,6 +21,9 @@ pub enum CoreError {
     /// 请求的记忆标识不存在。
     #[error("记忆不存在: {0}")]
     NotFound(uuid::Uuid),
+    /// sqlite-vec 原生扩展注册失败。
+    #[error("sqlite-vec 扩展注册失败，SQLite 错误码: {0}")]
+    VectorExtension(i32),
 }
 
 /// Nexus 核心模块统一使用的结果类型。

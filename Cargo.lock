@@ -2011,6 +2011,7 @@ dependencies = [
  "argon2",
  "blake3",
  "chacha20poly1305",
+ "nexus-sqlite-vec",
  "rand_core",
  "rusqlite",
  "serde",
@@ -2051,6 +2052,14 @@ dependencies = [
  "tokio",
  "tower",
  "uuid",
+]
+
+[[package]]
+name = "nexus-sqlite-vec"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "sqlite-vec",
 ]
 
 [[package]]
@@ -3138,6 +3147,15 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "sqlite-vec"
+version = "0.1.7-alpha.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2388d9b97b32baa48a059df2f15a9bb49217fa1f9fb076e98c89e8fc02c8f2c4"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

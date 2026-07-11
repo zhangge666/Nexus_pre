@@ -6,8 +6,7 @@ use rusqlite::params;
 use uuid::Uuid;
 
 use crate::{
-    CoreError, Embedder, MemoryStore, Result, SearchHit, SearchMode, SearchQuery,
-    embed::cosine_similarity, store::parse_uuid,
+    CoreError, Embedder, MemoryStore, Result, SearchHit, SearchMode, SearchQuery, store::parse_uuid,
 };
 
 impl MemoryStore {
@@ -90,32 +89,30 @@ impl MemoryStore {
         embedder: &E,
     ) -> Result<Vec<SearchHit>> {
         let query_vector = embedder.embed(text);
+        let encoded_query = serde_json::to_string(&query_vector)?;
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT v.memory_id, v.block_id, v.embedding, b.text FROM block_vectors v JOIN blocks b ON b.id = v.block_id",
+            "SELECT b.memory_id, v.block_id, v.distance, b.text FROM block_vectors_vec v JOIN blocks b ON b.id = v.block_id WHERE v.embedding MATCH ?1 AND k = ?2 ORDER BY v.distance",
         )?;
-        let rows = statement.query_map([], |row| {
+        let rows = statement.query_map(params![encoded_query, limit], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
+                row.get::<_, f32>(2)?,
                 row.get::<_, String>(3)?,
             ))
         })?;
-        let mut hits = rows
+        let hits = rows
             .map(|row| {
-                let (memory_id, block_id, encoded, snippet) = row?;
-                let vector: Vec<f32> = serde_json::from_str(&encoded)?;
+                let (memory_id, block_id, distance, snippet) = row?;
                 Ok(SearchHit {
                     memory_id: parse_uuid(&memory_id)?,
                     block_id: parse_uuid(&block_id)?,
-                    score: cosine_similarity(&query_vector, &vector),
+                    score: 1.0 / (1.0 + distance),
                     snippet,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
-        hits.sort_by(|left, right| right.score.total_cmp(&left.score));
-        hits.truncate(limit);
         Ok(hits)
     }
 }

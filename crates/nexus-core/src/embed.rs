@@ -26,9 +26,9 @@ impl HashEmbedder {
 }
 
 impl Default for HashEmbedder {
-    /// 创建适合测试与最小本地闭环的 64 维嵌入器。
+    /// 创建与 BGE-small 向量空间维度一致的 384 维回退嵌入器。
     fn default() -> Self {
-        Self::new(64)
+        Self::new(384)
     }
 }
 

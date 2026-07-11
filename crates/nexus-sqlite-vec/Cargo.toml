@@ -1,0 +1,13 @@
+# 本文件定义隔离 sqlite-vec 原生扩展注册所需 FFI 的安全包装 crate。
+
+[package]
+name = "nexus-sqlite-vec"
+description = "Nexus 对 sqlite-vec 原生扩展的安全注册包装"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.37", features = ["bundled"] }
+sqlite-vec = "=0.1.7-alpha.2"

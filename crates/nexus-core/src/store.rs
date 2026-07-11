@@ -12,6 +12,7 @@ use crate::{CoreError, CoreEvent, EventSubscription, Memory, Result, events::Eve
 
 const MIGRATION_V1: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_V2: &str = include_str!("../migrations/0002_media.sql");
+const MIGRATION_V3: &str = include_str!("../migrations/0003_vector_index.sql");
 
 /// 持有单写者 SQLite 连接并在创建时自动执行迁移。
 pub struct MemoryStore {
@@ -22,11 +23,13 @@ pub struct MemoryStore {
 impl MemoryStore {
     /// 打开文件数据库、启用 WAL 和外键，并执行缺失迁移。
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        register_vector_extension()?;
         Self::from_connection(Connection::open(path)?)
     }
 
     /// 创建用于测试或临时会话的内存数据库。
     pub fn open_in_memory() -> Result<Self> {
+        register_vector_extension()?;
         Self::from_connection(Connection::open_in_memory()?)
     }
 
@@ -73,6 +76,10 @@ impl MemoryStore {
                 ],
             )?;
             transaction.execute(
+                "INSERT INTO block_vectors_vec (block_id, embedding) VALUES (?1, ?2)",
+                params![block.id.to_string(), serde_json::to_string(embedding)?],
+            )?;
+            transaction.execute(
                 "INSERT INTO blocks_fts (memory_id, block_id, text) VALUES (?1, ?2, ?3)",
                 params![memory.id.to_string(), block.id.to_string(), block.text],
             )?;
@@ -106,8 +113,14 @@ impl MemoryStore {
         let connection = self.connection()?;
         connection.execute_batch(MIGRATION_V1)?;
         connection.execute_batch(MIGRATION_V2)?;
+        connection.execute_batch(MIGRATION_V3)?;
         Ok(())
     }
+}
+
+/// 注册 sqlite-vec 自动扩展并映射原生错误码。
+fn register_vector_extension() -> Result<()> {
+    nexus_sqlite_vec::register().map_err(CoreError::VectorExtension)
 }
 
 /// 使用 serde 的 snake_case 规则把模型枚举转换为稳定数据库值。

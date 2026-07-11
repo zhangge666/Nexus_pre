@@ -81,6 +81,10 @@ impl MemoryStore {
                 params![memory.id.to_string()],
             )?;
             transaction.execute(
+                "DELETE FROM block_vectors_vec WHERE block_id IN (SELECT id FROM blocks WHERE memory_id=?1)",
+                params![memory.id.to_string()],
+            )?;
+            transaction.execute(
                 "DELETE FROM blocks WHERE memory_id=?1",
                 params![memory.id.to_string()],
             )?;
@@ -106,6 +110,10 @@ impl MemoryStore {
     pub fn delete(&self, id: &Uuid) -> Result<()> {
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM block_vectors_vec WHERE block_id IN (SELECT id FROM blocks WHERE memory_id=?1)",
+            params![id.to_string()],
+        )?;
         transaction.execute(
             "DELETE FROM blocks_fts WHERE memory_id=?1",
             params![id.to_string()],
@@ -273,6 +281,10 @@ fn insert_blocks(
                 memory.id.to_string(),
                 serde_json::to_string(embedding)?
             ],
+        )?;
+        transaction.execute(
+            "INSERT INTO block_vectors_vec (block_id, embedding) VALUES (?1, ?2)",
+            params![block.id.to_string(), serde_json::to_string(embedding)?],
         )?;
         transaction.execute(
             "INSERT INTO blocks_fts (memory_id, block_id, text) VALUES (?1, ?2, ?3)",
