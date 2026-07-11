@@ -4,28 +4,38 @@ use std::{io, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
 use nexus_core::{
-    CoreError, HashEmbedder, IngestInput, Ingestor, MemorySource, MemoryStore, SearchMode,
-    SearchQuery,
+    CoreError, HashEmbedder, IngestInput, Ingestor, ListQuery, MemoryFilters, MemoryKind,
+    MemoryPatch, MemorySource, MemoryStore, SearchMode, SearchQuery,
 };
 use serde::Serialize;
 use tokio::net::TcpListener;
+use uuid::Uuid;
 
 use crate::{
     CapabilityGrant, Scope,
     dto::{
-        CapabilitiesResponse, CreateMemoryRequest, CreateMemoryResponse, SearchHitResponse,
-        SearchRequest, SearchResponse,
+        CapabilitiesResponse, CreateMemoryRequest, CreateMemoryResponse, ListMemoriesRequest,
+        ListMemoriesResponse, MemoryResponse, SearchHitResponse, SearchRequest, SearchResponse,
+        UpdateMemoryRequest,
     },
     protocol_version,
 };
 
-const IMPLEMENTED_CAPABILITIES: &[&str] = &["memory:create", "search", "capabilities"];
+const IMPLEMENTED_CAPABILITIES: &[&str] = &[
+    "memory:create",
+    "memory:read",
+    "memory:update",
+    "memory:delete",
+    "memory:list",
+    "search",
+    "capabilities",
+];
 
 /// 持有本地协议服务共享的存储、嵌入器和客户端授权。
 #[derive(Clone)]
@@ -80,6 +90,7 @@ impl IntoResponse for ProtocolError {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
             Self::NonLoopbackAddress => StatusCode::BAD_REQUEST,
+            Self::Core(CoreError::NotFound(_)) => StatusCode::NOT_FOUND,
             Self::Core(_) | Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         (
@@ -96,9 +107,96 @@ impl IntoResponse for ProtocolError {
 pub fn router(state: ProtocolState) -> Router {
     Router::new()
         .route("/v1/capabilities", get(capabilities))
-        .route("/v1/memories", post(create_memory))
+        .route("/v1/memories", post(create_memory).get(list_memories))
+        .route(
+            "/v1/memories/{id}",
+            get(get_memory).patch(update_memory).delete(delete_memory),
+        )
         .route("/v1/search", post(search))
         .with_state(state)
+}
+
+/// 校验读取权限并返回一条完整记忆。
+async fn get_memory(
+    State(state): State<ProtocolState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<MemoryResponse>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::MemoryRead)?;
+    let memory = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
+    if !state.grant.allows_source(&memory.source.as_storage_value()) {
+        return Err(ProtocolError::Forbidden);
+    }
+    Ok(Json(memory.into()))
+}
+
+/// 校验读取权限并返回经过来源、类别、标签和时间过滤的记忆页。
+async fn list_memories(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Query(request): Query<ListMemoriesRequest>,
+) -> Result<Json<ListMemoriesResponse>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::MemoryRead)?;
+    let filters = list_filters(&request, &state.grant)?;
+    let page = state.store.list(&ListQuery {
+        filters,
+        limit: request.limit,
+        offset: request.offset,
+    })?;
+    Ok(Json(ListMemoriesResponse {
+        items: page.items.into_iter().map(MemoryResponse::from).collect(),
+        total: page.total,
+        next_offset: page.next_offset,
+    }))
+}
+
+/// 校验写入权限和来源范围，并应用字段级记忆更新。
+async fn update_memory(
+    State(state): State<ProtocolState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<UpdateMemoryRequest>,
+) -> Result<Json<MemoryResponse>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::MemoryWrite)?;
+    let existing = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
+    if !state
+        .grant
+        .allows_source(&existing.source.as_storage_value())
+    {
+        return Err(ProtocolError::Forbidden);
+    }
+    let memory = state.store.update(
+        &id,
+        MemoryPatch {
+            title: request.title.map(Some),
+            content: request.content,
+            content_format: request.content_format,
+            tags: request.tags,
+            pinned: request.pinned,
+            archived: request.archived,
+            meta: request.meta,
+        },
+        state.embedder.as_ref(),
+    )?;
+    Ok(Json(memory.into()))
+}
+
+/// 校验删除权限和来源范围，并执行级联删除。
+async fn delete_memory(
+    State(state): State<ProtocolState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::MemoryDelete)?;
+    let existing = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
+    if !state
+        .grant
+        .allows_source(&existing.source.as_storage_value())
+    {
+        return Err(ProtocolError::Forbidden);
+    }
+    state.store.delete(&id)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// 在已绑定的回环监听器上运行本地协议服务。
@@ -177,11 +275,19 @@ async fn search(
             )));
         }
     };
+    let mut filters = MemoryFilters {
+        sources: request.filters.source,
+        kinds: request.filters.kind,
+        tags: request.filters.tags,
+        created_from: request.filters.created_from,
+        created_to: request.filters.created_to,
+    };
+    apply_source_restriction(&mut filters.sources, &state.grant)?;
     let hits = state.store.search(
         &SearchQuery {
             text: request.text,
             mode,
-            filters: Default::default(),
+            filters,
             limit: request.limit.min(100),
         },
         state.embedder.as_ref(),
@@ -197,6 +303,58 @@ async fn search(
             })
             .collect(),
     }))
+}
+
+/// 将列表查询字符串转换为核心过滤条件，并强制应用令牌来源限制。
+fn list_filters(
+    request: &ListMemoriesRequest,
+    grant: &CapabilityGrant,
+) -> Result<MemoryFilters, ProtocolError> {
+    let mut sources = split_csv(request.source.as_deref());
+    apply_source_restriction(&mut sources, grant)?;
+    let kinds = split_csv(request.kind.as_deref())
+        .into_iter()
+        .map(|value| parse_kind(&value))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(MemoryFilters {
+        sources,
+        kinds,
+        tags: split_csv(request.tags.as_deref()),
+        created_from: request.created_from,
+        created_to: request.created_to,
+    })
+}
+
+/// 将 capability token 的来源限制合并到请求过滤器，拒绝显式越权来源。
+fn apply_source_restriction(
+    sources: &mut Vec<String>,
+    grant: &CapabilityGrant,
+) -> Result<(), ProtocolError> {
+    if let Some(allowed) = grant.source_restriction() {
+        if !sources.is_empty() && sources.iter().any(|source| source != allowed) {
+            return Err(ProtocolError::Forbidden);
+        }
+        sources.clear();
+        sources.push(allowed.to_owned());
+    }
+    Ok(())
+}
+
+/// 拆分逗号分隔的查询参数并去除空白项。
+fn split_csv(value: Option<&str>) -> Vec<String> {
+    value
+        .into_iter()
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// 将查询字符串中的类别转换为统一记忆枚举。
+fn parse_kind(value: &str) -> Result<MemoryKind, ProtocolError> {
+    serde_json::from_str(&format!("\"{value}\""))
+        .map_err(|_| ProtocolError::InvalidRequest(format!("未知记忆类别: {value}")))
 }
 
 /// 从 Authorization 请求头提取令牌并校验目标能力域。

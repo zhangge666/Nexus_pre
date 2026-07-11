@@ -79,4 +79,10 @@ impl CapabilityGrant {
             .as_deref()
             .is_none_or(|allowed| allowed == source)
     }
+
+    /// 返回令牌绑定的来源限制；`None` 表示不限制来源。
+    #[must_use]
+    pub fn source_restriction(&self) -> Option<&str> {
+        self.writable_source.as_deref()
+    }
 }
