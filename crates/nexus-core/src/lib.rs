@@ -1,5 +1,6 @@
 //! 本文件组织 Nexus 共享核心对外暴露的数据模型、存储、写入与检索能力。
 
+pub mod crypto;
 pub mod embed;
 pub mod error;
 pub mod events;
@@ -9,6 +10,7 @@ mod repository;
 pub mod search;
 pub mod store;
 
+pub use crypto::{CryptoError, EncryptedMediaRef, MasterKey, MediaVault};
 pub use embed::{Embedder, HashEmbedder};
 pub use error::{CoreError, Result};
 pub use events::{CoreEvent, EventSubscription};
