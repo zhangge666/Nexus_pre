@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::{CoreError, CoreEvent, EventSubscription, Memory, Result, events::EventBus};
 
 const MIGRATION_V1: &str = include_str!("../migrations/0001_initial.sql");
+const MIGRATION_V2: &str = include_str!("../migrations/0002_media.sql");
 
 /// 持有单写者 SQLite 连接并在创建时自动执行迁移。
 pub struct MemoryStore {
@@ -104,6 +105,7 @@ impl MemoryStore {
     fn migrate(&self) -> Result<()> {
         let connection = self.connection()?;
         connection.execute_batch(MIGRATION_V1)?;
+        connection.execute_batch(MIGRATION_V2)?;
         Ok(())
     }
 }

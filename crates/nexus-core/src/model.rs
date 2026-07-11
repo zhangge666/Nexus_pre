@@ -114,6 +114,62 @@ pub struct Block {
     pub text: String,
 }
 
+/// 表示 Memory 可关联的加密媒体类别。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaKind {
+    /// 图片或截图。
+    Image,
+    /// 录音或其他音频。
+    Audio,
+    /// 视频。
+    Video,
+    /// 普通文件。
+    File,
+}
+
+/// 表示 SQLite 中保存的加密媒体引用与可选派生文本。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaRecord {
+    /// 媒体全局标识。
+    pub id: Uuid,
+    /// 媒体类别。
+    pub kind: MediaKind,
+    /// 加密文件本地路径。
+    pub path: String,
+    /// MIME 类型。
+    pub mime: String,
+    /// 可选像素宽度。
+    pub width: Option<u32>,
+    /// 可选像素高度。
+    pub height: Option<u32>,
+    /// 可选时长毫秒数。
+    pub duration_ms: Option<u64>,
+    /// 可选 OCR 文本。
+    pub ocr_text: Option<String>,
+    /// 可选语音转写。
+    pub transcript: Option<String>,
+    /// 明文 BLAKE3 哈希。
+    pub hash: String,
+    /// 明文字节数。
+    pub size: u64,
+}
+
+/// 表示写入媒体时由捕获应用提供的可选元数据。
+#[derive(Debug, Clone, Default)]
+pub struct MediaMetadata {
+    /// 可选像素宽度。
+    pub width: Option<u32>,
+    /// 可选像素高度。
+    pub height: Option<u32>,
+    /// 可选时长毫秒数。
+    pub duration_ms: Option<u64>,
+    /// 可选 OCR 文本。
+    pub ocr_text: Option<String>,
+    /// 可选语音转写。
+    pub transcript: Option<String>,
+}
+
 /// 表示已经完成写入并可供协议返回的记忆。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Memory {
