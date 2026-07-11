@@ -18,6 +18,9 @@ pub enum CoreError {
     /// SQLite 连接互斥锁被异常线程污染。
     #[error("存储连接不可用")]
     StoreUnavailable,
+    /// 请求的记忆标识不存在。
+    #[error("记忆不存在: {0}")]
+    NotFound(uuid::Uuid),
 }
 
 /// Nexus 核心模块统一使用的结果类型。

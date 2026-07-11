@@ -20,7 +20,7 @@ impl MemoryStore {
             return Ok(Vec::new());
         }
 
-        let candidate_limit = query.limit.saturating_mul(4).max(20);
+        let candidate_limit = query.limit.saturating_mul(8).clamp(40, 200);
         let keyword = match query.mode {
             SearchMode::Semantic => Vec::new(),
             SearchMode::Keyword | SearchMode::Hybrid => {
@@ -34,13 +34,21 @@ impl MemoryStore {
             }
         };
 
-        let mut hits = match query.mode {
+        let hits = match query.mode {
             SearchMode::Keyword => keyword,
             SearchMode::Semantic => semantic,
             SearchMode::Hybrid => reciprocal_rank_fusion(&keyword, &semantic),
         };
-        hits.truncate(query.limit);
-        Ok(hits)
+        let mut filtered = Vec::with_capacity(hits.len());
+        for hit in hits {
+            if self.matches_filters(&hit.memory_id, &query.filters)? {
+                filtered.push(hit);
+            }
+            if filtered.len() == query.limit {
+                break;
+            }
+        }
+        Ok(filtered)
     }
 
     /// 使用 FTS5 BM25 取得关键词候选，并转换为越大越优的分数。

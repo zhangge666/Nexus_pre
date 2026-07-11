@@ -30,6 +30,20 @@ impl MemorySource {
             Self::External(app_id) => format!("external:{app_id}"),
         }
     }
+
+    /// 从数据库或协议稳定字符串恢复来源类型。
+    pub fn from_storage_value(value: &str) -> Option<Self> {
+        match value {
+            "echo" => Some(Self::Echo),
+            "muse" => Some(Self::Muse),
+            "quill" => Some(Self::Quill),
+            "orbit" => Some(Self::Orbit),
+            external if external.starts_with("external:") && external.len() > 9 => {
+                Some(Self::External(external[9..].to_owned()))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// 表示统一记忆模型支持的内容类别。
@@ -133,6 +147,76 @@ pub struct Memory {
     pub meta: serde_json::Value,
 }
 
+/// 表示对现有记忆执行的字段级更新。
+#[derive(Debug, Clone, Default)]
+pub struct MemoryPatch {
+    /// `None` 表示不修改，`Some(None)` 表示清除标题。
+    pub title: Option<Option<String>>,
+    /// 替换正文并触发重新切块与嵌入。
+    pub content: Option<String>,
+    /// 替换正文编码格式。
+    pub content_format: Option<ContentFormat>,
+    /// 替换全部标签。
+    pub tags: Option<Vec<String>>,
+    /// 修改置顶状态。
+    pub pinned: Option<bool>,
+    /// 修改归档状态。
+    pub archived: Option<bool>,
+    /// 替换应用扩展字段。
+    pub meta: Option<serde_json::Value>,
+}
+
+impl MemoryPatch {
+    /// 判断补丁是否没有任何字段需要修改。
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.content.is_none()
+            && self.content_format.is_none()
+            && self.tags.is_none()
+            && self.pinned.is_none()
+            && self.archived.is_none()
+            && self.meta.is_none()
+    }
+}
+
+/// 表示记忆列表和检索共用的过滤条件。
+#[derive(Debug, Clone, Default)]
+pub struct MemoryFilters {
+    /// 允许的来源稳定字符串；空集合表示不限来源。
+    pub sources: Vec<String>,
+    /// 允许的记忆类别；空集合表示不限类别。
+    pub kinds: Vec<MemoryKind>,
+    /// 至少匹配其中一个标签；空集合表示不限标签。
+    pub tags: Vec<String>,
+    /// Unix 毫秒创建时间下界。
+    pub created_from: Option<i64>,
+    /// Unix 毫秒创建时间上界。
+    pub created_to: Option<i64>,
+}
+
+/// 表示按时间倒序读取记忆列表的请求。
+#[derive(Debug, Clone)]
+pub struct ListQuery {
+    /// 来源、类别、标签和时间条件。
+    pub filters: MemoryFilters,
+    /// 单页最大条数。
+    pub limit: usize,
+    /// 从匹配结果中跳过的条数。
+    pub offset: usize,
+}
+
+/// 表示带总数和下一页偏移量的记忆列表。
+#[derive(Debug, Clone)]
+pub struct MemoryPage {
+    /// 当前页记忆。
+    pub items: Vec<Memory>,
+    /// 过滤后总条数。
+    pub total: usize,
+    /// 存在下一页时返回新的偏移量。
+    pub next_offset: Option<usize>,
+}
+
 /// 表示调用方选择的检索策略。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchMode {
@@ -151,6 +235,8 @@ pub struct SearchQuery {
     pub text: String,
     /// 检索模式。
     pub mode: SearchMode,
+    /// 来源、类别、标签和时间过滤条件。
+    pub filters: MemoryFilters,
     /// 最大返回条数。
     pub limit: usize,
 }

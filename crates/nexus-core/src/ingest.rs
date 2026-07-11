@@ -57,7 +57,7 @@ impl<'a, E: Embedder> Ingestor<'a, E> {
 }
 
 /// 将 Markdown 按空行切分，并识别标题块；纯文本也会得到至少一个段落块。
-fn split_into_blocks(memory_id: Uuid, content: &str) -> Vec<Block> {
+pub(crate) fn split_into_blocks(memory_id: Uuid, content: &str) -> Vec<Block> {
     content
         .split("\n\n")
         .map(str::trim)
@@ -79,7 +79,7 @@ fn split_into_blocks(memory_id: Uuid, content: &str) -> Vec<Block> {
 }
 
 /// 返回数据库统一使用的 Unix 毫秒时间戳。
-fn current_timestamp_millis() -> Result<i64> {
+pub(crate) fn current_timestamp_millis() -> Result<i64> {
     let duration = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| CoreError::InvalidSystemTime)?;

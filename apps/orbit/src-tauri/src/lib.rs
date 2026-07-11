@@ -69,6 +69,7 @@ fn search_memory(
             &SearchQuery {
                 text: query,
                 mode: SearchMode::Hybrid,
+                filters: Default::default(),
                 limit: 20,
             },
             &state.embedder,
@@ -135,6 +136,7 @@ mod tests {
                 &SearchQuery {
                     text: "Tauri IPC".into(),
                     mode: SearchMode::Hybrid,
+                    filters: Default::default(),
                     limit: 5,
                 },
                 &state.embedder,

@@ -31,6 +31,7 @@ fn ingested_memory_is_found_by_hybrid_search() {
             &SearchQuery {
                 text: "Alice".into(),
                 mode: SearchMode::Hybrid,
+                filters: Default::default(),
                 limit: 10,
             },
             &embedder,

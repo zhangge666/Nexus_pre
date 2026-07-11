@@ -2,17 +2,20 @@
 
 pub mod embed;
 pub mod error;
+pub mod events;
 pub mod ingest;
 pub mod model;
+mod repository;
 pub mod search;
 pub mod store;
 
 pub use embed::{Embedder, HashEmbedder};
 pub use error::{CoreError, Result};
+pub use events::{CoreEvent, EventSubscription};
 pub use ingest::Ingestor;
 pub use model::{
-    Block, ContentFormat, IngestInput, Memory, MemoryKind, MemorySource, SearchHit, SearchMode,
-    SearchQuery,
+    Block, ContentFormat, IngestInput, ListQuery, Memory, MemoryFilters, MemoryKind, MemoryPage,
+    MemoryPatch, MemorySource, SearchHit, SearchMode, SearchQuery,
 };
 pub use store::MemoryStore;
 

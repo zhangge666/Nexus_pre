@@ -181,6 +181,7 @@ async fn search(
         &SearchQuery {
             text: request.text,
             mode,
+            filters: Default::default(),
             limit: request.limit.min(100),
         },
         state.embedder.as_ref(),

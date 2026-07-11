@@ -8,13 +8,14 @@ use std::{
 use rusqlite::{Connection, params};
 use uuid::Uuid;
 
-use crate::{CoreError, Memory, Result};
+use crate::{CoreError, CoreEvent, EventSubscription, Memory, Result, events::EventBus};
 
 const MIGRATION_V1: &str = include_str!("../migrations/0001_initial.sql");
 
 /// 持有单写者 SQLite 连接并在创建时自动执行迁移。
 pub struct MemoryStore {
     connection: Mutex<Connection>,
+    pub(crate) events: EventBus,
 }
 
 impl MemoryStore {
@@ -33,6 +34,7 @@ impl MemoryStore {
         connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;")?;
         let store = Self {
             connection: Mutex::new(connection),
+            events: EventBus::default(),
         };
         store.migrate()?;
         Ok(store)
@@ -81,7 +83,14 @@ impl MemoryStore {
             )?;
         }
         transaction.commit()?;
+        self.events
+            .publish(CoreEvent::MemoryCreated { id: memory.id })?;
         Ok(())
+    }
+
+    /// 订阅事务提交后的记忆创建、更新和删除事件。
+    pub fn subscribe(&self) -> Result<EventSubscription> {
+        self.events.subscribe()
     }
 
     /// 获取内部连接锁，统一处理互斥锁污染错误。
@@ -100,7 +109,7 @@ impl MemoryStore {
 }
 
 /// 使用 serde 的 snake_case 规则把模型枚举转换为稳定数据库值。
-fn enum_json<T: serde::Serialize>(value: &T) -> Result<String> {
+pub(crate) fn enum_json<T: serde::Serialize>(value: &T) -> Result<String> {
     Ok(serde_json::to_string(value)?.trim_matches('"').to_owned())
 }
 
