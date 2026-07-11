@@ -1,0 +1,4 @@
+interface:
+  display_name: "项目开发规范"
+  short_description: "统一代码注释、开发文档对接、界面设计规范与阶段提交要求"
+  default_prompt: "使用 $project-development-standards 按项目规范完成当前开发任务。"
