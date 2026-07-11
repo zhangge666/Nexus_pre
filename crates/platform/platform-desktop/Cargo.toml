@@ -8,6 +8,8 @@ license.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[dependencies]
+nexus-platform-api = { path = "../platform-api" }
+
 [lints]
 workspace = true
-

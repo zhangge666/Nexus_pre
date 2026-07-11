@@ -8,6 +8,7 @@ members = [
   "crates/nexus-ai",
   "crates/platform/platform-desktop",
   "crates/platform/platform-mobile",
+  "crates/platform/platform-api",
   "apps/orbit/src-tauri",
 ]
 

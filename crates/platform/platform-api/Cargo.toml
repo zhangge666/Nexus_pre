@@ -1,0 +1,13 @@
+# 本文件定义所有桌面与移动实现共同依赖的平台能力接口 crate。
+
+[package]
+name = "nexus-platform-api"
+description = "Nexus 截屏、热键、录音、后台任务与安全存储能力接口"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+

@@ -2021,12 +2021,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-platform-api"
+version = "0.1.0"
+
+[[package]]
 name = "nexus-platform-desktop"
 version = "0.1.0"
+dependencies = [
+ "nexus-platform-api",
+]
 
 [[package]]
 name = "nexus-platform-mobile"
 version = "0.1.0"
+dependencies = [
+ "nexus-platform-api",
+]
 
 [[package]]
 name = "nexus-protocol"
