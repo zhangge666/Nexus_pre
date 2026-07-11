@@ -1,0 +1,15 @@
+{
+  "name": "@nexus/editor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Quill 与 Muse 共用的编辑器能力边界。",
+  "type": "module",
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json --noEmit"
+  }
+}
+

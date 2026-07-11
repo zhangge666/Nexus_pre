@@ -1,0 +1,13 @@
+# 本文件定义移动平台能力适配 crate。
+
+[package]
+name = "nexus-platform-mobile"
+description = "Nexus 移动录音、后台任务与系统集成能力适配"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+

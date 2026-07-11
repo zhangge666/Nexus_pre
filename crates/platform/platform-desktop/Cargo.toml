@@ -1,0 +1,13 @@
+# 本文件定义桌面平台能力适配 crate。
+
+[package]
+name = "nexus-platform-desktop"
+description = "Nexus 桌面截屏、热键、录音与后台能力适配"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+

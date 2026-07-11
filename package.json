@@ -1,0 +1,16 @@
+{
+  "name": "nexus",
+  "private": true,
+  "description": "Nexus 软件族 monorepo 的前端工作区与构建命令。",
+  "packageManager": "pnpm@11.0.9",
+  "scripts": {
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "test": "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0"
+  }
+}
+

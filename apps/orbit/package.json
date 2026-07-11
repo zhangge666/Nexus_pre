@@ -1,0 +1,8 @@
+{
+  "name": "@nexus/orbit",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Orbit 记忆中枢与智能复习应用。",
+  "scripts": { "build": "node src/index.mjs", "check": "node --check src/index.mjs", "test": "node --check src/index.mjs" }
+}
+

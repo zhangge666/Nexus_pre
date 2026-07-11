@@ -1,0 +1,6 @@
+# 本文件声明 Nexus 四款应用与共享前端包的 pnpm workspace 范围。
+
+packages:
+  - "apps/*"
+  - "packages/*"
+

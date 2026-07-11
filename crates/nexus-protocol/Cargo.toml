@@ -1,0 +1,16 @@
+# 本文件定义 Memory Protocol 服务 crate 及其核心依赖。
+
+[package]
+name = "nexus-protocol"
+description = "Nexus Memory Protocol 定义与本地服务"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+nexus-core = { path = "../nexus-core" }
+
+[lints]
+workspace = true
+

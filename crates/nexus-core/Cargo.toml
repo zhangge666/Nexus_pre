@@ -1,0 +1,13 @@
+# 本文件定义共享记忆核心 crate 的包信息与统一 lint 配置。
+
+[package]
+name = "nexus-core"
+description = "Nexus 统一记忆模型、存储、写入与检索核心"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+

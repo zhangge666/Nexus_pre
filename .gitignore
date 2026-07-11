@@ -1,0 +1,9 @@
+# 本文件定义 Nexus monorepo 在本地开发中不应提交的生成物与缓存。
+
+/target/
+/node_modules/
+/.turbo/
+dist/
+*.tsbuildinfo
+*.log
+.DS_Store

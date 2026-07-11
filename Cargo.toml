@@ -1,0 +1,22 @@
+# 本文件定义 Nexus 产品家族的 Rust workspace 及统一包元数据。
+
+[workspace]
+resolver = "3"
+members = [
+  "crates/nexus-core",
+  "crates/nexus-protocol",
+  "crates/nexus-ai",
+  "crates/platform/platform-desktop",
+  "crates/platform/platform-mobile",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+version = "0.1.0"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
+

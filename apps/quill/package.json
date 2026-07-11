@@ -1,0 +1,8 @@
+{
+  "name": "@nexus/quill",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Quill 智能 Markdown 笔记应用。",
+  "scripts": { "build": "node src/index.mjs", "check": "node --check src/index.mjs", "test": "node --check src/index.mjs" }
+}
+

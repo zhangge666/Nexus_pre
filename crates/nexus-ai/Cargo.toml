@@ -1,0 +1,13 @@
+# 本文件定义可插拔 AI Provider 抽象 crate。
+
+[package]
+name = "nexus-ai"
+description = "Nexus 本地与远程 AI Provider 抽象"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
