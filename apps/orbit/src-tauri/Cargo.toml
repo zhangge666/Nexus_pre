@@ -1,0 +1,25 @@
+# 本文件定义 Orbit Tauri 2 桌面壳及其 nexus-core 依赖。
+
+[package]
+name = "orbit-app"
+description = "Orbit 记忆中枢 Tauri 应用"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "orbit_app_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nexus-core = { path = "../../../crates/nexus-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+
+[lints]
+workspace = true
