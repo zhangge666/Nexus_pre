@@ -16,6 +16,19 @@ export interface MemoryHit {
   snippet: string;
 }
 
+/** 表示 Orbit 时间线与详情面板使用的记忆摘要。 */
+export interface MemorySummary {
+  id: string;
+  source: string;
+  kind: string;
+  title: string | null;
+  content: string;
+  tags: string[];
+  pinned: boolean;
+  archived: boolean;
+  createdAt: number;
+}
+
 /** 判断当前页面是否运行在 Tauri WebView 中。 */
 export function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -31,3 +44,12 @@ export async function searchMemory(query: string): Promise<MemoryHit[]> {
   return invoke<MemoryHit[]>("search_memory", { query });
 }
 
+/** 通过 IPC 按来源读取时间线记忆。 */
+export async function listMemories(source?: string): Promise<MemorySummary[]> {
+  return invoke<MemorySummary[]>("list_memories", { source });
+}
+
+/** 通过 IPC 读取指定记忆的完整详情。 */
+export async function getMemory(id: string): Promise<MemorySummary> {
+  return invoke<MemorySummary>("get_memory", { id });
+}

@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex};
 
 use nexus_core::{HashEmbedder, MemoryStore};
+use nexus_protocol::dto::{ListMemoriesResponse, MemoryResponse};
 use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
 };
@@ -45,6 +46,37 @@ impl OrbitState {
             )
             .await?;
         Ok(response.hits)
+    }
+
+    /// 读取用于 Orbit 时间线和筛选界面的记忆分页数据。
+    async fn list_memories(&self, source: Option<String>) -> Result<Vec<MemorySummary>, String> {
+        let path = source.map_or_else(
+            || "/v1/memories?limit=100".to_owned(),
+            |value| format!("/v1/memories?limit=100&source={value}"),
+        );
+        let response: ListMemoriesResponse = self
+            .send_json(
+                self.client.get(format!("{}{}", self.endpoint, path)),
+                serde_json::json!({}),
+            )
+            .await?;
+        Ok(response
+            .items
+            .into_iter()
+            .map(MemorySummary::from)
+            .collect())
+    }
+
+    /// 读取详情面板展示的完整记忆。
+    async fn get_memory(&self, id: String) -> Result<MemorySummary, String> {
+        let response: MemoryResponse = self
+            .send_json(
+                self.client
+                    .get(format!("{}/v1/memories/{id}", self.endpoint)),
+                serde_json::json!({}),
+            )
+            .await?;
+        Ok(MemorySummary::from(response))
     }
 
     /// 发送带本地 capability token 的 JSON 请求并解析成功响应。
@@ -106,6 +138,38 @@ struct SearchResponse {
     hits: Vec<MemoryHit>,
 }
 
+/// 表示 Orbit 列表和详情面板共用的记忆数据。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemorySummary {
+    id: String,
+    source: String,
+    kind: String,
+    title: Option<String>,
+    content: String,
+    tags: Vec<String>,
+    pinned: bool,
+    archived: bool,
+    created_at: i64,
+}
+
+impl From<MemoryResponse> for MemorySummary {
+    /// 将协议记忆响应收窄为 Orbit 当前界面需要的字段。
+    fn from(memory: MemoryResponse) -> Self {
+        Self {
+            id: memory.id.to_string(),
+            source: memory.source,
+            kind: format!("{:?}", memory.kind).to_lowercase(),
+            title: memory.title,
+            content: memory.content,
+            tags: memory.tags,
+            pinned: memory.pinned,
+            archived: memory.archived,
+            created_at: memory.created_at,
+        }
+    }
+}
+
 /// 通过 Tauri IPC 将 Markdown 内容写入统一记忆服务。
 #[tauri::command]
 async fn create_memory(
@@ -122,6 +186,24 @@ async fn search_memory(
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<Vec<MemoryHit>, String> {
     state.search_memory(query).await
+}
+
+/// 通过 Tauri IPC 返回可按来源筛选的时间线记忆。
+#[tauri::command]
+async fn list_memories(
+    source: Option<String>,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<Vec<MemorySummary>, String> {
+    state.list_memories(source).await
+}
+
+/// 通过 Tauri IPC 读取指定记忆详情。
+#[tauri::command]
+async fn get_memory(
+    id: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<MemorySummary, String> {
+    state.get_memory(id).await
 }
 
 /// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
@@ -173,7 +255,12 @@ pub fn run() {
             app.manage(Arc::new(state));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![create_memory, search_memory])
+        .invoke_handler(tauri::generate_handler![
+            create_memory,
+            search_memory,
+            list_memories,
+            get_memory
+        ])
         .run(tauri::generate_context!())
         .expect("Orbit Tauri 运行时启动失败");
 }

@@ -60,7 +60,7 @@ pub struct UpdateMemoryRequest {
 }
 
 /// 表示协议返回的语义块。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct BlockResponse {
     /// 块标识。
     pub id: Uuid,
@@ -86,7 +86,7 @@ impl From<Block> for BlockResponse {
 }
 
 /// 表示读取、更新和列表接口返回的完整记忆。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct MemoryResponse {
     /// 记忆标识。
     pub id: Uuid,
@@ -165,7 +165,7 @@ pub struct ListMemoriesRequest {
 }
 
 /// 表示记忆分页列表响应。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ListMemoriesResponse {
     /// 当前页记忆。
     pub items: Vec<MemoryResponse>,
