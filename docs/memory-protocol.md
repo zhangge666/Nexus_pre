@@ -163,7 +163,7 @@ GET /v1/events?types=memory.created,review.due   (SSE / WebSocket)
 
 | 集成方 | 方式 |
 |--------|------|
-| 前端/Node 应用 | `@nexus/sdk-ts` |
+| 前端/Node 应用 | `@nexus/protocol-client` |
 | Python 脚本/数据管线 | `nexus-sdk`（PyPI） |
 | 桌面其他 App | 本地 REST / gRPC |
 | 浏览器扩展 | native messaging → 本地服务（一键剪藏进记忆库） |
@@ -171,11 +171,14 @@ GET /v1/events?types=memory.created,review.due   (SSE / WebSocket)
 | 自动化 | Webhook / CLI (`nexus` 命令行) |
 
 ```ts
-import { Nexus } from "@nexus/sdk-ts";
-const nexus = new Nexus({ endpoint: "local" });        // 自动发现本地服务
-await nexus.memories.add({ source: "external:my-app", content: "..." });
-const hits = await nexus.search("量子计算笔记", { mode: "hybrid" });
+import { ProtocolClient } from "@nexus/protocol-client";
+const nexus = new ProtocolClient({ endpoint, token });
+await nexus.createMemory({ source: "external:my-app", kind: "note", content: "...", content_format: "markdown" });
+const hits = await nexus.search({ text: "量子计算笔记", mode: "hybrid" });
 ```
+
+客户端包含 Memory CRUD、混合检索、关联、集合成员管理、服务端错误映射，以及会自动重连的
+`subscribeEvents()` SSE 异步迭代器。
 
 ### MCP 示例（让 AI 助手拥有你的记忆）
 
