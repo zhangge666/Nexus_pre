@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import {
   createMemory,
   addMemoryToCollection,
@@ -78,6 +79,17 @@ export function App(): React.JSX.Element {
     void refreshTimeline();
     void refreshCollections();
   }, []);
+
+  /** 订阅提交后事件，让其他本地应用写入的记忆自动出现在当前时间线。 */
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    void listen("memory-changed", () => {
+      void refreshTimeline(source);
+      void refreshCollections();
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, [source]);
 
   /** 从本地服务刷新时间线并保留有效的详情选中项。 */
   async function refreshTimeline(nextSource?: string): Promise<void> {

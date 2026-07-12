@@ -8,7 +8,7 @@ use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 
 /// 持有 Orbit 使用的本地协议客户端以及当前持有服务的可选关闭信号。
 struct OrbitState {
@@ -319,6 +319,18 @@ pub fn run() {
                             .map_err(|error| std::io::Error::other(error.to_string()))?,
                     );
                     let embedder = Arc::new(HashEmbedder::default());
+                    let event_subscription = store
+                        .subscribe()
+                        .map_err(|error| std::io::Error::other(error.to_string()))?;
+                    let event_app = app.handle().clone();
+                    // 核心事件只在事务提交后广播，前端刷新不会读取半成品。
+                    tauri::async_runtime::spawn_blocking(move || {
+                        while let Some(event) = event_subscription.recv() {
+                            if event_app.emit("memory-changed", event).is_err() {
+                                break;
+                            }
+                        }
+                    });
                     let grant = CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
                     let protocol_state = ProtocolState::from_shared(store, embedder, grant);
                     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
