@@ -1,106 +1,176 @@
-//! 本文件装配 Orbit Tauri 运行时，并通过 IPC 暴露 nexus-core 写入与检索能力。
+//! 本文件装配 Orbit Tauri 运行时、本地服务持有者仲裁以及统一 HTTP 协议访问。
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use nexus_core::{
-    ContentFormat, HashEmbedder, IngestInput, Ingestor, MemoryKind, MemorySource, MemoryStore,
-    SearchMode, SearchQuery,
+use nexus_core::{HashEmbedder, MemoryStore};
+use nexus_protocol::{
+    CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::{Manager, State};
 
-/// 持有 Orbit 进程内共享的记忆库与嵌入器。
+/// 持有 Orbit 使用的本地协议客户端以及当前持有服务的可选关闭信号。
 struct OrbitState {
-    store: MemoryStore,
-    embedder: HashEmbedder,
+    client: reqwest::Client,
+    endpoint: String,
+    token: String,
+    shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+impl OrbitState {
+    /// 通过本地 Memory Protocol 创建手动记忆。
+    async fn create_memory(&self, content: String) -> Result<CreatedMemory, String> {
+        self.send_json(
+            self.client.post(format!("{}/v1/memories", self.endpoint)),
+            serde_json::json!({
+                "source": "orbit",
+                "kind": "note",
+                "title": content.lines().next(),
+                "content": content,
+                "content_format": "markdown",
+                "tags": [],
+                "device_id": "orbit-desktop",
+                "meta": {"entrypoint": "tauri-ipc"}
+            }),
+        )
+        .await
+    }
+
+    /// 通过本地 Memory Protocol 执行默认混合检索。
+    async fn search_memory(&self, query: String) -> Result<Vec<MemoryHit>, String> {
+        let response: SearchResponse = self
+            .send_json(
+                self.client.post(format!("{}/v1/search", self.endpoint)),
+                serde_json::json!({"text": query, "mode": "hybrid", "limit": 20}),
+            )
+            .await?;
+        Ok(response.hits)
+    }
+
+    /// 发送带本地 capability token 的 JSON 请求并解析成功响应。
+    async fn send_json<T: DeserializeOwned>(
+        &self,
+        request: reqwest::RequestBuilder,
+        body: serde_json::Value,
+    ) -> Result<T, String> {
+        let response = request
+            .bearer_auth(&self.token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let status = response.status();
+        if !status.is_success() {
+            let message = response.text().await.unwrap_or_default();
+            return Err(format!("本地记忆服务返回 {status}: {message}"));
+        }
+        response.json().await.map_err(|error| error.to_string())
+    }
+}
+
+impl Drop for OrbitState {
+    /// 在状态释放时通知当前进程持有的本地服务优雅停止。
+    fn drop(&mut self) {
+        if let Ok(shutdown) = self.shutdown.get_mut()
+            && let Some(sender) = shutdown.take()
+        {
+            let _ = sender.send(());
+        }
+    }
 }
 
 /// 表示前端写入成功后需要展示的记忆标识与时间。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CreatedMemory {
     id: String,
+    #[serde(alias = "created_at")]
     created_at: i64,
 }
 
 /// 表示前端检索列表使用的块级命中结果。
-#[derive(Debug, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MemoryHit {
+    #[serde(alias = "memory_id")]
     memory_id: String,
+    #[serde(alias = "block_id")]
     block_id: String,
     score: f32,
     snippet: String,
 }
 
-/// 通过 Tauri IPC 将 Markdown 内容写入统一记忆库。
+/// 表示 Memory Protocol 检索响应包裹结构。
+#[derive(Debug, Deserialize)]
+struct SearchResponse {
+    hits: Vec<MemoryHit>,
+}
+
+/// 通过 Tauri IPC 将 Markdown 内容写入统一记忆服务。
 #[tauri::command]
-fn create_memory(
+async fn create_memory(
     content: String,
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<CreatedMemory, String> {
-    let memory = Ingestor::new(&state.store, &state.embedder)
-        .ingest(IngestInput {
-            source: MemorySource::Orbit,
-            kind: MemoryKind::Note,
-            title: content.lines().next().map(str::to_owned),
-            content,
-            content_format: ContentFormat::Markdown,
-            tags: Vec::new(),
-            captured_at: None,
-            device_id: "orbit-desktop".into(),
-            meta: serde_json::json!({"entrypoint": "tauri-ipc"}),
-        })
-        .map_err(|error| error.to_string())?;
-    Ok(CreatedMemory {
-        id: memory.id.to_string(),
-        created_at: memory.created_at,
-    })
+    state.create_memory(content).await
 }
 
-/// 通过 Tauri IPC 对本地记忆库执行默认混合检索。
+/// 通过 Tauri IPC 对本地记忆服务执行默认混合检索。
 #[tauri::command]
-fn search_memory(
+async fn search_memory(
     query: String,
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<Vec<MemoryHit>, String> {
-    state
-        .store
-        .search(
-            &SearchQuery {
-                text: query,
-                mode: SearchMode::Hybrid,
-                filters: Default::default(),
-                limit: 20,
-            },
-            &state.embedder,
-        )
-        .map(|hits| {
-            hits.into_iter()
-                .map(|hit| MemoryHit {
-                    memory_id: hit.memory_id.to_string(),
-                    block_id: hit.block_id.to_string(),
-                    score: hit.score,
-                    snippet: hit.snippet,
-                })
-                .collect()
-        })
-        .map_err(|error| error.to_string())
+    state.search_memory(query).await
 }
 
-/// 初始化工作库并启动 Orbit Tauri 运行时。
+/// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_dir)?;
-            let store = MemoryStore::open(data_dir.join("nexus.db"))
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
-            app.manage(Arc::new(OrbitState {
-                store,
-                embedder: HashEmbedder::default(),
-            }));
+            let claim = tauri::async_runtime::block_on(LocalServiceClaim::acquire(&data_dir))?;
+            let state = match claim {
+                LocalServiceClaim::Holder {
+                    lease,
+                    listener,
+                    discovery,
+                } => {
+                    let store = Arc::new(
+                        MemoryStore::open(data_dir.join("nexus.db"))
+                            .map_err(|error| std::io::Error::other(error.to_string()))?,
+                    );
+                    let embedder = Arc::new(HashEmbedder::default());
+                    let grant = CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
+                    let protocol_state = ProtocolState::from_shared(store, embedder, grant);
+                    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+                    tauri::async_runtime::spawn(async move {
+                        // 服务任务持有租约，服务异常退出时立即释放锁供其他实例接管。
+                        let _lease = lease;
+                        let result = serve_with_shutdown(listener, protocol_state, async {
+                            let _ = shutdown_receiver.await;
+                        })
+                        .await;
+                        if let Err(error) = result {
+                            eprintln!("本地记忆服务退出: {error}");
+                        }
+                    });
+                    OrbitState {
+                        client: reqwest::Client::new(),
+                        endpoint: discovery.endpoint,
+                        token: discovery.token,
+                        shutdown: Mutex::new(Some(shutdown_sender)),
+                    }
+                }
+                LocalServiceClaim::Client(discovery) => OrbitState {
+                    client: reqwest::Client::new(),
+                    endpoint: discovery.endpoint,
+                    token: discovery.token,
+                    shutdown: Mutex::new(None),
+                },
+            };
+            app.manage(Arc::new(state));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![create_memory, search_memory])
@@ -111,39 +181,40 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::net::TcpListener;
 
-    /// 验证 IPC 背后的核心状态能够完成写入和检索。
-    #[test]
-    fn ipc_state_supports_write_and_search() {
+    /// 验证 Orbit 无论角色如何都能通过本地协议完成写入和检索。
+    #[tokio::test]
+    async fn protocol_state_supports_write_and_search() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("测试服务应绑定成功");
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let token = "orbit-test-token".to_owned();
+        let protocol_state = ProtocolState::new(
+            MemoryStore::open_in_memory().expect("应能创建内存工作库"),
+            CapabilityGrant::new(token.clone(), [Scope::Admin], None),
+        );
+        let server = tokio::spawn(async move {
+            nexus_protocol::serve(listener, protocol_state)
+                .await
+                .expect("测试服务应正常运行");
+        });
         let state = OrbitState {
-            store: MemoryStore::open_in_memory().expect("应能创建内存工作库"),
-            embedder: HashEmbedder::default(),
+            client: reqwest::Client::new(),
+            endpoint,
+            token,
+            shutdown: Mutex::new(None),
         };
-        let memory = Ingestor::new(&state.store, &state.embedder)
-            .ingest(IngestInput {
-                source: MemorySource::Orbit,
-                kind: MemoryKind::Note,
-                title: Some("IPC test".into()),
-                content: "Tauri IPC connects React to the local memory core.".into(),
-                content_format: ContentFormat::Markdown,
-                tags: Vec::new(),
-                captured_at: None,
-                device_id: "test-device".into(),
-                meta: serde_json::json!({}),
-            })
-            .expect("IPC 写入依赖应成功");
+        let created = state
+            .create_memory("Tauri IPC connects through Memory Protocol.".into())
+            .await
+            .expect("协议写入应成功");
         let hits = state
-            .store
-            .search(
-                &SearchQuery {
-                    text: "Tauri IPC".into(),
-                    mode: SearchMode::Hybrid,
-                    filters: Default::default(),
-                    limit: 5,
-                },
-                &state.embedder,
-            )
-            .expect("IPC 检索依赖应成功");
-        assert_eq!(hits[0].memory_id, memory.id);
+            .search_memory("Memory Protocol".into())
+            .await
+            .expect("协议检索应成功");
+        assert_eq!(hits[0].memory_id, created.id);
+        server.abort();
     }
 }

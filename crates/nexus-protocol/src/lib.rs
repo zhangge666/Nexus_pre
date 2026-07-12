@@ -2,10 +2,12 @@
 
 pub mod auth;
 pub mod dto;
+pub mod local;
 pub mod server;
 
 pub use auth::{CapabilityGrant, Scope};
-pub use server::{ProtocolError, ProtocolState, router, serve};
+pub use local::{LocalServiceClaim, LocalServiceLease, ServiceDiscovery};
+pub use server::{ProtocolError, ProtocolState, router, serve, serve_with_shutdown};
 
 /// 返回协议健康检查和能力发现使用的版本标识。
 #[must_use]

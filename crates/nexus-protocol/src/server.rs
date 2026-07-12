@@ -58,9 +58,19 @@ impl ProtocolState {
     /// 使用工作库和单个客户端授权创建本地服务状态。
     #[must_use]
     pub fn new(store: MemoryStore, grant: CapabilityGrant) -> Self {
+        Self::from_shared(Arc::new(store), Arc::new(HashEmbedder::default()), grant)
+    }
+
+    /// 使用共享工作库与嵌入器创建服务状态，供本地持有者同时服务 IPC 和 HTTP。
+    #[must_use]
+    pub fn from_shared(
+        store: Arc<MemoryStore>,
+        embedder: Arc<HashEmbedder>,
+        grant: CapabilityGrant,
+    ) -> Self {
         Self {
-            store: Arc::new(store),
-            embedder: Arc::new(HashEmbedder::default()),
+            store,
+            embedder,
             grant: Arc::new(grant),
         }
     }
@@ -447,6 +457,24 @@ pub async fn serve(listener: TcpListener, state: ProtocolState) -> Result<(), Pr
         return Err(ProtocolError::NonLoopbackAddress);
     }
     axum::serve(listener, router(state)).await?;
+    Ok(())
+}
+
+/// 在回环监听器上运行服务，并在关闭信号完成后优雅停止。
+pub async fn serve_with_shutdown<F>(
+    listener: TcpListener,
+    state: ProtocolState,
+    shutdown: F,
+) -> Result<(), ProtocolError>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    if !listener.local_addr()?.ip().is_loopback() {
+        return Err(ProtocolError::NonLoopbackAddress);
+    }
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(shutdown)
+        .await?;
     Ok(())
 }
 
