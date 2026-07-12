@@ -12,6 +12,46 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "test-capability-token";
 
+/// 验证订阅权限能够通过 SSE 收到事务提交后的记忆创建事件。
+#[tokio::test]
+async fn streams_committed_memory_events_over_sse() {
+    let app = test_router(
+        [Scope::Subscribe, Scope::MemoryWrite],
+        Some("external:test".into()),
+    );
+    let mut events = app
+        .clone()
+        .oneshot(authorized_request(Method::GET, "/v1/events", None))
+        .await
+        .expect("事件订阅请求应返回响应");
+    assert_eq!(events.status(), StatusCode::OK);
+
+    let created = app
+        .oneshot(json_request(
+            "/v1/memories",
+            json!({
+                "source": "external:test",
+                "kind": "note",
+                "content": "SSE event content",
+                "content_format": "plain"
+            }),
+        ))
+        .await
+        .expect("创建请求应返回响应");
+    assert_eq!(created.status(), StatusCode::CREATED);
+
+    let frame = events
+        .body_mut()
+        .frame()
+        .await
+        .expect("SSE 应产生事件帧")
+        .expect("SSE 事件帧应有效");
+    let payload = std::str::from_utf8(frame.data_ref().expect("SSE 帧应包含数据"))
+        .expect("SSE 数据应为 UTF-8");
+    assert!(payload.contains("event: memory.created"));
+    assert!(payload.contains("memory_created"));
+}
+
 /// 验证带正确 scope 的客户端能写入并通过混合检索找到同一条记忆。
 #[tokio::test]
 async fn creates_and_searches_memory_over_http() {
@@ -65,7 +105,8 @@ async fn supports_memory_crud_and_list_contract() {
                 "kind": "note",
                 "content": "Original protocol content",
                 "content_format": "plain",
-                "tags": ["protocol"]
+                "tags": ["protocol"],
+                "captured_at": 1710000000000_i64
             }),
         ))
         .await
@@ -85,7 +126,9 @@ async fn supports_memory_crud_and_list_contract() {
         .await
         .expect("读取请求应返回响应");
     assert_eq!(fetched.status(), StatusCode::OK);
-    assert_eq!(response_json(fetched).await["source"], "external:test");
+    let fetched_body = response_json(fetched).await;
+    assert_eq!(fetched_body["source"], "external:test");
+    assert_eq!(fetched_body["captured_at"], 1710000000000_i64);
 
     let updated = app
         .clone()

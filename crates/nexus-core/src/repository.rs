@@ -1,6 +1,6 @@
 //! 本文件实现 Memory 的读取、更新、删除、分页列表和过滤匹配。
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter, types::Value};
 use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
@@ -52,6 +52,9 @@ impl MemoryStore {
         if let Some(archived) = patch.archived {
             memory.archived = archived;
         }
+        if let Some(captured_at) = patch.captured_at {
+            memory.captured_at = captured_at;
+        }
         if let Some(meta) = patch.meta {
             memory.meta = meta;
         }
@@ -71,8 +74,8 @@ impl MemoryStore {
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         transaction.execute(
-            "UPDATE memories SET title=?2, content=?3, content_format=?4, pinned=?5, archived=?6, updated_at=?7, meta=?8 WHERE id=?1",
-            params![memory.id.to_string(), memory.title, memory.content, enum_json(&memory.content_format)?, memory.pinned, memory.archived, memory.updated_at, memory.meta.to_string()],
+            "UPDATE memories SET title=?2, content=?3, content_format=?4, pinned=?5, archived=?6, updated_at=?7, meta=?8, captured_at=?9 WHERE id=?1",
+            params![memory.id.to_string(), memory.title, memory.content, enum_json(&memory.content_format)?, memory.pinned, memory.archived, memory.updated_at, memory.meta.to_string(), memory.captured_at],
         )?;
 
         if content_changed {
@@ -102,12 +105,20 @@ impl MemoryStore {
             )?;
         }
         transaction.commit()?;
-        self.events.publish(CoreEvent::MemoryUpdated { id: *id })?;
+        self.events.publish(CoreEvent::MemoryUpdated {
+            id: *id,
+            source: memory.source.as_storage_value(),
+        })?;
         Ok(memory)
     }
 
     /// 级联删除记忆、块、向量、标签和全文索引。
     pub fn delete(&self, id: &Uuid) -> Result<()> {
+        let source = self
+            .get(id)?
+            .ok_or(CoreError::NotFound(*id))?
+            .source
+            .as_storage_value();
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         transaction.execute(
@@ -124,36 +135,42 @@ impl MemoryStore {
             return Err(CoreError::NotFound(*id));
         }
         transaction.commit()?;
-        self.events.publish(CoreEvent::MemoryDeleted { id: *id })?;
+        self.events
+            .publish(CoreEvent::MemoryDeleted { id: *id, source })?;
         Ok(())
     }
 
     /// 按创建时间倒序返回经过过滤的分页记忆。
     pub fn list(&self, query: &ListQuery) -> Result<MemoryPage> {
-        let ids = {
+        let (where_clause, filter_values) = memory_filter_clause(&query.filters)?;
+        let limit = query.limit.min(100);
+        let (ids, total) = {
             let connection = self.connection()?;
-            let mut statement =
-                connection.prepare("SELECT id FROM memories ORDER BY created_at DESC, id DESC")?;
-            statement
-                .query_map([], |row| row.get::<_, String>(0))?
-                .collect::<std::result::Result<Vec<_>, _>>()?
+            let total = connection.query_row(
+                &format!("SELECT COUNT(*) FROM memories m{where_clause}"),
+                params_from_iter(filter_values.iter()),
+                |row| row.get::<_, usize>(0),
+            )?;
+            let mut page_values = filter_values.clone();
+            page_values.push(Value::Integer(limit as i64));
+            page_values.push(Value::Integer(query.offset as i64));
+            let mut statement = connection.prepare(&format!(
+                "SELECT m.id FROM memories m{where_clause} ORDER BY m.created_at DESC, m.id DESC LIMIT ? OFFSET ?"
+            ))?;
+            let ids = statement
+                .query_map(params_from_iter(page_values.iter()), |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            (ids, total)
         };
-        let mut matching = Vec::new();
+        let mut items = Vec::with_capacity(ids.len());
         for encoded_id in ids {
             let id = parse_uuid(&encoded_id)?;
-            if let Some(memory) = self.get(&id)?
-                && memory_matches_filters(&memory, &query.filters)
-            {
-                matching.push(memory);
+            if let Some(memory) = self.get(&id)? {
+                items.push(memory);
             }
         }
-        let total = matching.len();
-        let limit = query.limit.min(100);
-        let items = matching
-            .into_iter()
-            .skip(query.offset)
-            .take(limit)
-            .collect::<Vec<_>>();
         let consumed = query.offset.saturating_add(items.len());
         Ok(MemoryPage {
             items,
@@ -164,17 +181,77 @@ impl MemoryStore {
 
     /// 判断指定记忆是否满足来源、类别、标签和时间过滤条件。
     pub(crate) fn matches_filters(&self, id: &Uuid, filters: &MemoryFilters) -> Result<bool> {
-        Ok(self
-            .get(id)?
-            .is_some_and(|memory| memory_matches_filters(&memory, filters)))
+        let (where_clause, filter_values) = memory_filter_clause(filters)?;
+        let predicate = if where_clause.is_empty() {
+            " WHERE m.id = ?".to_owned()
+        } else {
+            where_clause.replacen(" WHERE ", " WHERE m.id = ? AND ", 1)
+        };
+        let mut values = vec![Value::Text(id.to_string())];
+        values.extend(filter_values);
+        let connection = self.connection()?;
+        connection
+            .query_row(
+                &format!("SELECT EXISTS(SELECT 1 FROM memories m{predicate})"),
+                params_from_iter(values.iter()),
+                |row| row.get(0),
+            )
+            .map_err(Into::into)
     }
+}
+
+/// 构造记忆列表使用的参数化 SQL 过滤条件，避免把全表加载到内存。
+fn memory_filter_clause(filters: &MemoryFilters) -> Result<(String, Vec<Value>)> {
+    let mut clauses = Vec::new();
+    let mut values = Vec::new();
+    if !filters.sources.is_empty() {
+        clauses.push(format!(
+            "m.source IN ({})",
+            placeholders(filters.sources.len())
+        ));
+        values.extend(filters.sources.iter().cloned().map(Value::Text));
+    }
+    if !filters.kinds.is_empty() {
+        clauses.push(format!("m.kind IN ({})", placeholders(filters.kinds.len())));
+        for kind in &filters.kinds {
+            values.push(Value::Text(enum_json(kind)?));
+        }
+    }
+    if !filters.tags.is_empty() {
+        clauses.push(format!(
+            "EXISTS (SELECT 1 FROM memory_tags mt WHERE mt.memory_id=m.id AND mt.tag IN ({}))",
+            placeholders(filters.tags.len())
+        ));
+        values.extend(filters.tags.iter().cloned().map(Value::Text));
+    }
+    if let Some(from) = filters.created_from {
+        clauses.push("m.created_at >= ?".into());
+        values.push(Value::Integer(from));
+    }
+    if let Some(to) = filters.created_to {
+        clauses.push("m.created_at <= ?".into());
+        values.push(Value::Integer(to));
+    }
+    let sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
+    Ok((sql, values))
+}
+
+/// 返回指定数量的匿名 SQL 参数占位符。
+fn placeholders(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// 从同一连接加载记忆主记录、块和标签。
 fn load_memory(connection: &Connection, id: &Uuid) -> Result<Option<Memory>> {
     let stored = connection
         .query_row(
-            "SELECT source, kind, title, content, content_format, pinned, archived, created_at, updated_at, device_id, meta FROM memories WHERE id=?1",
+            "SELECT source, kind, title, content, content_format, pinned, archived, created_at, updated_at, captured_at, device_id, meta FROM memories WHERE id=?1",
             params![id.to_string()],
             |row| {
                 Ok((
@@ -187,8 +264,9 @@ fn load_memory(connection: &Connection, id: &Uuid) -> Result<Option<Memory>> {
                     row.get::<_, bool>(6)?,
                     row.get::<_, i64>(7)?,
                     row.get::<_, i64>(8)?,
-                    row.get::<_, String>(9)?,
+                    row.get::<_, Option<i64>>(9)?,
                     row.get::<_, String>(10)?,
+                    row.get::<_, String>(11)?,
                 ))
             },
         )
@@ -203,6 +281,7 @@ fn load_memory(connection: &Connection, id: &Uuid) -> Result<Option<Memory>> {
         archived,
         created_at,
         updated_at,
+        captured_at,
         device_id,
         meta,
     )) = stored
@@ -252,6 +331,7 @@ fn load_memory(connection: &Connection, id: &Uuid) -> Result<Option<Memory>> {
         archived,
         created_at,
         updated_at,
+        captured_at,
         device_id,
         meta: serde_json::from_str(&meta)?,
     }))
@@ -292,17 +372,6 @@ fn insert_blocks(
         )?;
     }
     Ok(())
-}
-
-/// 判断一条完整记忆是否满足过滤条件。
-fn memory_matches_filters(memory: &Memory, filters: &MemoryFilters) -> bool {
-    (filters.sources.is_empty() || filters.sources.contains(&memory.source.as_storage_value()))
-        && (filters.kinds.is_empty() || filters.kinds.contains(&memory.kind))
-        && (filters.tags.is_empty() || filters.tags.iter().any(|tag| memory.tags.contains(tag)))
-        && filters
-            .created_from
-            .is_none_or(|from| memory.created_at >= from)
-        && filters.created_to.is_none_or(|to| memory.created_at <= to)
 }
 
 /// 从 snake_case 数据库值恢复 serde 枚举。

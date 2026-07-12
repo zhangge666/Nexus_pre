@@ -93,6 +93,8 @@ pub struct IngestInput {
     pub content_format: ContentFormat,
     /// 用户标签。
     pub tags: Vec<String>,
+    /// 信息实际发生时间；截屏、录音等来源可与写入时间不同。
+    pub captured_at: Option<i64>,
     /// 来源设备标识。
     pub device_id: String,
     /// 应用自有扩展字段。
@@ -197,6 +199,8 @@ pub struct Memory {
     pub created_at: i64,
     /// Unix 毫秒更新时间。
     pub updated_at: i64,
+    /// Unix 毫秒信息实际发生时间。
+    pub captured_at: Option<i64>,
     /// 来源设备标识。
     pub device_id: String,
     /// 应用扩展字段。
@@ -218,6 +222,8 @@ pub struct MemoryPatch {
     pub pinned: Option<bool>,
     /// 修改归档状态。
     pub archived: Option<bool>,
+    /// 修改信息实际发生时间；外层 `None` 表示不修改。
+    pub captured_at: Option<Option<i64>>,
     /// 替换应用扩展字段。
     pub meta: Option<serde_json::Value>,
 }
@@ -232,6 +238,7 @@ impl MemoryPatch {
             && self.tags.is_none()
             && self.pinned.is_none()
             && self.archived.is_none()
+            && self.captured_at.is_none()
             && self.meta.is_none()
     }
 }

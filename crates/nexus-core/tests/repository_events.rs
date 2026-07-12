@@ -21,6 +21,7 @@ fn create_fixture(
             content: content.into(),
             content_format: ContentFormat::Markdown,
             tags: vec!["reading".into()],
+            captured_at: None,
             device_id: "test-device".into(),
             meta: serde_json::json!({"version": 1}),
         })
@@ -138,14 +139,23 @@ fn publishes_committed_events_in_order() {
 
     assert_eq!(
         subscription.recv_timeout(Duration::from_secs(1)),
-        Some(CoreEvent::MemoryCreated { id: memory.id })
+        Some(CoreEvent::MemoryCreated {
+            id: memory.id,
+            source: "quill".into(),
+        })
     );
     assert_eq!(
         subscription.recv_timeout(Duration::from_secs(1)),
-        Some(CoreEvent::MemoryUpdated { id: memory.id })
+        Some(CoreEvent::MemoryUpdated {
+            id: memory.id,
+            source: "quill".into(),
+        })
     );
     assert_eq!(
         subscription.recv_timeout(Duration::from_secs(1)),
-        Some(CoreEvent::MemoryDeleted { id: memory.id })
+        Some(CoreEvent::MemoryDeleted {
+            id: memory.id,
+            source: "quill".into(),
+        })
     );
 }

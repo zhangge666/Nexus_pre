@@ -20,6 +20,8 @@ pub struct CreateMemoryRequest {
     /// 用户标签。
     #[serde(default)]
     pub tags: Vec<String>,
+    /// 信息实际发生时间；省略时表示与写入时间无独立记录。
+    pub captured_at: Option<i64>,
     /// 来源设备；本地客户端未传时使用协议默认值。
     pub device_id: Option<String>,
     /// 应用自有扩展字段。
@@ -51,6 +53,8 @@ pub struct UpdateMemoryRequest {
     pub pinned: Option<bool>,
     /// 新归档状态。
     pub archived: Option<bool>,
+    /// 新的信息实际发生时间。
+    pub captured_at: Option<i64>,
     /// 替换应用扩展字段。
     pub meta: Option<serde_json::Value>,
 }
@@ -108,6 +112,8 @@ pub struct MemoryResponse {
     pub created_at: i64,
     /// Unix 毫秒更新时间。
     pub updated_at: i64,
+    /// Unix 毫秒信息实际发生时间。
+    pub captured_at: Option<i64>,
     /// 来源设备。
     pub device_id: String,
     /// 应用扩展字段。
@@ -130,6 +136,7 @@ impl From<Memory> for MemoryResponse {
             archived: memory.archived,
             created_at: memory.created_at,
             updated_at: memory.updated_at,
+            captured_at: memory.captured_at,
             device_id: memory.device_id,
             meta: memory.meta,
         }

@@ -21,6 +21,7 @@ fn ingested_memory_is_found_by_hybrid_search() {
                     .into(),
             content_format: ContentFormat::Markdown,
             tags: vec!["meeting".into()],
+            captured_at: None,
             device_id: "test-device".into(),
             meta: serde_json::json!({"fixture": true}),
         })
@@ -54,6 +55,7 @@ fn rejects_empty_memory_content() {
         content: "  ".into(),
         content_format: ContentFormat::Plain,
         tags: Vec::new(),
+        captured_at: None,
         device_id: "test-device".into(),
         meta: serde_json::json!({}),
     });

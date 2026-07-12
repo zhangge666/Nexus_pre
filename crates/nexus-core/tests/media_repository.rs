@@ -15,6 +15,7 @@ fn create_memory(store: &MemoryStore, name: &str) -> nexus_core::Memory {
             content: format!("{name} OCR content"),
             content_format: ContentFormat::Markdown,
             tags: Vec::new(),
+            captured_at: None,
             device_id: "test-device".into(),
             meta: serde_json::json!({}),
         })

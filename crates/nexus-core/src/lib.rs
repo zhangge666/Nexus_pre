@@ -29,6 +29,6 @@ pub use store::MemoryStore;
 #[must_use]
 pub const fn modules() -> &'static [&'static str] {
     &[
-        "model", "store", "ingest", "search", "embed", "crypto", "sync", "events",
+        "model", "store", "ingest", "search", "embed", "crypto", "events",
     ]
 }

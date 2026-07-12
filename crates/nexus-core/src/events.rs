@@ -2,27 +2,35 @@
 
 use std::sync::{Arc, Mutex, mpsc};
 
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::{CoreError, Result};
 
 /// 表示记忆完成事务提交后的领域事件。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum CoreEvent {
     /// 一条记忆已经创建。
     MemoryCreated {
         /// 已创建的记忆标识。
         id: Uuid,
+        /// 记忆来源稳定字符串。
+        source: String,
     },
     /// 一条记忆已经更新。
     MemoryUpdated {
         /// 已更新的记忆标识。
         id: Uuid,
+        /// 记忆来源稳定字符串。
+        source: String,
     },
     /// 一条记忆及其关联索引已经删除。
     MemoryDeleted {
         /// 已删除的记忆标识。
         id: Uuid,
+        /// 记忆来源稳定字符串。
+        source: String,
     },
 }
 
@@ -35,6 +43,11 @@ impl EventSubscription {
     /// 在指定时限内等待下一条事件。
     pub fn recv_timeout(&self, timeout: std::time::Duration) -> Option<CoreEvent> {
         self.receiver.recv_timeout(timeout).ok()
+    }
+
+    /// 阻塞等待下一条事件，发送端全部关闭时返回 `None`。
+    pub fn recv(&self) -> Option<CoreEvent> {
+        self.receiver.recv().ok()
     }
 }
 

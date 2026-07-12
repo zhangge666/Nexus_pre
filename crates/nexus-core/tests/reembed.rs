@@ -38,6 +38,7 @@ fn detects_and_rebuilds_embedding_space() {
             content: "embedding migration content".into(),
             content_format: ContentFormat::Plain,
             tags: Vec::new(),
+            captured_at: None,
             device_id: "test-device".into(),
             meta: serde_json::json!({}),
         })

@@ -49,6 +49,7 @@ impl<'a, E: Embedder + ?Sized> Ingestor<'a, E> {
             archived: false,
             created_at: timestamp,
             updated_at: timestamp,
+            captured_at: input.captured_at,
             device_id: input.device_id,
             meta: input.meta,
         };

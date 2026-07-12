@@ -1,20 +1,24 @@
 //! 本文件实现仅监听回环地址的 Memory Protocol v1 HTTP 路由与错误响应。
 
-use std::{io, sync::Arc};
+use std::{convert::Infallible, io, sync::Arc};
 
 use axum::{
     Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
     routing::{get, post},
 };
 use nexus_core::{
     CoreError, HashEmbedder, IngestInput, Ingestor, ListQuery, MemoryFilters, MemoryKind,
     MemoryPatch, MemorySource, MemoryStore, SearchMode, SearchQuery,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
+use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
 use crate::{
@@ -34,6 +38,7 @@ const IMPLEMENTED_CAPABILITIES: &[&str] = &[
     "memory:delete",
     "memory:list",
     "search",
+    "events:subscribe",
     "capabilities",
 ];
 
@@ -113,7 +118,63 @@ pub fn router(state: ProtocolState) -> Router {
             get(get_memory).patch(update_memory).delete(delete_memory),
         )
         .route("/v1/search", post(search))
+        .route("/v1/events", get(events))
         .with_state(state)
+}
+
+/// 校验订阅权限并把核心提交事件持续转换为 SSE 消息。
+async fn events(
+    State(state): State<ProtocolState>,
+    Query(request): Query<EventSubscriptionRequest>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Subscribe)?;
+    let subscription = state.store.subscribe()?;
+    let requested_types = split_csv(request.types.as_deref());
+    let source_restriction = state.grant.source_restriction().map(str::to_owned);
+    let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
+    tokio::task::spawn_blocking(move || {
+        while let Some(event) = subscription.recv() {
+            let source = match &event {
+                nexus_core::CoreEvent::MemoryCreated { source, .. }
+                | nexus_core::CoreEvent::MemoryUpdated { source, .. }
+                | nexus_core::CoreEvent::MemoryDeleted { source, .. } => source,
+            };
+            if source_restriction
+                .as_ref()
+                .is_some_and(|allowed| allowed != source)
+            {
+                continue;
+            }
+            let event_name = match &event {
+                nexus_core::CoreEvent::MemoryCreated { .. } => "memory.created",
+                nexus_core::CoreEvent::MemoryUpdated { .. } => "memory.updated",
+                nexus_core::CoreEvent::MemoryDeleted { .. } => "memory.deleted",
+            };
+            if !requested_types.is_empty()
+                && !requested_types.iter().any(|value| value == event_name)
+            {
+                continue;
+            }
+            let Ok(data) = serde_json::to_string(&event) else {
+                continue;
+            };
+            if sender
+                .blocking_send(Ok(Event::default().event(event_name).data(data)))
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+    Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(KeepAlive::default()))
+}
+
+/// 表示事件订阅可选的逗号分隔事件类型过滤器。
+#[derive(Debug, Default, Deserialize)]
+struct EventSubscriptionRequest {
+    /// 例如 `memory.created,memory.updated`；省略时订阅全部事件。
+    types: Option<String>,
 }
 
 /// 校验读取权限并返回一条完整记忆。
@@ -174,6 +235,7 @@ async fn update_memory(
             tags: request.tags,
             pinned: request.pinned,
             archived: request.archived,
+            captured_at: request.captured_at.map(Some),
             meta: request.meta,
         },
         state.embedder.as_ref(),
@@ -246,6 +308,7 @@ async fn create_memory(
         content: request.content,
         content_format: request.content_format,
         tags: request.tags,
+        captured_at: request.captured_at,
         device_id: request.device_id.unwrap_or_else(|| "protocol-local".into()),
         meta: request.meta,
     })?;

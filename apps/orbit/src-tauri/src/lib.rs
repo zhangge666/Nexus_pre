@@ -47,6 +47,7 @@ fn create_memory(
             content,
             content_format: ContentFormat::Markdown,
             tags: Vec::new(),
+            captured_at: None,
             device_id: "orbit-desktop".into(),
             meta: serde_json::json!({"entrypoint": "tauri-ipc"}),
         })
@@ -126,6 +127,7 @@ mod tests {
                 content: "Tauri IPC connects React to the local memory core.".into(),
                 content_format: ContentFormat::Markdown,
                 tags: Vec::new(),
+                captured_at: None,
                 device_id: "test-device".into(),
                 meta: serde_json::json!({}),
             })

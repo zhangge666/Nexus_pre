@@ -52,8 +52,8 @@ impl MemoryStore {
         let mut connection = self.connection()?;
         let transaction = connection.transaction()?;
         transaction.execute(
-            "INSERT INTO memories (id, source, kind, title, content, content_format, pinned, archived, created_at, updated_at, device_id, meta) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![memory.id.to_string(), memory.source.as_storage_value(), enum_json(&memory.kind)?, memory.title, memory.content, enum_json(&memory.content_format)?, memory.pinned, memory.archived, memory.created_at, memory.updated_at, memory.device_id, memory.meta.to_string()],
+            "INSERT INTO memories (id, source, kind, title, content, content_format, pinned, archived, created_at, updated_at, captured_at, device_id, meta) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![memory.id.to_string(), memory.source.as_storage_value(), enum_json(&memory.kind)?, memory.title, memory.content, enum_json(&memory.content_format)?, memory.pinned, memory.archived, memory.created_at, memory.updated_at, memory.captured_at, memory.device_id, memory.meta.to_string()],
         )?;
 
         for (block, embedding) in memory.blocks.iter().zip(embeddings) {
@@ -91,8 +91,10 @@ impl MemoryStore {
             )?;
         }
         transaction.commit()?;
-        self.events
-            .publish(CoreEvent::MemoryCreated { id: memory.id })?;
+        self.events.publish(CoreEvent::MemoryCreated {
+            id: memory.id,
+            source: memory.source.as_storage_value(),
+        })?;
         Ok(())
     }
 
@@ -111,9 +113,19 @@ impl MemoryStore {
     /// 按顺序执行尚未应用的数据库迁移。
     fn migrate(&self) -> Result<()> {
         let connection = self.connection()?;
+        // 首版迁移负责建立版本表；后续迁移只在版本尚未登记时执行。
         connection.execute_batch(MIGRATION_V1)?;
-        connection.execute_batch(MIGRATION_V2)?;
-        connection.execute_batch(MIGRATION_V3)?;
+        let version = connection.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if version < 2 {
+            connection.execute_batch(MIGRATION_V2)?;
+        }
+        if version < 3 {
+            connection.execute_batch(MIGRATION_V3)?;
+        }
         Ok(())
     }
 }

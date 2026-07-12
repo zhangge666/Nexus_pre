@@ -18,6 +18,7 @@ fn indexes_and_queries_vectors_with_sqlite_vec() {
             content: "semantic vector index verification".into(),
             content_format: ContentFormat::Plain,
             tags: Vec::new(),
+            captured_at: None,
             device_id: "test-device".into(),
             meta: serde_json::json!({}),
         })
