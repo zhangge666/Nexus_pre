@@ -316,3 +316,76 @@ pub struct SearchHit {
     /// 命中块原文。
     pub snippet: String,
 }
+
+/// 表示两条记忆之间的关系类型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkRelation {
+    /// 源记忆引用目标记忆。
+    References,
+    /// 源记忆由目标记忆派生。
+    DerivedFrom,
+    /// 两条记忆语义相关。
+    Related,
+    /// 两条记忆内容重复。
+    Duplicate,
+}
+
+/// 表示关联关系的创建主体。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkCreator {
+    /// 用户主动创建。
+    User,
+    /// AI 自动推断。
+    Ai,
+    /// 系统规则创建。
+    System,
+}
+
+/// 表示持久化的记忆关联。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Link {
+    /// 源记忆标识。
+    pub from_id: Uuid,
+    /// 目标记忆标识。
+    pub to_id: Uuid,
+    /// 关联类型。
+    pub relation: LinkRelation,
+    /// 创建主体。
+    pub created_by: LinkCreator,
+    /// Unix 毫秒创建时间。
+    pub created_at: i64,
+}
+
+/// 表示可嵌套的记忆集合。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Collection {
+    /// 集合标识。
+    pub id: Uuid,
+    /// 集合名称。
+    pub name: String,
+    /// 可选图标标识。
+    pub icon: Option<String>,
+    /// 可选父集合标识。
+    pub parent_id: Option<Uuid>,
+    /// 同级集合排序值。
+    pub sort: i64,
+    /// Unix 毫秒创建时间。
+    pub created_at: i64,
+    /// Unix 毫秒更新时间。
+    pub updated_at: i64,
+}
+
+/// 表示集合字段更新。
+#[derive(Debug, Clone, Default)]
+pub struct CollectionPatch {
+    /// 新集合名称。
+    pub name: Option<String>,
+    /// 外层 `None` 表示不修改，`Some(None)` 表示清除图标。
+    pub icon: Option<Option<String>>,
+    /// 外层 `None` 表示不修改，`Some(None)` 表示移动到根级。
+    pub parent_id: Option<Option<Uuid>>,
+    /// 新排序值。
+    pub sort: Option<i64>,
+}

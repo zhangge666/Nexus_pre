@@ -12,6 +12,88 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "test-capability-token";
 
+/// 验证管理员可以通过协议管理记忆关联、集合和集合成员。
+#[tokio::test]
+async fn manages_links_and_collections_over_http() {
+    let app = test_router([Scope::Admin], Some("external:test".into()));
+    let first = create_protocol_memory(&app, "first linked memory").await;
+    let second = create_protocol_memory(&app, "second linked memory").await;
+
+    let linked = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/links",
+            Some(json!({
+                "from_id": first,
+                "to_id": second,
+                "relation": "references"
+            })),
+        ))
+        .await
+        .expect("创建关联请求应返回响应");
+    assert_eq!(linked.status(), StatusCode::CREATED);
+    let listed_links = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::GET,
+            &format!("/v1/links?memory_id={first}"),
+            None,
+        ))
+        .await
+        .expect("关联列表请求应返回响应");
+    assert_eq!(
+        response_json(listed_links).await.as_array().unwrap().len(),
+        1
+    );
+
+    let created_collection = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/collections",
+            Some(json!({"name": "项目", "icon": "folder", "sort": 10})),
+        ))
+        .await
+        .expect("创建集合请求应返回响应");
+    assert_eq!(created_collection.status(), StatusCode::CREATED);
+    let collection_id = response_json(created_collection).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let added = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::PUT,
+            &format!("/v1/collections/{collection_id}/memories/{first}"),
+            None,
+        ))
+        .await
+        .expect("添加集合成员请求应返回响应");
+    assert_eq!(added.status(), StatusCode::NO_CONTENT);
+    let members = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::GET,
+            &format!("/v1/collections/{collection_id}/memories"),
+            None,
+        ))
+        .await
+        .expect("集合成员请求应返回响应");
+    assert_eq!(response_json(members).await[0], first);
+
+    let deleted_link = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::DELETE,
+            &format!("/v1/links/{first}/{second}/references"),
+            None,
+        ))
+        .await
+        .expect("删除关联请求应返回响应");
+    assert_eq!(deleted_link.status(), StatusCode::NO_CONTENT);
+}
+
 /// 验证订阅权限能够通过 SSE 收到事务提交后的记忆创建事件。
 #[tokio::test]
 async fn streams_committed_memory_events_over_sse() {
@@ -296,6 +378,28 @@ fn test_router(
         store,
         CapabilityGrant::new(TOKEN, scopes, writable_source),
     ))
+}
+
+/// 通过协议创建一条组织关系测试记忆并返回标识。
+async fn create_protocol_memory(app: &axum::Router, content: &str) -> String {
+    let response = app
+        .clone()
+        .oneshot(json_request(
+            "/v1/memories",
+            json!({
+                "source": "external:test",
+                "kind": "note",
+                "content": content,
+                "content_format": "plain"
+            }),
+        ))
+        .await
+        .expect("组织关系测试记忆应创建成功");
+    assert_eq!(response.status(), StatusCode::CREATED);
+    response_json(response).await["id"]
+        .as_str()
+        .unwrap()
+        .to_owned()
 }
 
 /// 构造携带测试 Bearer token 的 JSON POST 请求。

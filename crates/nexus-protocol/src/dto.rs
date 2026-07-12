@@ -1,6 +1,6 @@
 //! 本文件定义 Memory Protocol v1 的 JSON 请求与响应契约。
 
-use nexus_core::{Block, ContentFormat, Memory, MemoryKind};
+use nexus_core::{Block, ContentFormat, LinkCreator, LinkRelation, Memory, MemoryKind};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -238,6 +238,65 @@ pub struct CapabilitiesResponse {
     pub capabilities: &'static [&'static str],
     /// 协议定义的全部授权域。
     pub scopes: Vec<&'static str>,
+}
+
+/// 表示创建记忆关联的协议请求。
+#[derive(Debug, Deserialize)]
+pub struct CreateLinkRequest {
+    /// 源记忆标识。
+    pub from_id: Uuid,
+    /// 目标记忆标识。
+    pub to_id: Uuid,
+    /// 关联类型。
+    pub relation: LinkRelation,
+    /// 创建主体，手动请求默认为用户。
+    #[serde(default = "default_link_creator")]
+    pub created_by: LinkCreator,
+}
+
+/// 表示按参与记忆筛选关联的查询。
+#[derive(Debug, Deserialize)]
+pub struct ListLinksRequest {
+    /// 作为源或目标参与关联的记忆标识。
+    pub memory_id: Uuid,
+}
+
+/// 表示创建集合的协议请求。
+#[derive(Debug, Deserialize)]
+pub struct CreateCollectionRequest {
+    /// 集合名称。
+    pub name: String,
+    /// 可选图标标识。
+    pub icon: Option<String>,
+    /// 可选父集合。
+    pub parent_id: Option<Uuid>,
+    /// 同级排序值。
+    #[serde(default)]
+    pub sort: i64,
+}
+
+/// 表示更新集合的协议请求。
+#[derive(Debug, Default, Deserialize)]
+pub struct UpdateCollectionRequest {
+    /// 新名称。
+    pub name: Option<String>,
+    /// 新图标；清除图标使用 `clear_icon`。
+    pub icon: Option<String>,
+    /// 是否清除图标。
+    #[serde(default)]
+    pub clear_icon: bool,
+    /// 新父集合；移动到根级使用 `move_to_root`。
+    pub parent_id: Option<Uuid>,
+    /// 是否移动到根级。
+    #[serde(default)]
+    pub move_to_root: bool,
+    /// 新排序值。
+    pub sort: Option<i64>,
+}
+
+/// 返回手动创建关联时使用的默认主体。
+const fn default_link_creator() -> LinkCreator {
+    LinkCreator::User
 }
 
 /// 返回空 JSON 对象作为扩展字段默认值。

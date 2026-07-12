@@ -117,6 +117,23 @@ POST   /v1/links                  # { from_id, to_id, relation }
 GET    /v1/collections            # 集合列表/管理
 ```
 
+M1 的关联与集合管理端点使用 `admin` scope：
+
+```http
+GET    /v1/links?memory_id={id}
+DELETE /v1/links/{from_id}/{to_id}/{relation}
+
+POST   /v1/collections
+GET    /v1/collections/{id}
+PATCH  /v1/collections/{id}
+DELETE /v1/collections/{id}
+PUT    /v1/collections/{collection_id}/memories/{memory_id}
+DELETE /v1/collections/{collection_id}/memories/{memory_id}
+GET    /v1/collections/{collection_id}/memories
+```
+
+删除集合会移除其成员关系，并把直接子集合移动到根级；删除 Memory 会级联清理其关联和集合成员关系。
+
 ### 5.4 问答 / RAG（可选，需 Completion Provider）
 
 ```http

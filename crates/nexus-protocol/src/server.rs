@@ -13,8 +13,9 @@ use axum::{
     routing::{get, post},
 };
 use nexus_core::{
-    CoreError, HashEmbedder, IngestInput, Ingestor, ListQuery, MemoryFilters, MemoryKind,
-    MemoryPatch, MemorySource, MemoryStore, SearchMode, SearchQuery,
+    Collection, CollectionPatch, CoreError, HashEmbedder, IngestInput, Ingestor, Link,
+    LinkRelation, ListQuery, MemoryFilters, MemoryKind, MemoryPatch, MemorySource, MemoryStore,
+    SearchMode, SearchQuery,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -24,8 +25,9 @@ use uuid::Uuid;
 use crate::{
     CapabilityGrant, Scope,
     dto::{
-        CapabilitiesResponse, CreateMemoryRequest, CreateMemoryResponse, ListMemoriesRequest,
-        ListMemoriesResponse, MemoryResponse, SearchHitResponse, SearchRequest, SearchResponse,
+        CapabilitiesResponse, CreateCollectionRequest, CreateLinkRequest, CreateMemoryRequest,
+        CreateMemoryResponse, ListLinksRequest, ListMemoriesRequest, ListMemoriesResponse,
+        MemoryResponse, SearchHitResponse, SearchRequest, SearchResponse, UpdateCollectionRequest,
         UpdateMemoryRequest,
     },
     protocol_version,
@@ -39,6 +41,8 @@ const IMPLEMENTED_CAPABILITIES: &[&str] = &[
     "memory:list",
     "search",
     "events:subscribe",
+    "links:manage",
+    "collections:manage",
     "capabilities",
 ];
 
@@ -119,7 +123,183 @@ pub fn router(state: ProtocolState) -> Router {
         )
         .route("/v1/search", post(search))
         .route("/v1/events", get(events))
+        .route("/v1/links", post(create_link).get(list_links))
+        .route(
+            "/v1/links/{from_id}/{to_id}/{relation}",
+            axum::routing::delete(delete_link),
+        )
+        .route(
+            "/v1/collections",
+            post(create_collection).get(list_collections),
+        )
+        .route(
+            "/v1/collections/{id}",
+            get(get_collection)
+                .patch(update_collection)
+                .delete(delete_collection),
+        )
+        .route(
+            "/v1/collections/{collection_id}/memories/{memory_id}",
+            axum::routing::put(add_collection_memory).delete(remove_collection_memory),
+        )
+        .route(
+            "/v1/collections/{id}/memories",
+            get(list_collection_memories),
+        )
         .with_state(state)
+}
+
+/// 校验管理权限并创建记忆关联。
+async fn create_link(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateLinkRequest>,
+) -> Result<(StatusCode, Json<Link>), ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    let link = state.store.create_link(
+        request.from_id,
+        request.to_id,
+        request.relation,
+        request.created_by,
+    )?;
+    Ok((StatusCode::CREATED, Json(link)))
+}
+
+/// 校验管理权限并返回指定记忆参与的关联。
+async fn list_links(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Query(request): Query<ListLinksRequest>,
+) -> Result<Json<Vec<Link>>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    Ok(Json(state.store.list_links(request.memory_id)?))
+}
+
+/// 校验管理权限并删除指定关联。
+async fn delete_link(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path((from_id, to_id, relation)): Path<(Uuid, Uuid, String)>,
+) -> Result<StatusCode, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    state
+        .store
+        .delete_link(from_id, to_id, parse_relation(&relation)?)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 校验管理权限并创建集合。
+async fn create_collection(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateCollectionRequest>,
+) -> Result<(StatusCode, Json<Collection>), ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    let collection = state.store.create_collection(
+        request.name,
+        request.icon,
+        request.parent_id,
+        request.sort,
+    )?;
+    Ok((StatusCode::CREATED, Json(collection)))
+}
+
+/// 校验管理权限并返回全部集合。
+async fn list_collections(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<Collection>>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    Ok(Json(state.store.list_collections()?))
+}
+
+/// 校验管理权限并读取单个集合。
+async fn get_collection(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Collection>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    Ok(Json(
+        state
+            .store
+            .get_collection(id)?
+            .ok_or(CoreError::NotFound(id))?,
+    ))
+}
+
+/// 校验管理权限并更新集合字段或层级。
+async fn update_collection(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(request): Json<UpdateCollectionRequest>,
+) -> Result<Json<Collection>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    let icon = request
+        .clear_icon
+        .then_some(None)
+        .or(request.icon.map(Some));
+    let parent_id = request
+        .move_to_root
+        .then_some(None)
+        .or(request.parent_id.map(Some));
+    Ok(Json(state.store.update_collection(
+        id,
+        CollectionPatch {
+            name: request.name,
+            icon,
+            parent_id,
+            sort: request.sort,
+        },
+    )?))
+}
+
+/// 校验管理权限并删除集合。
+async fn delete_collection(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    state.store.delete_collection(id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 校验管理权限并幂等地把记忆加入集合。
+async fn add_collection_memory(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path((collection_id, memory_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    state
+        .store
+        .add_memory_to_collection(collection_id, memory_id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 校验管理权限并从集合移除记忆。
+async fn remove_collection_memory(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path((collection_id, memory_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    state
+        .store
+        .remove_memory_from_collection(collection_id, memory_id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 校验管理权限并返回集合成员标识。
+async fn list_collection_memories(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<Uuid>>, ProtocolError> {
+    authorize(&headers, &state.grant, Scope::Admin)?;
+    Ok(Json(state.store.list_collection_memory_ids(id)?))
 }
 
 /// 校验订阅权限并把核心提交事件持续转换为 SSE 消息。
@@ -418,6 +598,12 @@ fn split_csv(value: Option<&str>) -> Vec<String> {
 fn parse_kind(value: &str) -> Result<MemoryKind, ProtocolError> {
     serde_json::from_str(&format!("\"{value}\""))
         .map_err(|_| ProtocolError::InvalidRequest(format!("未知记忆类别: {value}")))
+}
+
+/// 将路径中的关系类型转换为统一关联枚举。
+fn parse_relation(value: &str) -> Result<LinkRelation, ProtocolError> {
+    serde_json::from_str(&format!("\"{value}\""))
+        .map_err(|_| ProtocolError::InvalidRequest(format!("未知关联类型: {value}")))
 }
 
 /// 从 Authorization 请求头提取令牌并校验目标能力域。
