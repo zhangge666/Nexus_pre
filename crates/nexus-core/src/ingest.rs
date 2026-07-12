@@ -7,12 +7,12 @@ use uuid::Uuid;
 use crate::{Block, CoreError, Embedder, IngestInput, Memory, MemoryStore, Result};
 
 /// 编排统一记忆写入流程。
-pub struct Ingestor<'a, E: Embedder> {
+pub struct Ingestor<'a, E: Embedder + ?Sized> {
     store: &'a MemoryStore,
     embedder: &'a E,
 }
 
-impl<'a, E: Embedder> Ingestor<'a, E> {
+impl<'a, E: Embedder + ?Sized> Ingestor<'a, E> {
     /// 使用指定存储和嵌入器创建写入管线。
     #[must_use]
     pub const fn new(store: &'a MemoryStore, embedder: &'a E) -> Self {
@@ -21,6 +21,7 @@ impl<'a, E: Embedder> Ingestor<'a, E> {
 
     /// 校验输入并完成切块、向量化和原子落库。
     pub fn ingest(&self, input: IngestInput) -> Result<Memory> {
+        self.store.ensure_embedding_profile(self.embedder)?;
         if input.content.trim().is_empty() {
             return Err(CoreError::InvalidInput("记忆正文不能为空".into()));
         }
@@ -34,7 +35,7 @@ impl<'a, E: Embedder> Ingestor<'a, E> {
         let embeddings = blocks
             .iter()
             .map(|block| self.embedder.embed(&block.text))
-            .collect::<Vec<_>>();
+            .collect::<std::result::Result<Vec<_>, _>>()?;
         let memory = Memory {
             id,
             source: input.source,

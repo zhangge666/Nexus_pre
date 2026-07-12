@@ -11,7 +11,12 @@ use crate::{
 
 impl MemoryStore {
     /// 根据请求模式执行关键词、语义或混合检索。
-    pub fn search<E: Embedder>(&self, query: &SearchQuery, embedder: &E) -> Result<Vec<SearchHit>> {
+    pub fn search<E: Embedder + ?Sized>(
+        &self,
+        query: &SearchQuery,
+        embedder: &E,
+    ) -> Result<Vec<SearchHit>> {
+        self.ensure_embedding_profile(embedder)?;
         if query.text.trim().is_empty() {
             return Err(CoreError::InvalidInput("检索文本不能为空".into()));
         }
@@ -82,13 +87,13 @@ impl MemoryStore {
     }
 
     /// 读取同库向量并使用余弦相似度得到语义候选。
-    fn semantic_search<E: Embedder>(
+    fn semantic_search<E: Embedder + ?Sized>(
         &self,
         text: &str,
         limit: usize,
         embedder: &E,
     ) -> Result<Vec<SearchHit>> {
-        let query_vector = embedder.embed(text);
+        let query_vector = embedder.embed(text)?;
         let encoded_query = serde_json::to_string(&query_vector)?;
         let connection = self.connection()?;
         let mut statement = connection.prepare(

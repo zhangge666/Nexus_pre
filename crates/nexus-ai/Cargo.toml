@@ -8,6 +8,9 @@ license.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[dependencies]
+fastembed = { version = "5.17.2", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
+thiserror = "2"
+
 [lints]
 workspace = true
-

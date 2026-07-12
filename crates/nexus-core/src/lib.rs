@@ -12,7 +12,7 @@ pub mod search;
 pub mod store;
 
 pub use crypto::{CryptoError, EncryptedMediaRef, MasterKey, MediaVault};
-pub use embed::{Embedder, HashEmbedder};
+pub use embed::{EmbeddingProfile, HashEmbedder};
 pub use error::{CoreError, Result};
 pub use events::{CoreEvent, EventSubscription};
 pub use ingest::Ingestor;
@@ -22,6 +22,7 @@ pub use model::{
     MemoryFilters, MemoryKind, MemoryPage, MemoryPatch, MemorySource, SearchHit, SearchMode,
     SearchQuery,
 };
+pub use nexus_ai::{Embedder, EmbeddingError, LocalOnnxEmbedder};
 pub use store::MemoryStore;
 
 /// 返回当前核心骨架已经声明的领域模块。

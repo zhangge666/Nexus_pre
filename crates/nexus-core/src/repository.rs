@@ -19,7 +19,7 @@ impl MemoryStore {
     }
 
     /// 应用字段补丁，并在正文改变时重建块、全文索引和嵌入向量。
-    pub fn update<E: Embedder>(
+    pub fn update<E: Embedder + ?Sized>(
         &self,
         id: &Uuid,
         patch: MemoryPatch,
@@ -63,7 +63,7 @@ impl MemoryStore {
                 .blocks
                 .iter()
                 .map(|block| embedder.embed(&block.text))
-                .collect::<Vec<_>>()
+                .collect::<std::result::Result<Vec<_>, _>>()?
         } else {
             Vec::new()
         };

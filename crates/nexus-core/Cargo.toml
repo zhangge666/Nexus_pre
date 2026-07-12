@@ -13,6 +13,7 @@ argon2 = "0.5"
 blake3 = "1"
 chacha20poly1305 = "0.10"
 nexus-sqlite-vec = { path = "../nexus-sqlite-vec" }
+nexus-ai = { path = "../nexus-ai" }
 rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
