@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use nexus_core::{HashEmbedder, MemoryStore};
+use nexus_core::{Collection, HashEmbedder, MemoryStore};
 use nexus_protocol::dto::{ListMemoriesResponse, MemoryResponse};
 use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
@@ -79,6 +79,59 @@ impl OrbitState {
         Ok(MemorySummary::from(response))
     }
 
+    /// 更新 Orbit 编辑器提交的标题和正文，并返回最新记忆摘要。
+    async fn update_memory(
+        &self,
+        id: String,
+        title: Option<String>,
+        content: String,
+    ) -> Result<MemorySummary, String> {
+        let response: MemoryResponse = self
+            .send_json(
+                self.client
+                    .patch(format!("{}/v1/memories/{id}", self.endpoint)),
+                serde_json::json!({"title": title, "content": content}),
+            )
+            .await?;
+        Ok(MemorySummary::from(response))
+    }
+
+    /// 读取集合树需要的全部集合。
+    async fn list_collections(&self) -> Result<Vec<Collection>, String> {
+        self.send_json(
+            self.client.get(format!("{}/v1/collections", self.endpoint)),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// 创建集合并返回可立即插入侧边栏的数据。
+    async fn create_collection(&self, name: String) -> Result<Collection, String> {
+        self.send_json(
+            self.client
+                .post(format!("{}/v1/collections", self.endpoint)),
+            serde_json::json!({"name": name}),
+        )
+        .await
+    }
+
+    /// 幂等地将记忆归入集合。
+    async fn add_memory_to_collection(
+        &self,
+        collection_id: String,
+        memory_id: String,
+    ) -> Result<(), String> {
+        self.send_json::<serde_json::Value>(
+            self.client.put(format!(
+                "{}/v1/collections/{collection_id}/memories/{memory_id}",
+                self.endpoint
+            )),
+            serde_json::json!({}),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// 发送带本地 capability token 的 JSON 请求并解析成功响应。
     async fn send_json<T: DeserializeOwned>(
         &self,
@@ -95,6 +148,10 @@ impl OrbitState {
         if !status.is_success() {
             let message = response.text().await.unwrap_or_default();
             return Err(format!("本地记忆服务返回 {status}: {message}"));
+        }
+        if status == reqwest::StatusCode::NO_CONTENT {
+            return serde_json::from_value(serde_json::Value::Null)
+                .map_err(|error| error.to_string());
         }
         response.json().await.map_err(|error| error.to_string())
     }
@@ -206,6 +263,44 @@ async fn get_memory(
     state.get_memory(id).await
 }
 
+/// 通过 Tauri IPC 保存记忆编辑结果。
+#[tauri::command]
+async fn update_memory(
+    id: String,
+    title: Option<String>,
+    content: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<MemorySummary, String> {
+    state.update_memory(id, title, content).await
+}
+
+/// 通过 Tauri IPC 返回集合列表。
+#[tauri::command]
+async fn list_collections(state: State<'_, Arc<OrbitState>>) -> Result<Vec<Collection>, String> {
+    state.list_collections().await
+}
+
+/// 通过 Tauri IPC 创建集合。
+#[tauri::command]
+async fn create_collection(
+    name: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<Collection, String> {
+    state.create_collection(name).await
+}
+
+/// 通过 Tauri IPC 将记忆加入集合。
+#[tauri::command]
+async fn add_memory_to_collection(
+    collection_id: String,
+    memory_id: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<(), String> {
+    state
+        .add_memory_to_collection(collection_id, memory_id)
+        .await
+}
+
 /// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -259,7 +354,11 @@ pub fn run() {
             create_memory,
             search_memory,
             list_memories,
-            get_memory
+            get_memory,
+            update_memory,
+            list_collections,
+            create_collection,
+            add_memory_to_collection
         ])
         .run(tauri::generate_context!())
         .expect("Orbit Tauri 运行时启动失败");

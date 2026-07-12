@@ -29,6 +29,15 @@ export interface MemorySummary {
   createdAt: number;
 }
 
+/** 表示 Orbit 集合树使用的集合数据。 */
+export interface MemoryCollection {
+  id: string;
+  name: string;
+  icon: string | null;
+  parentId: string | null;
+  sort: number;
+}
+
 /** 判断当前页面是否运行在 Tauri WebView 中。 */
 export function isTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in window;
@@ -52,4 +61,24 @@ export async function listMemories(source?: string): Promise<MemorySummary[]> {
 /** 通过 IPC 读取指定记忆的完整详情。 */
 export async function getMemory(id: string): Promise<MemorySummary> {
   return invoke<MemorySummary>("get_memory", { id });
+}
+
+/** 通过 IPC 保存记忆标题和正文。 */
+export async function updateMemory(id: string, title: string | null, content: string): Promise<MemorySummary> {
+  return invoke<MemorySummary>("update_memory", { id, title, content });
+}
+
+/** 通过 IPC 读取集合列表。 */
+export async function listCollections(): Promise<MemoryCollection[]> {
+  return invoke<MemoryCollection[]>("list_collections");
+}
+
+/** 通过 IPC 创建集合。 */
+export async function createCollection(name: string): Promise<MemoryCollection> {
+  return invoke<MemoryCollection>("create_collection", { name });
+}
+
+/** 通过 IPC 将记忆加入集合。 */
+export async function addMemoryToCollection(collectionId: string, memoryId: string): Promise<void> {
+  return invoke<void>("add_memory_to_collection", { collectionId, memoryId });
 }

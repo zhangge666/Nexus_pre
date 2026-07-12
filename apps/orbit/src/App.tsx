@@ -9,23 +9,30 @@ import {
   Database,
   FileText,
   Filter,
+  FolderPlus,
   Inbox,
   Orbit as OrbitIcon,
   Plus,
   Search,
   Settings,
+  Save,
   Sparkles,
   X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   createMemory,
+  addMemoryToCollection,
+  createCollection,
   getMemory,
   isTauriRuntime,
   listMemories,
+  listCollections,
+  MemoryCollection,
   MemoryHit,
   MemorySummary,
   searchMemory,
+  updateMemory,
 } from "./core";
 
 const previewMemories: MemorySummary[] = [
@@ -52,6 +59,11 @@ export function App(): React.JSX.Element {
   const [selected, setSelected] = useState<MemorySummary | null>(previewMemories[0]);
   const [source, setSource] = useState<string>("all");
   const [busy, setBusy] = useState(false);
+  const [collections, setCollections] = useState<MemoryCollection[]>([]);
+  const [collectionName, setCollectionName] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
   const [notice, setNotice] = useState(isTauriRuntime() ? "正在连接本地记忆服务" : "浏览器预览模式");
 
   const visibleMemories = useMemo(
@@ -64,6 +76,7 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     if (!isTauriRuntime()) return;
     void refreshTimeline();
+    void refreshCollections();
   }, []);
 
   /** 从本地服务刷新时间线并保留有效的详情选中项。 */
@@ -79,6 +92,63 @@ export function App(): React.JSX.Element {
       setNotice(`加载失败：${String(error)}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** 从本地服务刷新可用于归档的集合列表。 */
+  async function refreshCollections(): Promise<void> {
+    if (!isTauriRuntime()) return;
+    try {
+      setCollections(await listCollections());
+    } catch (error) {
+      setNotice(`集合加载失败：${String(error)}`);
+    }
+  }
+
+  /** 创建集合并刷新侧边栏树。 */
+  async function handleCreateCollection(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    if (!collectionName.trim() || !isTauriRuntime()) return;
+    try {
+      await createCollection(collectionName.trim());
+      setCollectionName("");
+      await refreshCollections();
+      setNotice("集合已创建");
+    } catch (error) {
+      setNotice(`创建集合失败：${String(error)}`);
+    }
+  }
+
+  /** 打开详情编辑态并复制当前值，避免取消操作污染已保存内容。 */
+  function beginEditing(): void {
+    if (!selected) return;
+    setEditTitle(selected.title ?? "");
+    setEditContent(selected.content);
+    setEditing(true);
+  }
+
+  /** 保存编辑后的记忆并同步刷新列表和详情。 */
+  async function handleSaveMemory(): Promise<void> {
+    if (!selected || !editContent.trim() || !isTauriRuntime()) return;
+    try {
+      const updated = await updateMemory(selected.id, editTitle.trim() || null, editContent.trim());
+      setSelected(updated);
+      setMemories((items) => items.map((item) => item.id === updated.id ? updated : item));
+      setEditing(false);
+      setNotice("记忆已保存");
+    } catch (error) {
+      setNotice(`保存失败：${String(error)}`);
+    }
+  }
+
+  /** 将当前记忆加入选择的集合。 */
+  async function handleAddToCollection(collectionId: string): Promise<void> {
+    if (!selected || !isTauriRuntime()) return;
+    try {
+      await addMemoryToCollection(collectionId, selected.id);
+      setNotice("记忆已加入集合");
+    } catch (error) {
+      setNotice(`归档失败：${String(error)}`);
     }
   }
 
@@ -154,10 +224,11 @@ export function App(): React.JSX.Element {
         </nav>
         <div className="nav-section-label">集合</div>
         <nav aria-label="记忆集合">
-          <a className="nav-item" href="#notes"><FileText size={15} />产品笔记</a>
-          <a className="nav-item" href="#research"><Sparkles size={15} />研究资料</a>
+          {collections.map((collection) => <a className="nav-item" href="#timeline" key={collection.id}><FileText size={15} />{collection.name}</a>)}
+          {collections.length === 0 && <a className="nav-item" href="#notes"><Sparkles size={15} />尚未创建集合</a>}
           <a className="nav-item" href="#all"><Database size={15} />全部记忆</a>
         </nav>
+        <form className="collection-form" onSubmit={handleCreateCollection}><input value={collectionName} onChange={(event) => setCollectionName(event.target.value)} placeholder="新建集合" aria-label="新建集合名称" /><button type="submit" aria-label="创建集合" disabled={!collectionName.trim()}><FolderPlus size={14} /></button></form>
         <div className="sidebar-footer"><button className="icon-button" title="帮助" aria-label="帮助"><CircleHelp size={16} /></button><button className="icon-button" title="设置" aria-label="设置"><Settings size={16} /></button></div>
       </aside>
 
@@ -180,7 +251,7 @@ export function App(): React.JSX.Element {
           </section>
 
           <aside className="side-panels"><section className="quick-capture" aria-labelledby="capture-title"><div className="section-heading"><h2 id="capture-title">快速记录</h2><Plus size={15} /></div><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="记录此刻值得保留的内容…" aria-label="记忆内容" /><div className="capture-footer"><span>Markdown</span><button onClick={() => void handleCreate()} disabled={busy || !draft.trim()}>写入记忆</button></div></section>
-          {selected && <section className="memory-detail" aria-labelledby="detail-title"><div className="section-heading"><h2 id="detail-title">记忆详情</h2><button className="icon-button" onClick={() => setSelected(null)} aria-label="关闭详情"><X size={15} /></button></div><div className="detail-body"><div className="memory-meta"><span>{sourceLabel(selected.source)}</span><span>{formatTime(selected.createdAt)}</span></div><h3>{selected.title ?? selected.kind}</h3><p>{selected.content}</p>{selected.tags.length > 0 && <div className="tag-list">{selected.tags.map((tag) => <em key={tag}>{tag}</em>)}</div>}<code>{selected.id}</code></div></section>}</aside>
+          {selected && <section className="memory-detail" aria-labelledby="detail-title"><div className="section-heading"><h2 id="detail-title">记忆详情</h2><span><button className="detail-action" onClick={beginEditing}>编辑</button><button className="icon-button" onClick={() => setSelected(null)} aria-label="关闭详情"><X size={15} /></button></span></div><div className="detail-body">{editing ? <><input className="detail-input" value={editTitle} onChange={(event) => setEditTitle(event.target.value)} placeholder="标题" aria-label="记忆标题" /><textarea className="detail-editor" value={editContent} onChange={(event) => setEditContent(event.target.value)} aria-label="记忆正文" /><div className="detail-controls"><button className="secondary-button" onClick={() => setEditing(false)}>取消</button><button className="primary-small" onClick={() => void handleSaveMemory()}><Save size={14} />保存</button></div></> : <><div className="memory-meta"><span>{sourceLabel(selected.source)}</span><span>{formatTime(selected.createdAt)}</span></div><h3>{selected.title ?? selected.kind}</h3><p>{selected.content}</p>{selected.tags.length > 0 && <div className="tag-list">{selected.tags.map((tag) => <em key={tag}>{tag}</em>)}</div>}{collections.length > 0 && <select className="collection-select" defaultValue="" onChange={(event) => { if (event.target.value) void handleAddToCollection(event.target.value); event.currentTarget.value = ""; }} aria-label="加入集合"><option value="">加入集合…</option>{collections.map((collection) => <option key={collection.id} value={collection.id}>{collection.name}</option>)}</select>}<code>{selected.id}</code></>}</div></section>}</aside>
         </div>
       </main>
     </div>

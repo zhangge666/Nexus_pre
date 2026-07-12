@@ -17,6 +17,11 @@ nav { display: grid; gap: 2px; }
 .count.primary { color: hsl(var(--primary-hover)); }
 .nav-section-label { margin: 22px 8px 8px; color: hsl(var(--foreground-muted)); font-size: 11px; font-weight: 600; text-transform: uppercase; }
 .sidebar-footer { position: absolute; right: 10px; bottom: 12px; left: 10px; display: flex; gap: 4px; padding-top: 10px; border-top: 1px solid hsl(var(--border-subtle)); }
+.collection-form { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; margin: 8px 0 0; padding: 0 8px; }
+.collection-form input, .detail-input, .detail-editor, .collection-select { border: 1px solid hsl(var(--border)); border-radius: var(--radius); color: hsl(var(--foreground)); background: hsl(var(--surface)); font: inherit; }
+.collection-form input { min-width: 0; height: 28px; padding: 0 7px; font-size: 11px; }
+.collection-form button { display: grid; place-items: center; border-radius: var(--radius); color: hsl(var(--foreground-secondary)); background: transparent; }
+.collection-form button:hover { background: hsl(var(--surface-hover)); }
 .icon-button { display: grid; width: 30px; height: 30px; place-items: center; border-radius: var(--radius); color: hsl(var(--foreground-muted)); background: transparent; }
 .icon-button:hover { color: hsl(var(--foreground)); background: hsl(var(--surface-hover)); }
 .workspace { min-width: 0; height: 100vh; overflow: auto; }
@@ -64,10 +69,19 @@ h1 { font-size: 20px; line-height: 1.25; font-weight: 600; }
 .side-panels { display: grid; gap: 16px; }
 .memory-detail { border: 1px solid hsl(var(--border)); border-radius: var(--radius-md); background: hsl(var(--surface)); }
 .memory-detail .section-heading { padding: 0 8px 0 12px; border-bottom: 1px solid hsl(var(--border-subtle)); }
+.memory-detail .section-heading > span { display: flex; align-items: center; }
+.detail-action { height: 26px; padding: 0 7px; border-radius: var(--radius-sm); color: hsl(var(--foreground-secondary)); background: transparent; font-size: 11px; }
+.detail-action:hover { color: hsl(var(--foreground)); background: hsl(var(--surface-hover)); }
 .detail-body { padding: 12px; }
 .detail-body h3 { margin: 0 0 8px; color: hsl(var(--foreground)); font-size: 15px; line-height: 1.4; }
 .detail-body p { color: hsl(var(--foreground-secondary)); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
 .detail-body code { display: block; margin-top: 12px; overflow: hidden; color: hsl(var(--foreground-disabled)); font: 10px/1.4 "Geist Mono", "JetBrains Mono", monospace; text-overflow: ellipsis; white-space: nowrap; }
+.detail-input { width: 100%; height: 32px; padding: 0 8px; margin-bottom: 8px; font-size: 13px; }
+.detail-editor { display: block; width: 100%; min-height: 160px; padding: 8px; resize: vertical; font-size: 13px; line-height: 1.55; }
+.detail-controls { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.primary-small { display: flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px; border-radius: var(--radius); color: hsl(var(--primary-foreground)); background: hsl(var(--primary)); font-size: 12px; }
+.primary-small:hover { background: hsl(var(--primary-hover)); }
+.collection-select { width: 100%; height: 30px; margin-top: 12px; padding: 0 6px; color: hsl(var(--foreground-secondary)); font-size: 12px; }
 .tag-list { display: flex !important; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .tag-list em { padding: 2px 6px; border-radius: var(--radius-sm); color: hsl(var(--foreground-secondary)); background: hsl(var(--muted)); font-size: 11px; font-style: normal; }
 .empty-state { display: grid; min-height: 150px; place-content: center; justify-items: center; gap: 8px; color: hsl(var(--foreground-muted)); text-align: center; }
