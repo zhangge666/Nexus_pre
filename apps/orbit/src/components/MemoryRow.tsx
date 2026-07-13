@@ -3,6 +3,7 @@ import type React from "react";
 import { Monitor, Lightbulb, Feather, Orbit, Mic, FileText, Paperclip } from "lucide-react";
 import type { MemorySummary, MemorySource, MemoryKind } from "../core";
 
+/** 根据记忆来源和内容类型显示低干扰的来源图标。 */
 function SourceIcon({ source, kind }: { source: MemorySource; kind: MemoryKind }): React.JSX.Element {
   if (kind === "screen") return <Monitor size={13} />;
   if (kind === "voice") return <Mic size={13} />;
@@ -14,6 +15,7 @@ function SourceIcon({ source, kind }: { source: MemorySource; kind: MemoryKind }
   return <FileText size={13} />;
 }
 
+/** 将时间戳转为列表中易于快速扫读的相对时间。 */
 function formatTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`;
@@ -29,6 +31,7 @@ interface MemoryRowProps {
   snippet?: string;
 }
 
+/** 渲染可选中的紧凑记忆行，作为检索工作区的主要内容单元。 */
 export function MemoryRow({ memory, selected, onClick, snippet }: MemoryRowProps): React.JSX.Element {
   return (
     <button

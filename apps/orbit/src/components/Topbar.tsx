@@ -7,6 +7,7 @@ interface TopbarProps {
   actions?: React.ReactNode;
 }
 
+/** 渲染工作区位置、低干扰状态反馈与当前页面主要操作。 */
 export function Topbar({ title, subtitle, actions }: TopbarProps): React.JSX.Element {
   return (
     <header className="topbar">

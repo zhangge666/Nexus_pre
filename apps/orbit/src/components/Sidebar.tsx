@@ -16,15 +16,18 @@ import {
   Database,
   FolderPlus,
   CircleHelp,
+  Circle,
   ChevronRight,
 } from "lucide-react";
 import { listCollections, createCollection, getReviewStats, listInboxItems } from "../core";
 import type { MemoryCollection } from "../core";
 
+/** 将路由激活状态映射为设计系统定义的导航样式。 */
 function navCls({ isActive }: { isActive: boolean }): string {
   return `nav-item${isActive ? " active" : ""}`;
 }
 
+/** 渲染 Orbit 全局导航与可折叠的记忆集合树。 */
 export function Sidebar(): React.JSX.Element {
   const navigate = useNavigate();
   const [collections, setCollections] = useState<MemoryCollection[]>([]);
@@ -39,6 +42,7 @@ export function Sidebar(): React.JSX.Element {
     void listInboxItems().then((items) => setInboxCount(items.filter((i) => !i.read).length));
   }, []);
 
+  /** 创建集合后原地更新树，避免为这项轻量操作重载整个侧栏。 */
   async function handleCreateCollection(e: FormEvent): Promise<void> {
     e.preventDefault();
     if (!collectionName.trim()) return;
@@ -48,6 +52,7 @@ export function Sidebar(): React.JSX.Element {
   }
 
   const roots = collections.filter((c: import("../core").MemoryCollection) => !c.parentId);
+  /** 依据父级标识取出子集合，以缩进而非拟物图标表现层级。 */
   const childrenOf = (id: string) => collections.filter((c: import("../core").MemoryCollection) => c.parentId === id);
 
   return (
@@ -103,7 +108,7 @@ export function Sidebar(): React.JSX.Element {
                 className="nav-item collection-item"
                 onClick={() => navigate(`/timeline?collection=${col.id}`)}
               >
-                <span className="collection-icon">{col.icon ?? "📁"}</span>
+                <Circle className="collection-icon" size={8} aria-hidden="true" />
                 {col.name}
                 {((col.count ?? 0) > 0) && (
                   <span className="count">{col.count}</span>
@@ -115,7 +120,7 @@ export function Sidebar(): React.JSX.Element {
                   className="nav-item collection-item nested"
                   onClick={() => navigate(`/timeline?collection=${child.id}`)}
                 >
-                  <span className="collection-icon">{child.icon ?? "📄"}</span>
+                  <Circle className="collection-icon" size={8} aria-hidden="true" />
                   {child.name}
                   {((child.count ?? 0) > 0) && (
                     <span className="count">{child.count}</span>

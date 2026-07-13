@@ -13,6 +13,7 @@ interface MemoryDetailProps {
   onGenerateCard?: () => void;
 }
 
+/** 将记忆创建时间格式化为检查器中稳定可追溯的完整日期。 */
 function formatDate(ts: number): string {
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric", month: "long", day: "numeric",
@@ -20,6 +21,7 @@ function formatDate(ts: number): string {
   }).format(ts);
 }
 
+/** 渲染详情中允许的轻量 Markdown 标记。 */
 function renderMarkdown(text: string): React.JSX.Element {
   // 简单 markdown 渲染（粗体/代码/换行）
   const lines = text.split("\n");
@@ -39,6 +41,7 @@ function renderMarkdown(text: string): React.JSX.Element {
   );
 }
 
+/** 转换正文中的粗体、行内代码和强调标记。 */
 function formatInline(text: string): string {
   return text
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
@@ -46,6 +49,7 @@ function formatInline(text: string): string {
     .replace(/_(.+?)_/g, "<em>$1</em>");
 }
 
+/** 渲染按需打开的记忆检查器，并提供查看、编辑与归档入口。 */
 export function MemoryDetail({
   memory,
   collections,
@@ -59,6 +63,7 @@ export function MemoryDetail({
   const [editContent, setEditContent] = useState(memory.content);
   const [saving, setSaving] = useState(false);
 
+  /** 保存编辑内容并在成功后退出编辑态，避免阅读与编辑状态混杂。 */
   async function handleSave(): Promise<void> {
     setSaving(true);
     try {
@@ -148,7 +153,7 @@ export function MemoryDetail({
               >
                 <option value="">加入集合…</option>
                 {collections.map((col) => (
-                  <option key={col.id} value={col.id}>{col.icon} {col.name}</option>
+                  <option key={col.id} value={col.id}>{col.name}</option>
                 ))}
               </select>
             )}

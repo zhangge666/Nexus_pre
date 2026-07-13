@@ -1,35 +1,55 @@
 /** 本文件实现 docs/design-system.md 定义的全局视觉 token 与基础控件样式。 */
 
-:root {
-  --background: 220 13% 4%;
-  --surface: 220 13% 6%;
-  --surface-elevated: 220 12% 9%;
-  --surface-hover: 220 11% 12%;
-  --muted: 220 10% 14%;
+:root,
+:root.dark {
+  --background: 222 15% 7%;
+  --surface: 222 14% 9%;
+  --surface-elevated: 222 13% 12%;
+  --surface-hover: 222 12% 15%;
+  --surface-active: 234 44% 18%;
+  --muted: 222 11% 17%;
   --foreground: 220 15% 96%;
   --foreground-secondary: 220 9% 70%;
   --foreground-muted: 220 8% 48%;
   --foreground-disabled: 220 7% 34%;
-  --border: 220 10% 100% / 0.08;
-  --border-strong: 220 10% 100% / 0.14;
-  --border-subtle: 220 10% 100% / 0.05;
-  --primary: 234 56% 60%;
-  --primary-hover: 234 56% 65%;
+  --border: 220 12% 100% / 0.09;
+  --border-strong: 220 12% 100% / 0.16;
+  --border-subtle: 220 12% 100% / 0.055;
+  --primary: 234 62% 65%;
+  --primary-hover: 234 68% 71%;
   --primary-foreground: 0 0% 100%;
-  --success: 142 44% 52%;
-  --warning: 38 92% 58%;
-  --danger: 0 65% 58%;
-  --ring: 234 56% 60%;
+  --success: 145 48% 50%;
+  --warning: 39 90% 58%;
+  --danger: 0 66% 60%;
+  --info: 204 78% 58%;
+  --ring: 234 62% 65%;
   --radius-sm: 4px;
   --radius: 6px;
   --radius-md: 8px;
-  --radius-lg: 12px;
-  --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.4);
+  --radius-lg: 10px;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28);
+  --shadow-md: 0 10px 28px -8px rgb(0 0 0 / 0.48);
   color: hsl(var(--foreground));
   background: hsl(var(--background));
   font-family: Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
   font-feature-settings: "cv11", "ss01";
+}
+
+:root:not(.dark) {
+  --background: 220 20% 98%;
+  --surface: 0 0% 100%;
+  --surface-elevated: 0 0% 100%;
+  --surface-hover: 220 16% 96%;
+  --surface-active: 234 62% 94%;
+  --muted: 220 15% 94%;
+  --foreground: 220 18% 15%;
+  --foreground-secondary: 220 10% 38%;
+  --foreground-muted: 220 8% 52%;
+  --foreground-disabled: 220 7% 66%;
+  --border: 220 14% 15% / 0.11;
+  --border-strong: 220 14% 15% / 0.19;
+  --border-subtle: 220 14% 15% / 0.07;
 }
 
 * {
@@ -86,4 +106,3 @@ button {
     animation-iteration-count: 1 !important;
   }
 }
-
