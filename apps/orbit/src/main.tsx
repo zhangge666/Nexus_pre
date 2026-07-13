@@ -1,12 +1,12 @@
-/** 本文件挂载 Orbit React 应用并加载 Nexus 统一设计 token。 */
+/** 本文件挂载 Orbit React 应用，并包裹 HashRouter 用于 Tauri WebView 路由。 */
 
 import "@nexus/ui/styles.css";
-import React from "react";
+import React, { Suspense } from "react";
 import ReactDOM from "react-dom/client";
+import { HashRouter } from "react-router-dom";
 import { App } from "./App";
 import "./orbit.css";
 
-/** 将 Orbit 工作台挂载到 HTML 根节点。 */
 function mount(): void {
   const root = document.getElementById("root");
   if (!root) {
@@ -14,10 +14,11 @@ function mount(): void {
   }
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
-      <App />
+      <HashRouter>
+        <App />
+      </HashRouter>
     </React.StrictMode>,
   );
 }
 
 mount();
-
