@@ -17,20 +17,30 @@ import type {
   ReviewCard,
   ReviewStats,
   SearchRequest,
+  ServiceStatus,
 } from "./types";
 
+/** 调用真实 IPC 执行与用户所选模式一致的检索。 */
 export async function searchMemory(req: SearchRequest): Promise<MemoryHit[]> {
   return invoke<MemoryHit[]>("search_memory", { query: req.query, mode: req.mode ?? "hybrid" });
 }
 
+/** 调用真实 IPC 获取记忆列表。 */
 export async function listMemories(source?: string): Promise<MemorySummary[]> {
   return invoke<MemorySummary[]>("list_memories", { source });
 }
 
+/** 调用真实 IPC 获取指定集合中的记忆。 */
+export async function listCollectionMemories(collectionId: string): Promise<MemorySummary[]> {
+  return invoke<MemorySummary[]>("list_collection_memories", { collectionId });
+}
+
+/** 调用真实 IPC 获取指定记忆的完整内容。 */
 export async function getMemory(id: string): Promise<MemorySummary> {
   return invoke<MemorySummary>("get_memory", { id });
 }
 
+/** 调用真实 IPC 新建一条 Orbit 手动记忆。 */
 export async function createMemory(content: string): Promise<MemorySummary> {
   return invoke<MemorySummary>("create_memory", { content });
 }
@@ -41,6 +51,11 @@ export async function updateMemory(
   content: string
 ): Promise<MemorySummary> {
   return invoke<MemorySummary>("update_memory", { id, title, content });
+}
+
+/** 读取本地 Memory Protocol 的可用性与当前服务持有角色。 */
+export async function getServiceStatus(): Promise<ServiceStatus> {
+  return invoke<ServiceStatus>("get_service_status");
 }
 
 export async function getReviewQueue(): Promise<ReviewCard[]> {

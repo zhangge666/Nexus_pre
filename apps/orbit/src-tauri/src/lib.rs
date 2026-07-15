@@ -15,34 +15,56 @@ struct OrbitState {
     client: reqwest::Client,
     endpoint: String,
     token: String,
+    role: ServiceRole,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+/// 表示当前 Orbit 是本地服务持有者还是连接既有服务的客户端。
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ServiceRole {
+    Holder,
+    Client,
+}
+
+/// 表示前端状态栏展示本地服务健康度所需的最小诊断信息。
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ServiceStatus {
+    role: ServiceRole,
+    endpoint: String,
+    available: bool,
+    message: Option<String>,
 }
 
 impl OrbitState {
     /// 通过本地 Memory Protocol 创建手动记忆。
-    async fn create_memory(&self, content: String) -> Result<CreatedMemory, String> {
-        self.send_json(
-            self.client.post(format!("{}/v1/memories", self.endpoint)),
-            serde_json::json!({
-                "source": "orbit",
-                "kind": "note",
-                "title": content.lines().next(),
-                "content": content,
-                "content_format": "markdown",
-                "tags": [],
-                "device_id": "orbit-desktop",
-                "meta": {"entrypoint": "tauri-ipc"}
-            }),
-        )
-        .await
+    async fn create_memory(&self, content: String) -> Result<MemorySummary, String> {
+        let created: CreatedMemory = self
+            .send_json(
+                self.client.post(format!("{}/v1/memories", self.endpoint)),
+                serde_json::json!({
+                    "source": "orbit",
+                    "kind": "note",
+                    "title": content.lines().next(),
+                    "content": content,
+                    "content_format": "markdown",
+                    "tags": [],
+                    "device_id": "orbit-desktop",
+                    "meta": {"entrypoint": "tauri-ipc"}
+                }),
+            )
+            .await?;
+        // 创建接口只返回标识与时间；随后读取完整对象，确保前端不会拿到残缺的 mock 形状。
+        self.get_memory(created.id).await
     }
 
     /// 通过本地 Memory Protocol 执行默认混合检索。
-    async fn search_memory(&self, query: String) -> Result<Vec<MemoryHit>, String> {
+    async fn search_memory(&self, query: String, mode: String) -> Result<Vec<MemoryHit>, String> {
         let response: SearchResponse = self
             .send_json(
                 self.client.post(format!("{}/v1/search", self.endpoint)),
-                serde_json::json!({"text": query, "mode": "hybrid", "limit": 20}),
+                serde_json::json!({"text": query, "mode": mode, "limit": 20}),
             )
             .await?;
         Ok(response.hits)
@@ -65,6 +87,27 @@ impl OrbitState {
             .into_iter()
             .map(MemorySummary::from)
             .collect())
+    }
+
+    /// 读取指定集合中的记忆，使集合导航与 Memory Protocol 的集合成员关系保持一致。
+    async fn list_collection_memories(
+        &self,
+        collection_id: String,
+    ) -> Result<Vec<MemorySummary>, String> {
+        let ids: Vec<String> = self
+            .send_json(
+                self.client.get(format!(
+                    "{}/v1/collections/{collection_id}/memories",
+                    self.endpoint
+                )),
+                serde_json::json!({}),
+            )
+            .await?;
+        let mut memories = Vec::with_capacity(ids.len());
+        for id in ids {
+            memories.push(self.get_memory(id).await?);
+        }
+        Ok(memories)
     }
 
     /// 读取详情面板展示的完整记忆。
@@ -130,6 +173,36 @@ impl OrbitState {
         )
         .await
         .map(|_| ())
+    }
+
+    /// 探测已发现的回环服务，供前端在失败时显示可操作的本地诊断信息。
+    async fn service_status(&self) -> ServiceStatus {
+        let response = self
+            .client
+            .get(format!("{}/v1/capabilities", self.endpoint))
+            .bearer_auth(&self.token)
+            .send()
+            .await;
+        match response {
+            Ok(response) if response.status().is_success() => ServiceStatus {
+                role: self.role,
+                endpoint: self.endpoint.clone(),
+                available: true,
+                message: None,
+            },
+            Ok(response) => ServiceStatus {
+                role: self.role,
+                endpoint: self.endpoint.clone(),
+                available: false,
+                message: Some(format!("本地服务返回 {}", response.status())),
+            },
+            Err(error) => ServiceStatus {
+                role: self.role,
+                endpoint: self.endpoint.clone(),
+                available: false,
+                message: Some(format!("无法连接本地服务：{error}")),
+            },
+        }
     }
 
     /// 发送带本地 capability token 的 JSON 请求并解析成功响应。
@@ -204,10 +277,14 @@ struct MemorySummary {
     kind: String,
     title: Option<String>,
     content: String,
+    content_format: String,
     tags: Vec<String>,
     pinned: bool,
     archived: bool,
     created_at: i64,
+    updated_at: i64,
+    captured_at: Option<i64>,
+    links: Vec<serde_json::Value>,
 }
 
 impl From<MemoryResponse> for MemorySummary {
@@ -219,10 +296,15 @@ impl From<MemoryResponse> for MemorySummary {
             kind: format!("{:?}", memory.kind).to_lowercase(),
             title: memory.title,
             content: memory.content,
+            content_format: format!("{:?}", memory.content_format).to_lowercase(),
             tags: memory.tags,
             pinned: memory.pinned,
             archived: memory.archived,
             created_at: memory.created_at,
+            updated_at: memory.updated_at,
+            captured_at: memory.captured_at,
+            // Memory Protocol 当前详情响应不携带 links；显式返回空数组以保持前端契约完整。
+            links: Vec::new(),
         }
     }
 }
@@ -232,7 +314,7 @@ impl From<MemoryResponse> for MemorySummary {
 async fn create_memory(
     content: String,
     state: State<'_, Arc<OrbitState>>,
-) -> Result<CreatedMemory, String> {
+) -> Result<MemorySummary, String> {
     state.create_memory(content).await
 }
 
@@ -240,9 +322,10 @@ async fn create_memory(
 #[tauri::command]
 async fn search_memory(
     query: String,
+    mode: String,
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<Vec<MemoryHit>, String> {
-    state.search_memory(query).await
+    state.search_memory(query, mode).await
 }
 
 /// 通过 Tauri IPC 返回可按来源筛选的时间线记忆。
@@ -261,6 +344,15 @@ async fn get_memory(
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<MemorySummary, String> {
     state.get_memory(id).await
+}
+
+/// 通过 Tauri IPC 返回指定集合实际包含的记忆列表。
+#[tauri::command]
+async fn list_collection_memories(
+    collection_id: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<Vec<MemorySummary>, String> {
+    state.list_collection_memories(collection_id).await
 }
 
 /// 通过 Tauri IPC 保存记忆编辑结果。
@@ -299,6 +391,12 @@ async fn add_memory_to_collection(
     state
         .add_memory_to_collection(collection_id, memory_id)
         .await
+}
+
+/// 通过 Tauri IPC 返回本地服务当前的角色、端点与连通性诊断。
+#[tauri::command]
+async fn get_service_status(state: State<'_, Arc<OrbitState>>) -> Result<ServiceStatus, String> {
+    Ok(state.service_status().await)
 }
 
 /// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
@@ -349,6 +447,7 @@ pub fn run() {
                         client: reqwest::Client::new(),
                         endpoint: discovery.endpoint,
                         token: discovery.token,
+                        role: ServiceRole::Holder,
                         shutdown: Mutex::new(Some(shutdown_sender)),
                     }
                 }
@@ -356,6 +455,7 @@ pub fn run() {
                     client: reqwest::Client::new(),
                     endpoint: discovery.endpoint,
                     token: discovery.token,
+                    role: ServiceRole::Client,
                     shutdown: Mutex::new(None),
                 },
             };
@@ -367,10 +467,12 @@ pub fn run() {
             search_memory,
             list_memories,
             get_memory,
+            list_collection_memories,
             update_memory,
             list_collections,
             create_collection,
-            add_memory_to_collection
+            add_memory_to_collection,
+            get_service_status
         ])
         .run(tauri::generate_context!())
         .expect("Orbit Tauri 运行时启动失败");
@@ -381,7 +483,7 @@ mod tests {
     use super::*;
     use tokio::net::TcpListener;
 
-    /// 验证 Orbit 无论角色如何都能通过本地协议完成写入和检索。
+    /// 验证 Orbit 能通过本地协议完成写入、编辑、检索、集合归档与服务诊断闭环。
     #[tokio::test]
     async fn protocol_state_supports_write_and_search() {
         let listener = TcpListener::bind("127.0.0.1:0")
@@ -402,6 +504,7 @@ mod tests {
             client: reqwest::Client::new(),
             endpoint,
             token,
+            role: ServiceRole::Holder,
             shutdown: Mutex::new(None),
         };
         let created = state
@@ -409,10 +512,35 @@ mod tests {
             .await
             .expect("协议写入应成功");
         let hits = state
-            .search_memory("Memory Protocol".into())
+            .search_memory("Memory Protocol".into(), "hybrid".into())
             .await
             .expect("协议检索应成功");
         assert_eq!(hits[0].memory_id, created.id);
+        let listed = state.list_memories(None).await.expect("协议列表读取应成功");
+        assert_eq!(listed.len(), 1);
+        let updated = state
+            .update_memory(
+                created.id.clone(),
+                Some("已编辑的标题".into()),
+                "更新后的内容".into(),
+            )
+            .await
+            .expect("协议编辑应成功");
+        assert_eq!(updated.title.as_deref(), Some("已编辑的标题"));
+        let collection = state
+            .create_collection("测试集合".into())
+            .await
+            .expect("协议集合创建应成功");
+        state
+            .add_memory_to_collection(collection.id.to_string(), created.id)
+            .await
+            .expect("协议归入集合应成功");
+        let collection_memories = state
+            .list_collection_memories(collection.id.to_string())
+            .await
+            .expect("协议集合读取应成功");
+        assert_eq!(collection_memories.len(), 1);
+        assert!(state.service_status().await.available);
         server.abort();
     }
 }

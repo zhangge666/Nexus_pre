@@ -224,3 +224,18 @@ export interface OrbitSettings {
     language: string;
   };
 }
+
+/** 本地 Memory Protocol 服务的可展示诊断状态。 */
+export interface ServiceStatus {
+  role: "holder" | "client";
+  endpoint: string;
+  available: boolean;
+  message: string | null;
+}
+
+/** 由 core 事务提交后广播给 Orbit 前端的记忆变更事件。 */
+export interface MemoryChangedEvent {
+  type: "memory_created" | "memory_updated" | "memory_deleted";
+  id: string;
+  source: MemorySource;
+}

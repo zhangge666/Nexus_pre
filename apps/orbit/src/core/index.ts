@@ -7,12 +7,15 @@
  * 所有页面只从此文件导入，不直接接触 mock.ts 或 api.ts。
  */
 
+import { isTauri } from "@tauri-apps/api/core";
+
 // ===== 类型 =====
 export * from "./types";
 
 // ===== 运行时判断 =====
+/** 使用 Tauri 官方运行时判定，避免桌面端因内部对象变更而错误回退至 mock。 */
 export function isTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  return isTauri();
 }
 
 // ===== Mock 实现（编译时始终可见）=====
@@ -78,3 +81,19 @@ export const getGraphData       = makeFn("getGraphData",       _mockGraph);
 export const listReviewCards    = makeFn("listReviewCards",    _mockListCards);
 export const getSettings        = makeFn("getSettings",        _mockGetSettings);
 export const saveSettings       = makeFn("saveSettings",       _mockSaveSettings);
+
+/** 获取集合成员；浏览器预览将按现有 mock 列表返回，便于页面结构预览。 */
+export async function listCollectionMemories(collectionId: string): Promise<import("./types").MemorySummary[]> {
+  if (!isTauriRuntime()) return _mockList();
+  const api = await import("./api");
+  return api.listCollectionMemories(collectionId);
+}
+
+/** 返回桌面端本地服务诊断；浏览器预览始终视为可用的 mock 数据源。 */
+export async function getServiceStatus(): Promise<import("./types").ServiceStatus> {
+  if (!isTauriRuntime()) {
+    return { role: "holder", endpoint: "浏览器预览", available: true, message: null };
+  }
+  const api = await import("./api");
+  return api.getServiceStatus();
+}
