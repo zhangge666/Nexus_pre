@@ -62,13 +62,18 @@ export function MemoryDetail({
   const [editTitle, setEditTitle] = useState(memory.title ?? "");
   const [editContent, setEditContent] = useState(memory.content);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   /** 保存编辑内容并在成功后退出编辑态，避免阅读与编辑状态混杂。 */
   async function handleSave(): Promise<void> {
     setSaving(true);
+    setSaveError("");
     try {
       await onSave(memory.id, editTitle.trim() || null, editContent.trim());
       setEditing(false);
+    } catch (error) {
+      // 保留用户草稿并在编辑区域原位展示错误，使用户可以直接修正或重试。
+      setSaveError(`保存失败：${String(error)}`);
     } finally {
       setSaving(false);
     }
@@ -122,6 +127,7 @@ export function MemoryDetail({
                 <Save size={13} />{saving ? "保存中…" : "保存"}
               </button>
             </div>
+            {saveError && <p className="detail-save-error" role="alert">{saveError}</p>}
           </>
         ) : (
           <>

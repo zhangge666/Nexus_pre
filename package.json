@@ -6,7 +6,8 @@
   "scripts": {
     "build": "turbo run build",
     "check": "turbo run check",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "verify:orbit-m2": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m2.ps1"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
