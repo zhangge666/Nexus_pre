@@ -1,160 +1,125 @@
-/** 本文件实现时间线页面，按日期分组显示记忆，带时间轴线视觉效果。 */
+/** 本文件实现按日期分组的记忆时间线，详情统一展示于全局右侧检查器。 */
 import type React from "react";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BookOpenText, Filter } from "lucide-react";
-import { listMemories, getMemory, updateMemory, listCollections, addMemoryToCollection } from "../core";
-import type { MemorySummary, MemoryCollection } from "../core";
-import { Topbar } from "../components/Topbar";
-import { MemoryDetail } from "../components/MemoryDetail";
+import { addMemoryToCollection, getMemory, listCollectionMemories, listCollections, listMemories, updateMemory } from "../core";
+import { useSearchParams } from "react-router-dom";
+import type { MemoryCollection, MemorySummary } from "../core";
 import { EmptyState } from "../components/EmptyState";
+import { MemoryDetail } from "../components/MemoryDetail";
+import { MemoryRow } from "../components/MemoryRow";
+import { Topbar } from "../components/Topbar";
+import { useInspector } from "../components/Inspector";
+import { PageLayout } from "../components/PageLayout";
+import { useMemoryChanges } from "../core/events";
 
 const SOURCES = ["all", "orbit", "muse", "quill", "echo"] as const;
 
-function groupByDate(memories: MemorySummary[]): { label: string; items: MemorySummary[] }[] {
-  const groups: Map<string, MemorySummary[]> = new Map();
+/** 将记忆按相对日期分组，保证时间线可快速按时间扫描。 */
+function groupByDate(memories: MemorySummary[]): Array<{ label: string; items: MemorySummary[] }> {
+  const groups = new Map<string, MemorySummary[]>();
   const now = Date.now();
-
-  for (const mem of memories) {
-    const diff = now - mem.createdAt;
-    let label: string;
-    if (diff < 86_400_000) {
-      label = "今天";
-    } else if (diff < 172_800_000) {
-      label = "昨天";
-    } else {
-      label = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(mem.createdAt);
-    }
-    if (!groups.has(label)) groups.set(label, []);
-    groups.get(label)!.push(mem);
+  for (const memory of memories) {
+    const difference = now - memory.createdAt;
+    const label = difference < 86_400_000 ? "今天" : difference < 172_800_000 ? "昨天" : new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric" }).format(memory.createdAt);
+    groups.set(label, [...(groups.get(label) ?? []), memory]);
   }
-  return Array.from(groups.entries()).map(([label, items]) => ({ label, items }));
+  return Array.from(groups, ([label, items]) => ({ label, items }));
 }
 
-function formatTimeShort(ts: number): string {
-  return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(ts);
-}
-
-const KIND_ICON: Record<string, string> = {
-  note: "📝", idea: "💡", screen: "🖥", voice: "🎤", card: "🃏", clip: "📎", file: "📄",
-};
-
+/** 渲染时间线列表及其与全局详情检查器的交互。 */
 export default function TimelinePage(): React.JSX.Element {
+  const { show } = useInspector();
+  const [searchParams] = useSearchParams();
   const [memories, setMemories] = useState<MemorySummary[]>([]);
   const [selected, setSelected] = useState<MemorySummary | null>(null);
   const [source, setSource] = useState("all");
   const [collections, setCollections] = useState<MemoryCollection[]>([]);
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("正在读取本地记忆库");
+  const collectionId = searchParams.get("collection");
 
-  const refresh = useCallback(async (src?: string) => {
+  /** 根据当前来源刷新时间线数据。 */
+  const refresh = useCallback(async (nextSource?: string): Promise<void> => {
     setBusy(true);
     try {
-      const loaded = await listMemories(src ?? source);
-      setMemories(loaded);
-    } finally {
-      setBusy(false);
-    }
-  }, [source]);
+      const selectedSource = nextSource ?? source;
+      const loaded = collectionId
+        ? await listCollectionMemories(collectionId)
+        : await listMemories(selectedSource);
+      setMemories(selectedSource === "all" ? loaded : loaded.filter((memory) => memory.source === selectedSource));
+      setNotice("本地记忆库已同步");
+    } catch (error) {
+      setNotice(`时间线加载失败：${String(error)}`);
+    } finally { setBusy(false); }
+  }, [collectionId, source]);
 
   useEffect(() => {
     void refresh();
-    void listCollections().then(setCollections);
-  }, []);
+    void listCollections().then(setCollections).catch((error) => setNotice(`集合加载失败：${String(error)}`));
+  }, [refresh]);
 
-  async function handleSelect(mem: MemorySummary): Promise<void> {
-    setSelected(mem);
-    try { setSelected(await getMemory(mem.id)); } catch {}
+  /** 接收 core 提交后的事件，确保时间线能展示其他客户端新写入的记忆。 */
+  useMemoryChanges(() => {
+    void refresh();
+    void listCollections().then(setCollections).catch((error) => setNotice(`集合刷新失败：${String(error)}`));
+  }, (error) => setNotice(`实时更新不可用：${String(error)}`));
+
+  useEffect(() => {
+    if (!selected) return;
+    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onAddToCollection={handleAddToCollection} />);
+  }, [collections, selected, show]);
+
+  /** 读取完整记忆并在全局检查器中打开详情。 */
+  async function handleSelect(memory: MemorySummary): Promise<void> {
+    setSelected(memory);
+    try { setSelected(await getMemory(memory.id)); } catch (error) { setNotice(`无法读取完整记忆：${String(error)}`); }
   }
 
-  function handleSourceChange(s: string): void {
-    setSource(s);
-    void refresh(s);
+  /** 保存详情编辑后同步更新当前时间线。 */
+  async function handleSave(id: string, title: string | null, content: string): Promise<void> {
+    try {
+      const updated = await updateMemory(id, title, content);
+      setMemories((current) => current.map((memory) => memory.id === id ? updated : memory));
+      setSelected(updated);
+      setNotice("记忆已保存");
+    } catch (error) {
+      setNotice(`保存失败：${String(error)}`);
+      throw error;
+    }
   }
 
-  const displayed = source === "all" ? memories : memories.filter((m) => m.source === source);
+  /** 将当前选中记忆加入集合，并同步刷新集合计数。 */
+  async function handleAddToCollection(collectionId: string): Promise<void> {
+    if (!selected) return;
+    try {
+      await addMemoryToCollection(collectionId, selected.id);
+      setCollections(await listCollections());
+      setNotice("记忆已加入集合");
+    } catch (error) {
+      setNotice(`加入集合失败：${String(error)}`);
+    }
+  }
+
+  /** 切换来源后重新加载，避免混合展示旧数据。 */
+  function handleSourceChange(nextSource: string): void {
+    setSource(nextSource);
+    setSelected(null);
+    void refresh(nextSource);
+  }
+
+  const displayed = source === "all" ? memories : memories.filter((memory) => memory.source === source);
   const groups = groupByDate(displayed);
 
   return (
-    <div className="page-enter timeline-page">
-      <Topbar title="时间线" subtitle={`${displayed.length} 条记忆`} />
-
-      {/* 过滤器 */}
-      <div className="timeline-filters">
-        <Filter size={14} aria-hidden="true" />
-        <div className="filter-row" role="group" aria-label="来源筛选">
-          {SOURCES.map((s) => (
-            <button
-              key={s}
-              className={`filter-button${source === s ? " active" : ""}`}
-              onClick={() => handleSourceChange(s)}
-            >
-              {s === "all" ? "全部" : s.charAt(0).toUpperCase() + s.slice(1)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="timeline-layout">
-        {/* 时间线列表 */}
-        <div className="timeline-list">
-          {busy && <p className="loading-hint">加载中…</p>}
-
-          {!busy && groups.length === 0 && (
-            <EmptyState
-              icon={<BookOpenText size={36} />}
-              title="还没有记忆"
-              description="通过 Echo、Muse 或 Quill 开始记录"
-            />
-          )}
-
-          {groups.map(({ label, items }) => (
-            <div key={label} className="timeline-group">
-              <div className="timeline-date">
-                {label} <span className="timeline-count">({items.length})</span>
-              </div>
-              {items.map((mem) => (
-                <div
-                  key={mem.id}
-                  className={`timeline-item${selected?.id === mem.id ? " selected" : ""}`}
-                  onClick={() => void handleSelect(mem)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && void handleSelect(mem)}
-                >
-                  <span className="timeline-dot" />
-                  <span className="timeline-time">{mem.createdAt ? formatTimeShort(mem.createdAt) : "--:--"}</span>
-                  <span className="timeline-kind">{KIND_ICON[mem.kind] ?? "📄"}</span>
-                  <div className="timeline-body">
-                    <strong>{mem.title ?? mem.kind}</strong>
-                    <p>{mem.content.slice(0, 80)}{mem.content.length > 80 ? "…" : ""}</p>
-                    {mem.tags.length > 0 && (
-                      <span className="tag-list">
-                        {mem.tags.slice(0, 2).map((t) => <em key={t}>{t}</em>)}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-
-        {/* 详情面板 */}
-        {selected && (
-          <aside className="timeline-detail">
-            <MemoryDetail
-              memory={selected}
-              collections={collections}
-              onClose={() => setSelected(null)}
-              onSave={async (id, title, content) => {
-                const updated = await updateMemory(id, title, content);
-                setMemories((ms) => ms.map((m) => m.id === id ? updated : m));
-                setSelected(updated);
-              }}
-              onAddToCollection={(colId) => addMemoryToCollection(colId, selected.id)}
-            />
-          </aside>
-        )}
-      </div>
-    </div>
+    <PageLayout className="timeline-page">
+      <Topbar title="时间线" subtitle={collectionId ? `集合中的 ${displayed.length} 条记忆 · ${notice}` : `${displayed.length} 条记忆 · ${notice}`} actions={<button className="secondary-button" onClick={() => void refresh()} disabled={busy}>重试</button>} />
+      <div className="timeline-filters page-toolbar"><div className="filter-row" role="group" aria-label="来源筛选"><Filter size={14} aria-hidden="true" />{SOURCES.map((item) => <button key={item} className={`filter-button${source === item ? " active" : ""}`} onClick={() => handleSourceChange(item)}>{item === "all" ? "全部" : item.charAt(0).toUpperCase() + item.slice(1)}</button>)}</div></div>
+      <section className="timeline-list page-list-content" aria-busy={busy}>
+        {busy && <p className="loading-hint">加载中…</p>}
+        {!busy && groups.length === 0 && <EmptyState icon={<BookOpenText size={36} />} title="还没有记忆" description="创建一条记忆后，它会按时间出现在这里。" />}
+        {groups.map(({ label, items }) => <section key={label} className="timeline-group"><div className="timeline-date"><span>{label}</span><span className="timeline-count">{items.length} 条</span></div><div className="result-list">{items.map((memory) => <MemoryRow key={memory.id} memory={memory} selected={selected?.id === memory.id} onClick={() => void handleSelect(memory)} />)}</div></section>)}
+      </section>
+    </PageLayout>
   );
 }

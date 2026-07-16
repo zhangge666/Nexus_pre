@@ -7,6 +7,8 @@ import type { ReviewCard, ReviewState } from "../core";
 import { Topbar } from "../components/Topbar";
 import { EmptyState } from "../components/EmptyState";
 import { Modal } from "../components/Modal";
+import { useInspector } from "../components/Inspector";
+import { PageLayout } from "../components/PageLayout";
 
 const STATE_CONFIG: Record<ReviewState, { label: string; color: string }> = {
   new:        { label: "新卡",   color: "muted" },
@@ -23,7 +25,8 @@ const STATE_FILTERS: { key: ReviewState | "all"; label: string }[] = [
   { key: "relearning",label: "重学中" },
 ];
 
-function CardItem({ card, onPreview }: { card: ReviewCard; onPreview: (c: ReviewCard) => void }): React.JSX.Element {
+/** 渲染与主列表相同密度的卡片行，并在点击后打开全局检查器。 */
+function CardItem({ card, onPreview }: { card: ReviewCard; onPreview: (card: ReviewCard) => void }): React.JSX.Element {
   const stateCfg = STATE_CONFIG[card.state];
   return (
     <div className="card-item" onClick={() => onPreview(card)} role="button" tabIndex={0}
@@ -42,7 +45,22 @@ function CardItem({ card, onPreview }: { card: ReviewCard; onPreview: (c: Review
   );
 }
 
+/** 渲染卡片的正反面与复习元数据，供全局检查器承载。 */
+function CardInspector({ card }: { card: ReviewCard }): React.JSX.Element {
+  const state = STATE_CONFIG[card.state];
+  return (
+    <section className="card-inspector">
+      <div className="detail-meta"><span className={`card-state state-${state.color}`}>{state.label}</span><span className="detail-time">复习 {card.reps} 次</span></div>
+      <h3>正面</h3><p>{card.cardFront}</p>
+      <h3>背面</h3><p>{card.cardBack}</p>
+      <div className="card-inspector-meta"><span>稳定度 {card.stability.toFixed(1)}</span><span>难度 {card.difficulty.toFixed(1)}</span><span>遗忘 {card.lapses} 次</span></div>
+    </section>
+  );
+}
+
+/** 渲染卡片管理工作区，并将卡片预览交由全局检查器呈现。 */
 export default function CardsPage(): React.JSX.Element {
+  const { show } = useInspector();
   const [cards, setCards] = useState<ReviewCard[]>([]);
   const [stateFilter, setStateFilter] = useState<ReviewState | "all">("all");
   const [deckFilter, setDeckFilter] = useState<string>("all");
@@ -55,6 +73,10 @@ export default function CardsPage(): React.JSX.Element {
   useEffect(() => {
     void listReviewCards().then((cs) => { setCards(cs); setLoading(false); });
   }, []);
+
+  useEffect(() => {
+    if (preview) show("卡片详情", <CardInspector card={preview} />);
+  }, [preview, show]);
 
   const decks = Array.from(new Set(cards.map((c) => c.deck ?? "默认"))).sort();
 
@@ -70,9 +92,9 @@ export default function CardsPage(): React.JSX.Element {
   }, {});
 
   return (
-    <div className="page-enter cards-page">
+    <PageLayout className="cards-page">
       <Topbar
-        title="知识卡片"
+        title="卡片"
         subtitle={`${cards.length} 张卡片 · ${decks.length} 个复习集`}
         actions={
           <button className="primary-small" onClick={() => setCreateOpen(true)}>
@@ -82,7 +104,7 @@ export default function CardsPage(): React.JSX.Element {
       />
 
       {/* 筛选栏 */}
-      <div className="cards-filters">
+      <div className="cards-filters page-toolbar">
         <div className="filter-row" role="group" aria-label="状态筛选">
           {STATE_FILTERS.map(({ key, label }) => (
             <button
@@ -105,7 +127,7 @@ export default function CardsPage(): React.JSX.Element {
         </select>
       </div>
 
-      <div className="cards-content">
+      <div className="cards-content page-list-content">
         {loading && <p className="loading-hint">加载卡片中…</p>}
 
         {!loading && filtered.length === 0 && (
@@ -131,40 +153,6 @@ export default function CardsPage(): React.JSX.Element {
           </div>
         ))}
       </div>
-
-      {/* 卡片预览弹窗 */}
-      <Modal
-        open={preview !== null}
-        onClose={() => setPreview(null)}
-        title="卡片预览"
-        footer={
-          <button className="secondary-button" onClick={() => setPreview(null)}>关闭</button>
-        }
-      >
-        {preview && (
-          <div className="card-preview-modal">
-            <div className="card-preview-section">
-              <p className="card-preview-label">正面（问题）</p>
-              <div className="card-preview-content">{preview.cardFront}</div>
-            </div>
-            <div className="card-preview-divider" />
-            <div className="card-preview-section">
-              <p className="card-preview-label answer-label">背面（答案）</p>
-              <div className="card-preview-content">{preview.cardBack}</div>
-            </div>
-            {preview.sourceTitle && (
-              <p className="card-preview-source">
-                <BookOpen size={12} /> 来源：{preview.sourceTitle}
-              </p>
-            )}
-            <div className="card-preview-stats">
-              <span>状态：{STATE_CONFIG[preview.state].label}</span>
-              <span>复习 {preview.reps} 次</span>
-              <span>遗忘 {preview.lapses} 次</span>
-            </div>
-          </div>
-        )}
-      </Modal>
 
       {/* 创建卡片弹窗 */}
       <Modal
@@ -208,6 +196,6 @@ export default function CardsPage(): React.JSX.Element {
           />
         </div>
       </Modal>
-    </div>
+    </PageLayout>
   );
 }

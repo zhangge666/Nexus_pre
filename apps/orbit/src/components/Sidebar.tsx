@@ -15,12 +15,14 @@ import {
   Settings,
   Database,
   FolderPlus,
-  CircleHelp,
-  Circle,
   ChevronRight,
+  Sun,
+  Circle,
 } from "lucide-react";
-import { listCollections, createCollection, getReviewStats, listInboxItems } from "../core";
+import { listCollections, createCollection } from "../core";
 import type { MemoryCollection } from "../core";
+import { useMemoryChanges } from "../core/events";
+import { ServiceStatus } from "./ServiceStatus";
 
 /** 将路由激活状态映射为设计系统定义的导航样式。 */
 function navCls({ isActive }: { isActive: boolean }): string {
@@ -32,23 +34,31 @@ export function Sidebar(): React.JSX.Element {
   const navigate = useNavigate();
   const [collections, setCollections] = useState<MemoryCollection[]>([]);
   const [collectionName, setCollectionName] = useState("");
-  const [dueCount, setDueCount] = useState(0);
-  const [inboxCount, setInboxCount] = useState(0);
   const [collectionsOpen, setCollectionsOpen] = useState(true);
+  const [collectionNotice, setCollectionNotice] = useState("");
 
   useEffect(() => {
-    void listCollections().then(setCollections);
-    void getReviewStats().then((s) => setDueCount(s.dueToday));
-    void listInboxItems().then((items) => setInboxCount(items.filter((i) => !i.read).length));
+    void listCollections().then(setCollections).catch((error) => setCollectionNotice(`集合加载失败：${String(error)}`));
   }, []);
+
+  /** 收到其他本地客户端的写入事件后，刷新集合树及其计数。 */
+  useMemoryChanges(() => {
+    void listCollections().then(setCollections).catch((error) => setCollectionNotice(`集合刷新失败：${String(error)}`));
+  }, (error) => setCollectionNotice(`实时更新不可用：${String(error)}`));
 
   /** 创建集合后原地更新树，避免为这项轻量操作重载整个侧栏。 */
   async function handleCreateCollection(e: FormEvent): Promise<void> {
     e.preventDefault();
     if (!collectionName.trim()) return;
-    const col = await createCollection(collectionName.trim());
-    setCollections((prev) => [...prev, col]);
-    setCollectionName("");
+    try {
+      const col = await createCollection(collectionName.trim());
+      setCollections((prev) => [...prev, col]);
+      setCollectionName("");
+      setCollectionNotice("集合已创建");
+    } catch (error) {
+      // 保留用户输入的集合名称，方便修正服务状态后直接重试。
+      setCollectionNotice(`创建集合失败：${String(error)}`);
+    }
   }
 
   const roots = collections.filter((c: import("../core").MemoryCollection) => !c.parentId);
@@ -58,35 +68,42 @@ export function Sidebar(): React.JSX.Element {
   return (
     <aside className="sidebar">
       {/* 品牌 */}
-      <div className="brand">
-        <OrbitIcon size={18} aria-hidden="true" />
-        <strong>Orbit</strong>
+      <div className="brand" data-tauri-drag-region>
+        <OrbitIcon size={18} aria-hidden="true" data-tauri-drag-region />
+        <strong data-tauri-drag-region>Orbit</strong>
       </div>
 
       {/* 主导航 */}
       <nav aria-label="主导航">
-        <NavLink className={navCls} to="/search" end>
-          <Search size={15} />检索中心
+        <NavLink className={navCls} to="/today" end>
+          <Sun size={15} />今日
+        </NavLink>
+        <NavLink className={navCls} to="/search">
+          <Search size={15} />记忆
         </NavLink>
         <NavLink className={navCls} to="/timeline">
           <BookOpenText size={15} />时间线
         </NavLink>
         <NavLink className={navCls} to="/inbox">
           <Inbox size={15} />收件箱
-          {inboxCount > 0 && <span className="count">{inboxCount}</span>}
         </NavLink>
         <NavLink className={navCls} to="/review">
-          <BrainCircuit size={15} />今日复习
-          {dueCount > 0 && <span className="count primary">{dueCount}</span>}
+          <BrainCircuit size={15} />复习
         </NavLink>
         <NavLink className={navCls} to="/cards">
-          <Layers size={15} />知识卡片
+          <Layers size={15} />卡片
         </NavLink>
         <NavLink className={navCls} to="/ask">
-          <MessageCircle size={15} />记忆问答
+          <MessageCircle size={15} />问答
         </NavLink>
         <NavLink className={navCls} to="/graph">
-          <Network size={15} />知识图谱
+          <Network size={15} />图谱
+        </NavLink>
+        <NavLink className={navCls} to="/connections">
+          <Link2 size={15} />连接
+        </NavLink>
+        <NavLink className={navCls} to="/settings">
+          <Settings size={15} />设置
         </NavLink>
       </nav>
 
@@ -145,20 +162,27 @@ export function Sidebar(): React.JSX.Element {
               <FolderPlus size={14} />
             </button>
           </form>
+          {collectionNotice && <p className="collection-notice" role="status">{collectionNotice}</p>}
         </nav>
       )}
 
       {/* 底部 */}
       <div className="sidebar-footer">
-        <NavLink className={navCls} to="/connections">
-          <Link2 size={15} />连接管理
-        </NavLink>
-        <NavLink className={navCls} to="/settings">
-          <Settings size={15} />设置
-        </NavLink>
-        <button className="icon-button" title="帮助" aria-label="帮助" style={{ marginTop: "auto" }}>
-          <CircleHelp size={16} />
-        </button>
+        <ServiceStatus />
+        {/* 用户个人卡片 */}
+        <div className="sidebar-user-card">
+          <div className="user-avatar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+          </div>
+          <div className="user-info">
+            <span className="user-name">Alex Chen</span>
+            <span className="user-desc">Personal Orbit</span>
+          </div>
+          <ChevronRight size={14} className="user-card-arrow" />
+        </div>
       </div>
     </aside>
   );
