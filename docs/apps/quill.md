@@ -440,6 +440,8 @@ Quill: 反查 to_id=本笔记 & relation=derived_from → 展示「本笔记衍�
 
 ### 8.2 分阶段计划
 
+> **排期边界**：以下 Quill 产品阶段统一从全局路线图 M7 开始。M3 只验证 Muse 最小来源，不实现 Quill 编辑器、双链或界面；M7 之前仅维护 Quill 的数据契约、共享编辑器边界与测试桩。
+
 | 阶段 | 范围 | 说明 |
 |------|------|------|
 | **MVP** | Markdown 双模编辑 + 保存即切块入库（ingest）+ 全文/语义检索 + 标签/集合 | 打通「写 → 入库 → 检索」核心闭环，Win/Mac |
@@ -459,4 +461,3 @@ Quill: 反查 to_id=本笔记 & relation=derived_from → 展示「本笔记衍�
 - 编辑器选型与代码组织 → [architecture.md](../architecture.md)
 - 与记忆库交互的接口 → [memory-protocol.md](../memory-protocol.md)
 - 卡片与复习的另一端 → `apps/orbit.md`
-
