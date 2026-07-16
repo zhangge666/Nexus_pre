@@ -11,6 +11,7 @@ members = [
   "crates/platform/platform-mobile",
   "crates/platform/platform-api",
   "apps/orbit/src-tauri",
+  "apps/muse/src-tauri",
 ]
 
 [workspace.package]

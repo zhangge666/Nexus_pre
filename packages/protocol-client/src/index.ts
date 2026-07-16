@@ -171,6 +171,33 @@ export interface UpdateCollectionInput {
   sort?: number;
 }
 
+/** 第一方本地应用申请 capability token 的登记请求。 */
+export interface RegisterConnectionInput {
+  app_id: string;
+  name: string;
+  source: MemorySource;
+  scopes: string[];
+}
+
+/** 本地应用登记成功后返回的来源受限授权。 */
+export interface RegisteredConnection {
+  tokenId: string;
+  token: string;
+  scopes: string[];
+  source: MemorySource;
+}
+
+/** 管理端展示的已连接应用摘要。 */
+export interface ConnectedApp {
+  id: string;
+  name: string;
+  source: MemorySource;
+  scopes: string[];
+  lastActiveAt: number;
+  memoriesCount: number;
+  tokenId: string;
+}
+
 /** 订阅到的 Memory Protocol 事件。 */
 export interface ProtocolEvent {
   type: "memory_created" | "memory_updated" | "memory_deleted";
@@ -318,6 +345,21 @@ export class ProtocolClient {
   /** 返回集合成员记忆 ID。 */
   public listCollectionMemoryIds(collectionId: string): Promise<string[]> {
     return this.request(`/collections/${encodeURIComponent(collectionId)}/memories`, { method: "GET" });
+  }
+
+  /** 使用本地持有者凭据登记第一方应用的最小授权。 */
+  public registerConnection(input: RegisterConnectionInput): Promise<RegisteredConnection> {
+    return this.request("/connections", { method: "POST", body: input });
+  }
+
+  /** 返回管理令牌可见的全部已授权本地应用。 */
+  public listConnections(): Promise<ConnectedApp[]> {
+    return this.request("/connections", { method: "GET" });
+  }
+
+  /** 撤销指定 capability token。 */
+  public revokeConnection(tokenId: string): Promise<void> {
+    return this.request(`/connections/${encodeURIComponent(tokenId)}`, { method: "DELETE" });
   }
 
   /** 持续解析 SSE 事件；连接中断时按固定延迟重连，取消信号到达后结束迭代。 */

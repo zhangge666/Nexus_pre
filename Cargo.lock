@@ -2386,6 +2386,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "muse-app"
+version = "0.1.0"
+dependencies = [
+ "nexus-core",
+ "nexus-protocol",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "ndarray"
 version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "允许 Muse 最小界面调用登记、状态查询与文字写入命令。",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

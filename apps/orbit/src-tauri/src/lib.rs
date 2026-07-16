@@ -1,11 +1,16 @@
 //! 本文件装配 Orbit Tauri 运行时、本地服务持有者仲裁以及统一 HTTP 协议访问。
 
-use std::sync::{Arc, Mutex};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+};
 
 use nexus_core::{Collection, HashEmbedder, MemoryStore};
 use nexus_protocol::dto::{ListMemoriesResponse, MemoryResponse};
 use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
+    shared_nexus_data_dir,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::{Emitter, Manager, State};
@@ -35,6 +40,41 @@ struct ServiceStatus {
     endpoint: String,
     available: bool,
     message: Option<String>,
+}
+
+/// 准备产品族共享目录，并在首次升级时复制 Orbit 旧目录中的数据库与媒体。
+fn prepare_shared_data_dir(app_data_dir: &Path) -> io::Result<PathBuf> {
+    let shared_dir = shared_nexus_data_dir(app_data_dir);
+    fs::create_dir_all(&shared_dir)?;
+    let shared_database = shared_dir.join("nexus.db");
+    if !shared_database.exists() && app_data_dir.join("nexus.db").exists() {
+        for file_name in ["nexus.db", "nexus.db-wal", "nexus.db-shm"] {
+            let source = app_data_dir.join(file_name);
+            if source.exists() {
+                fs::copy(source, shared_dir.join(file_name))?;
+            }
+        }
+        copy_directory_if_missing(&app_data_dir.join("media"), &shared_dir.join("media"))?;
+    }
+    Ok(shared_dir)
+}
+
+/// 递归复制尚未存在的媒体目录，避免共享目录迁移破坏历史附件引用。
+fn copy_directory_if_missing(source: &Path, target: &Path) -> io::Result<()> {
+    if !source.exists() || target.exists() {
+        return Ok(());
+    }
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let destination = target.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_directory_if_missing(&entry.path(), &destination)?;
+        } else {
+            fs::copy(entry.path(), destination)?;
+        }
+    }
+    Ok(())
 }
 
 impl OrbitState {
@@ -175,6 +215,26 @@ impl OrbitState {
         .map(|_| ())
     }
 
+    /// 返回 Memory Protocol 中真实登记的本地应用连接。
+    async fn list_connected_apps(&self) -> Result<Vec<ConnectedApp>, String> {
+        self.send_json(
+            self.client.get(format!("{}/v1/connections", self.endpoint)),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// 撤销指定应用 capability token，使后续写入立即返回未授权。
+    async fn revoke_app(&self, token_id: String) -> Result<(), String> {
+        self.send_json::<serde_json::Value>(
+            self.client
+                .delete(format!("{}/v1/connections/{token_id}", self.endpoint)),
+            serde_json::json!({}),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// 探测已发现的回环服务，供前端在失败时显示可操作的本地诊断信息。
     async fn service_status(&self) -> ServiceStatus {
         let response = self
@@ -285,6 +345,19 @@ struct MemorySummary {
     updated_at: i64,
     captured_at: Option<i64>,
     links: Vec<serde_json::Value>,
+}
+
+/// 表示 Orbit 连接管理页面展示的真实本地授权应用。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectedApp {
+    id: String,
+    name: String,
+    source: String,
+    scopes: Vec<String>,
+    last_active_at: i64,
+    memories_count: usize,
+    token_id: String,
 }
 
 impl From<MemoryResponse> for MemorySummary {
@@ -399,12 +472,27 @@ async fn get_service_status(state: State<'_, Arc<OrbitState>>) -> Result<Service
     Ok(state.service_status().await)
 }
 
+/// 通过 Tauri IPC 返回当前服务真实登记的本地应用。
+#[tauri::command]
+async fn list_connected_apps(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<Vec<ConnectedApp>, String> {
+    state.list_connected_apps().await
+}
+
+/// 通过 Tauri IPC 撤销一条本地应用授权。
+#[tauri::command]
+async fn revoke_app(token_id: String, state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
+    state.revoke_app(token_id).await
+}
+
 /// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let data_dir = app.path().app_data_dir()?;
+            let app_data_dir = app.path().app_data_dir()?;
+            let data_dir = prepare_shared_data_dir(&app_data_dir)?;
             let claim = tauri::async_runtime::block_on(LocalServiceClaim::acquire(&data_dir))?;
             let state = match claim {
                 LocalServiceClaim::Holder {
@@ -472,7 +560,9 @@ pub fn run() {
             list_collections,
             create_collection,
             add_memory_to_collection,
-            get_service_status
+            get_service_status,
+            list_connected_apps,
+            revoke_app
         ])
         .run(tauri::generate_context!())
         .expect("Orbit Tauri 运行时启动失败");
@@ -482,6 +572,23 @@ pub fn run() {
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
+
+    /// 验证升级到共享目录时保留旧 Orbit 数据库和媒体文件。
+    #[test]
+    fn migrates_legacy_orbit_data_to_shared_directory() {
+        let root = tempfile::tempdir().expect("应创建临时目录");
+        let legacy = root.path().join("com.nexus.orbit");
+        fs::create_dir_all(legacy.join("media/2026")).expect("应创建旧媒体目录");
+        fs::write(legacy.join("nexus.db"), b"legacy-db").expect("应写入旧数据库");
+        fs::write(legacy.join("media/2026/audio.enc"), b"legacy-media").expect("应写入旧媒体");
+
+        let shared = prepare_shared_data_dir(&legacy).expect("共享目录迁移应成功");
+        assert_eq!(fs::read(shared.join("nexus.db")).unwrap(), b"legacy-db");
+        assert_eq!(
+            fs::read(shared.join("media/2026/audio.enc")).unwrap(),
+            b"legacy-media"
+        );
+    }
 
     /// 验证 Orbit 能通过本地协议完成写入、编辑、检索、集合归档与服务诊断闭环。
     #[tokio::test]
@@ -541,6 +648,30 @@ mod tests {
             .expect("协议集合读取应成功");
         assert_eq!(collection_memories.len(), 1);
         assert!(state.service_status().await.available);
+        let registration = state
+            .client
+            .post(format!("{}/v1/connections", state.endpoint))
+            .bearer_auth(&state.token)
+            .json(&serde_json::json!({
+                "app_id": "com.nexus.muse",
+                "name": "Muse",
+                "source": "muse",
+                "scopes": ["memory:write"]
+            }))
+            .send()
+            .await
+            .expect("Muse 测试连接应登记成功");
+        assert!(registration.status().is_success());
+        let connections = state
+            .list_connected_apps()
+            .await
+            .expect("Orbit 应读取真实连接列表");
+        assert_eq!(connections[0].source, "muse");
+        state
+            .revoke_app(connections[0].token_id.clone())
+            .await
+            .expect("Orbit 应撤销 Muse 连接");
+        assert!(state.list_connected_apps().await.unwrap().is_empty());
         server.abort();
     }
 }

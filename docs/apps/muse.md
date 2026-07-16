@@ -287,9 +287,14 @@ pub trait AudioRecorder {
 
 ### 5.4 通过 Memory Protocol 写入
 
-- 同机多 App 共享一个记忆库：Muse 或作为**持有者**、或作为**客户端**连本机记忆服务（loopback / IPC，见 [memory-protocol.md](../memory-protocol.md) §3）。
-- Muse 的能力域限定为 `memory:write`（`source=muse`），另需 `search`、`memory:read`（见 [memory-protocol.md](../memory-protocol.md) §4.2）。
+- 同机多 App 共享一个记忆库：完整产品阶段 Muse 可参与持有者仲裁；**M3 最小来源只作为客户端**，从 `com.nexus.shared` 发现 Orbit 持有的本机记忆服务（loopback / IPC，见 [memory-protocol.md](../memory-protocol.md) §3）。
+- M3 Muse 的能力域限定为 `memory:write`（`source=muse`）；M7 收件箱再按功能申请 `search`、`memory:read`（见 [memory-protocol.md](../memory-protocol.md) §4.2）。
 - 前端不直连数据库/密钥；录音、转写、加密全在 Rust 侧，前端只拿授权视图（见 [architecture.md](../architecture.md) §4）。
+
+M3 中用户点击“连接 Orbit”后，Muse 使用发现记录向 `POST /v1/connections` 登记，只申请
+`memory:write` 且固定 `source=muse`。令牌仅保存在 Rust 进程内，不暴露给 WebView；Orbit
+连接管理可查看并撤销该令牌。服务未启动、登记失败、写入失败或授权撤销时，界面保留原文字
+并提供连接或提交重试。`search` 与 `memory:read` 从 M7 收件箱开始再申请，不属于 M3。
 
 ---
 

@@ -46,6 +46,10 @@ M1 桌面实现使用应用数据目录中的 `memory-service.lock` 作为排他
 客户端在接受发现记录前会校验端点格式、回环地址和 TCP 可达性，避免连接非本地或已经失效的端点。
 Orbit 的 IPC 也统一通过该 HTTP 服务读写，不再绕过持有者直接打开 SQLite。
 
+M3 起，桌面产品从各自 Tauri 应用目录的同级 `com.nexus.shared` 目录发现服务；Orbit 的
+`nexus.db`、`memory-service.lock` 与 `memory-service.json` 也统一放在该共享目录，避免 Muse
+因应用标识不同而误连到独立记忆库。
+
 > 好处：Echo 抓的截图，Orbit 立刻能搜到，无需导入导出——这是「内联」的体验基础。
 
 ---
@@ -71,6 +75,31 @@ Orbit 的 IPC 也统一通过该 HTTP 服务读写，不再绕过持有者直接
 | `admin` | 管理集合、连接、导出（仅一等公民应用/用户本人） |
 
 最小授权示例：一个浏览器剪藏扩展只需 `memory:write`（限 `source=external:clipper`）。
+
+### 4.3 M3 第一方来源登记与撤销
+
+M3 只开放 Muse 的第一方本地登记切片。Muse 读取当前用户专属的本地发现记录后，以持有者
+登记凭据请求一个来源受限令牌：
+
+```http
+POST /v1/connections
+Authorization: Bearer <holder-registration-token>
+Content-Type: application/json
+
+{
+  "app_id": "com.nexus.muse",
+  "name": "Muse",
+  "source": "muse",
+  "scopes": ["memory:write"]
+}
+→ 201 { "tokenId": "...", "token": "...", "source": "muse", "scopes": ["memory:write"] }
+```
+
+服务端严格拒绝 Muse 申请其他来源或 scope。Orbit 使用 `admin` 令牌调用
+`GET /v1/connections` 查看连接、最近活动与来源记忆数量，调用
+`DELETE /v1/connections/{tokenId}` 撤销授权；撤销后旧令牌立即返回 `401`，Muse 保留输入并
+要求用户重新连接。M3 登记状态随本地服务实例存在，持有者重启后 Muse 重新登记；长期令牌
+持久化与第三方审批流留到 M6。
 
 ---
 

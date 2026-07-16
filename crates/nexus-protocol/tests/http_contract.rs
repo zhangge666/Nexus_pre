@@ -368,6 +368,121 @@ async fn rejects_write_to_ungranted_source() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
+/// 验证 Muse 能登记最小写入授权、写入统一来源，并在 Orbit 撤销后立即失效。
+#[tokio::test]
+async fn registers_lists_and_revokes_muse_connection() {
+    let app = test_router([Scope::Admin], None);
+    let registered = app
+        .clone()
+        .oneshot(json_request(
+            "/v1/connections",
+            json!({
+                "app_id": "com.nexus.muse",
+                "name": "Muse",
+                "source": "muse",
+                "scopes": ["memory:write"]
+            }),
+        ))
+        .await
+        .expect("Muse 登记请求应返回响应");
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let registered = response_json(registered).await;
+    let token = registered["token"].as_str().expect("应签发客户端令牌");
+    let token_id = registered["tokenId"].as_str().expect("应返回令牌标识");
+    assert_eq!(registered["scopes"], json!(["memory:write"]));
+    assert_eq!(registered["source"], "muse");
+
+    let mut events = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::GET,
+            "/v1/events?types=memory.created",
+            None,
+        ))
+        .await
+        .expect("Orbit 事件订阅应返回响应");
+    assert_eq!(events.status(), StatusCode::OK);
+
+    let created = app
+        .clone()
+        .oneshot(request_with_token(
+            Method::POST,
+            "/v1/memories",
+            token,
+            Some(json!({
+                "source": "muse",
+                "kind": "idea",
+                "content": "M3 Muse 跨进程写入验证",
+                "content_format": "plain",
+                "meta": {"capture_method": "text"}
+            })),
+        ))
+        .await
+        .expect("Muse 写入请求应返回响应");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await;
+
+    let event_frame = events
+        .body_mut()
+        .frame()
+        .await
+        .expect("Orbit 应即时收到 Muse 创建事件")
+        .expect("Muse 创建事件帧应有效");
+    let event_payload =
+        std::str::from_utf8(event_frame.data_ref().expect("Muse 创建事件帧应包含数据"))
+            .expect("Muse 创建事件应为 UTF-8");
+    assert!(event_payload.contains("event: memory.created"));
+    assert!(event_payload.contains("\"source\":\"muse\""));
+
+    let searched = app
+        .clone()
+        .oneshot(json_request(
+            "/v1/search",
+            json!({"text": "跨进程写入验证", "mode": "hybrid", "limit": 10}),
+        ))
+        .await
+        .expect("Orbit 检索应返回响应");
+    assert_eq!(searched.status(), StatusCode::OK);
+    let searched = response_json(searched).await;
+    assert_eq!(searched["hits"][0]["memory_id"], created["id"]);
+
+    let listed = app
+        .clone()
+        .oneshot(authorized_request(Method::GET, "/v1/connections", None))
+        .await
+        .expect("连接列表请求应返回响应");
+    let listed = response_json(listed).await;
+    assert_eq!(listed[0]["source"], "muse");
+    assert_eq!(listed[0]["memoriesCount"], 1);
+
+    let revoked = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::DELETE,
+            &format!("/v1/connections/{token_id}"),
+            None,
+        ))
+        .await
+        .expect("撤销请求应返回响应");
+    assert_eq!(revoked.status(), StatusCode::NO_CONTENT);
+
+    let retried = app
+        .oneshot(request_with_token(
+            Method::POST,
+            "/v1/memories",
+            token,
+            Some(json!({
+                "source": "muse",
+                "kind": "idea",
+                "content": "撤销后不可写入",
+                "content_format": "plain"
+            })),
+        ))
+        .await
+        .expect("撤销后的请求仍应返回响应");
+    assert_eq!(retried.status(), StatusCode::UNAUTHORIZED);
+}
+
 /// 创建使用内存数据库和测试 capability grant 的协议路由。
 fn test_router(
     scopes: impl IntoIterator<Item = Scope>,
@@ -409,11 +524,21 @@ fn json_request(uri: &str, body: Value) -> Request<Body> {
 
 /// 构造携带测试 Bearer token 的任意 HTTP 请求。
 fn authorized_request(method: Method, uri: &str, body: Option<Value>) -> Request<Body> {
+    request_with_token(method, uri, TOKEN, body)
+}
+
+/// 构造携带指定 Bearer token 的协议请求。
+fn request_with_token(
+    method: Method,
+    uri: &str,
+    token: &str,
+    body: Option<Value>,
+) -> Request<Body> {
     Request::builder()
         .method(method)
         .uri(uri)
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::AUTHORIZATION, format!("Bearer {TOKEN}"))
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
         .body(Body::from(
             body.map_or_else(String::new, |value| value.to_string()),
         ))

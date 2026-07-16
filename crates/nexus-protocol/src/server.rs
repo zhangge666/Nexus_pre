@@ -1,6 +1,12 @@
 //! 本文件实现仅监听回环地址的 Memory Protocol v1 HTTP 路由与错误响应。
 
-use std::{convert::Infallible, io, sync::Arc};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    io,
+    sync::{Arc, RwLock},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     Json, Router,
@@ -25,10 +31,11 @@ use uuid::Uuid;
 use crate::{
     CapabilityGrant, Scope,
     dto::{
-        CapabilitiesResponse, CreateCollectionRequest, CreateLinkRequest, CreateMemoryRequest,
-        CreateMemoryResponse, ListLinksRequest, ListMemoriesRequest, ListMemoriesResponse,
-        MemoryResponse, SearchHitResponse, SearchRequest, SearchResponse, UpdateCollectionRequest,
-        UpdateMemoryRequest,
+        CapabilitiesResponse, ConnectedAppResponse, CreateCollectionRequest, CreateLinkRequest,
+        CreateMemoryRequest, CreateMemoryResponse, ListLinksRequest, ListMemoriesRequest,
+        ListMemoriesResponse, MemoryResponse, RegisterConnectionRequest,
+        RegisterConnectionResponse, SearchHitResponse, SearchRequest, SearchResponse,
+        UpdateCollectionRequest, UpdateMemoryRequest,
     },
     protocol_version,
 };
@@ -43,15 +50,28 @@ const IMPLEMENTED_CAPABILITIES: &[&str] = &[
     "events:subscribe",
     "links:manage",
     "collections:manage",
+    "connections:manage",
     "capabilities",
 ];
+
+/// 保存一条可撤销的本地应用授权及其连接元数据。
+#[derive(Clone)]
+struct RegisteredConnection {
+    token_id: Uuid,
+    app_id: String,
+    name: String,
+    source: String,
+    grant: CapabilityGrant,
+    last_active_at: i64,
+}
 
 /// 持有本地协议服务共享的存储、嵌入器和客户端授权。
 #[derive(Clone)]
 pub struct ProtocolState {
     store: Arc<MemoryStore>,
     embedder: Arc<HashEmbedder>,
-    grant: Arc<CapabilityGrant>,
+    admin_grant: Arc<CapabilityGrant>,
+    connections: Arc<RwLock<HashMap<Uuid, RegisteredConnection>>>,
 }
 
 impl ProtocolState {
@@ -71,7 +91,8 @@ impl ProtocolState {
         Self {
             store,
             embedder,
-            grant: Arc::new(grant),
+            admin_grant: Arc::new(grant),
+            connections: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -133,6 +154,14 @@ pub fn router(state: ProtocolState) -> Router {
         )
         .route("/v1/search", post(search))
         .route("/v1/events", get(events))
+        .route(
+            "/v1/connections",
+            post(register_connection).get(list_connections),
+        )
+        .route(
+            "/v1/connections/{token_id}",
+            axum::routing::delete(revoke_connection),
+        )
         .route("/v1/links", post(create_link).get(list_links))
         .route(
             "/v1/links/{from_id}/{to_id}/{relation}",
@@ -159,13 +188,134 @@ pub fn router(state: ProtocolState) -> Router {
         .with_state(state)
 }
 
+/// 校验持有者凭据并为 M3 Muse 签发仅可写入 `source=muse` 的令牌。
+async fn register_connection(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<RegisterConnectionRequest>,
+) -> Result<(StatusCode, Json<RegisterConnectionResponse>), ProtocolError> {
+    authorize_admin(&headers, &state)?;
+    if request.app_id != "com.nexus.muse"
+        || request.name.trim() != "Muse"
+        || request.source != "muse"
+        || request.scopes != [Scope::MemoryWrite.as_str()]
+    {
+        return Err(ProtocolError::InvalidRequest(
+            "M3 仅允许 Muse 申请 source=muse 的 memory:write 能力".into(),
+        ));
+    }
+
+    let mut connections = state
+        .connections
+        .write()
+        .map_err(|_| ProtocolError::InvalidRequest("连接授权状态不可用".into()))?;
+    if let Some(existing) = connections
+        .values_mut()
+        .find(|connection| connection.app_id == request.app_id)
+    {
+        existing.last_active_at = unix_millis();
+        return Ok((
+            StatusCode::OK,
+            Json(RegisterConnectionResponse {
+                token_id: existing.token_id,
+                token: existing.grant.token_value().to_owned(),
+                scopes: vec![Scope::MemoryWrite.as_str().into()],
+                source: existing.source.clone(),
+            }),
+        ));
+    }
+
+    let token_id = Uuid::new_v4();
+    let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    connections.insert(
+        token_id,
+        RegisteredConnection {
+            token_id,
+            app_id: request.app_id,
+            name: request.name,
+            source: request.source.clone(),
+            grant: CapabilityGrant::new(
+                token.clone(),
+                [Scope::MemoryWrite],
+                Some(request.source.clone()),
+            ),
+            last_active_at: unix_millis(),
+        },
+    );
+    Ok((
+        StatusCode::CREATED,
+        Json(RegisterConnectionResponse {
+            token_id,
+            token,
+            scopes: vec![Scope::MemoryWrite.as_str().into()],
+            source: request.source,
+        }),
+    ))
+}
+
+/// 校验管理权限并返回已登记应用及其来源记忆数量。
+async fn list_connections(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ConnectedAppResponse>>, ProtocolError> {
+    authorize_admin(&headers, &state)?;
+    let connections = state
+        .connections
+        .read()
+        .map_err(|_| ProtocolError::InvalidRequest("连接授权状态不可用".into()))?;
+    let mut response = Vec::with_capacity(connections.len());
+    for connection in connections.values() {
+        let page = state.store.list(&ListQuery {
+            filters: MemoryFilters {
+                sources: vec![connection.source.clone()],
+                ..MemoryFilters::default()
+            },
+            limit: 1,
+            offset: 0,
+        })?;
+        response.push(ConnectedAppResponse {
+            id: connection.app_id.clone(),
+            name: connection.name.clone(),
+            source: connection.source.clone(),
+            scopes: connection
+                .grant
+                .scopes()
+                .map(|scope| scope.as_str().to_owned())
+                .collect(),
+            last_active_at: connection.last_active_at,
+            memories_count: page.total,
+            token_id: connection.token_id,
+        });
+    }
+    response.sort_by_key(|connection| std::cmp::Reverse(connection.last_active_at));
+    Ok(Json(response))
+}
+
+/// 校验管理权限并立即撤销指定本地应用令牌。
+async fn revoke_connection(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Path(token_id): Path<Uuid>,
+) -> Result<StatusCode, ProtocolError> {
+    authorize_admin(&headers, &state)?;
+    let removed = state
+        .connections
+        .write()
+        .map_err(|_| ProtocolError::InvalidRequest("连接授权状态不可用".into()))?
+        .remove(&token_id);
+    if removed.is_none() {
+        return Err(ProtocolError::InvalidRequest("连接不存在或已被撤销".into()));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// 校验管理权限并创建记忆关联。
 async fn create_link(
     State(state): State<ProtocolState>,
     headers: HeaderMap,
     Json(request): Json<CreateLinkRequest>,
 ) -> Result<(StatusCode, Json<Link>), ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     let link = state.store.create_link(
         request.from_id,
         request.to_id,
@@ -181,7 +331,7 @@ async fn list_links(
     headers: HeaderMap,
     Query(request): Query<ListLinksRequest>,
 ) -> Result<Json<Vec<Link>>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     Ok(Json(state.store.list_links(request.memory_id)?))
 }
 
@@ -191,7 +341,7 @@ async fn delete_link(
     headers: HeaderMap,
     Path((from_id, to_id, relation)): Path<(Uuid, Uuid, String)>,
 ) -> Result<StatusCode, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     state
         .store
         .delete_link(from_id, to_id, parse_relation(&relation)?)?;
@@ -204,7 +354,7 @@ async fn create_collection(
     headers: HeaderMap,
     Json(request): Json<CreateCollectionRequest>,
 ) -> Result<(StatusCode, Json<Collection>), ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     let collection = state.store.create_collection(
         request.name,
         request.icon,
@@ -219,7 +369,7 @@ async fn list_collections(
     State(state): State<ProtocolState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<Collection>>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     Ok(Json(state.store.list_collections()?))
 }
 
@@ -229,7 +379,7 @@ async fn get_collection(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Collection>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     Ok(Json(
         state
             .store
@@ -245,7 +395,7 @@ async fn update_collection(
     Path(id): Path<Uuid>,
     Json(request): Json<UpdateCollectionRequest>,
 ) -> Result<Json<Collection>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     let icon = request
         .clear_icon
         .then_some(None)
@@ -271,7 +421,7 @@ async fn delete_collection(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     state.store.delete_collection(id)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -282,7 +432,7 @@ async fn add_collection_memory(
     headers: HeaderMap,
     Path((collection_id, memory_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     state
         .store
         .add_memory_to_collection(collection_id, memory_id)?;
@@ -295,7 +445,7 @@ async fn remove_collection_memory(
     headers: HeaderMap,
     Path((collection_id, memory_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     state
         .store
         .remove_memory_from_collection(collection_id, memory_id)?;
@@ -308,7 +458,7 @@ async fn list_collection_memories(
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Vec<Uuid>>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Admin)?;
+    authorize_admin(&headers, &state)?;
     Ok(Json(state.store.list_collection_memory_ids(id)?))
 }
 
@@ -318,10 +468,10 @@ async fn events(
     Query(request): Query<EventSubscriptionRequest>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Subscribe)?;
+    let grant = authorize(&headers, &state, Scope::Subscribe)?;
     let subscription = state.store.subscribe()?;
     let requested_types = split_csv(request.types.as_deref());
-    let source_restriction = state.grant.source_restriction().map(str::to_owned);
+    let source_restriction = grant.source_restriction().map(str::to_owned);
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
     tokio::task::spawn_blocking(move || {
         while let Some(event) = subscription.recv() {
@@ -373,9 +523,9 @@ async fn get_memory(
     Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<MemoryResponse>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::MemoryRead)?;
+    let grant = authorize(&headers, &state, Scope::MemoryRead)?;
     let memory = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
-    if !state.grant.allows_source(&memory.source.as_storage_value()) {
+    if !grant.allows_source(&memory.source.as_storage_value()) {
         return Err(ProtocolError::Forbidden);
     }
     Ok(Json(memory.into()))
@@ -387,8 +537,8 @@ async fn list_memories(
     headers: HeaderMap,
     Query(request): Query<ListMemoriesRequest>,
 ) -> Result<Json<ListMemoriesResponse>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::MemoryRead)?;
-    let filters = list_filters(&request, &state.grant)?;
+    let grant = authorize(&headers, &state, Scope::MemoryRead)?;
+    let filters = list_filters(&request, &grant)?;
     let page = state.store.list(&ListQuery {
         filters,
         limit: request.limit,
@@ -408,12 +558,9 @@ async fn update_memory(
     headers: HeaderMap,
     Json(request): Json<UpdateMemoryRequest>,
 ) -> Result<Json<MemoryResponse>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::MemoryWrite)?;
+    let grant = authorize(&headers, &state, Scope::MemoryWrite)?;
     let existing = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
-    if !state
-        .grant
-        .allows_source(&existing.source.as_storage_value())
-    {
+    if !grant.allows_source(&existing.source.as_storage_value()) {
         return Err(ProtocolError::Forbidden);
     }
     let memory = state.store.update(
@@ -439,12 +586,9 @@ async fn delete_memory(
     Path(id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::MemoryDelete)?;
+    let grant = authorize(&headers, &state, Scope::MemoryDelete)?;
     let existing = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
-    if !state
-        .grant
-        .allows_source(&existing.source.as_storage_value())
-    {
+    if !grant.allows_source(&existing.source.as_storage_value()) {
         return Err(ProtocolError::Forbidden);
     }
     state.store.delete(&id)?;
@@ -504,8 +648,8 @@ async fn create_memory(
     headers: HeaderMap,
     Json(request): Json<CreateMemoryRequest>,
 ) -> Result<(StatusCode, Json<CreateMemoryResponse>), ProtocolError> {
-    authorize(&headers, &state.grant, Scope::MemoryWrite)?;
-    if !state.grant.allows_source(&request.source) {
+    let grant = authorize(&headers, &state, Scope::MemoryWrite)?;
+    if !grant.allows_source(&request.source) {
         return Err(ProtocolError::Forbidden);
     }
     let source = parse_source(&request.source)?;
@@ -535,7 +679,7 @@ async fn search(
     headers: HeaderMap,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ProtocolError> {
-    authorize(&headers, &state.grant, Scope::Search)?;
+    let grant = authorize(&headers, &state, Scope::Search)?;
     let mode = match request.mode.as_str() {
         "semantic" => SearchMode::Semantic,
         "keyword" => SearchMode::Keyword,
@@ -553,7 +697,7 @@ async fn search(
         created_from: request.filters.created_from,
         created_to: request.filters.created_to,
     };
-    apply_source_restriction(&mut filters.sources, &state.grant)?;
+    apply_source_restriction(&mut filters.sources, &grant)?;
     let hits = state.store.search(
         &SearchQuery {
             text: request.text,
@@ -634,24 +778,57 @@ fn parse_relation(value: &str) -> Result<LinkRelation, ProtocolError> {
         .map_err(|_| ProtocolError::InvalidRequest(format!("未知关联类型: {value}")))
 }
 
-/// 从 Authorization 请求头提取令牌并校验目标能力域。
+/// 从 Authorization 请求头提取令牌并校验目标能力域，返回匹配的授权快照。
 fn authorize(
     headers: &HeaderMap,
-    grant: &CapabilityGrant,
+    state: &ProtocolState,
     scope: Scope,
-) -> Result<(), ProtocolError> {
+) -> Result<CapabilityGrant, ProtocolError> {
     let token = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(ProtocolError::Unauthorized)?;
-    if !grant.accepts_token(token) {
-        return Err(ProtocolError::Unauthorized);
+    if state.admin_grant.accepts_token(token) {
+        if !state.admin_grant.allows(scope) {
+            return Err(ProtocolError::Forbidden);
+        }
+        return Ok((*state.admin_grant).clone());
     }
-    if !grant.allows(scope) {
+
+    let mut connections = state
+        .connections
+        .write()
+        .map_err(|_| ProtocolError::Unauthorized)?;
+    let connection = connections
+        .values_mut()
+        .find(|connection| connection.grant.accepts_token(token))
+        .ok_or(ProtocolError::Unauthorized)?;
+    if !connection.grant.allows(scope) {
         return Err(ProtocolError::Forbidden);
     }
+    connection.last_active_at = unix_millis();
+    Ok(connection.grant.clone())
+}
+
+/// 仅接受 Orbit 持有者管理令牌，避免普通连接自行登记或撤销其他应用。
+fn authorize_admin(headers: &HeaderMap, state: &ProtocolState) -> Result<(), ProtocolError> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or(ProtocolError::Unauthorized)?;
+    if !state.admin_grant.accepts_token(token) || !state.admin_grant.allows(Scope::Admin) {
+        return Err(ProtocolError::Unauthorized);
+    }
     Ok(())
+}
+
+/// 返回本地连接审计使用的 Unix 毫秒时间。
+fn unix_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() as i64)
 }
 
 /// 将协议 source 字符串转换为统一数据模型来源。

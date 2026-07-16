@@ -35,6 +35,21 @@ impl Scope {
             Self::Admin => "admin",
         }
     }
+
+    /// 将协议请求中的稳定字符串解析为能力域。
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "memory:read" => Some(Self::MemoryRead),
+            "memory:write" => Some(Self::MemoryWrite),
+            "memory:delete" => Some(Self::MemoryDelete),
+            "search" => Some(Self::Search),
+            "subscribe" => Some(Self::Subscribe),
+            "review" => Some(Self::Review),
+            "admin" => Some(Self::Admin),
+            _ => None,
+        }
+    }
 }
 
 /// 表示本地服务为一个客户端签发的令牌、能力域和可写来源。
@@ -64,6 +79,17 @@ impl CapabilityGrant {
     #[must_use]
     pub fn accepts_token(&self, token: &str) -> bool {
         self.token == token
+    }
+
+    /// 返回令牌正文；仅协议服务登记响应内部使用，不应进入连接列表或日志。
+    #[must_use]
+    pub(crate) fn token_value(&self) -> &str {
+        &self.token
+    }
+
+    /// 返回令牌绑定的全部能力域，供连接管理界面展示授权边界。
+    pub fn scopes(&self) -> impl Iterator<Item = Scope> + '_ {
+        self.scopes.iter().copied()
     }
 
     /// 判断授权是否包含指定能力域；admin 隐含全部能力。

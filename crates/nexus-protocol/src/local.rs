@@ -15,6 +15,23 @@ use uuid::Uuid;
 const LOCK_FILE_NAME: &str = "memory-service.lock";
 const DISCOVERY_FILE_NAME: &str = "memory-service.json";
 
+/// 从各 Tauri 应用自己的数据目录推导 Nexus 产品族共享的数据目录。
+#[must_use]
+pub fn shared_nexus_data_dir(app_data_dir: impl AsRef<Path>) -> PathBuf {
+    app_data_dir
+        .as_ref()
+        .parent()
+        .unwrap_or_else(|| app_data_dir.as_ref())
+        .join("com.nexus.shared")
+}
+
+/// 读取共享目录中的本地服务发现记录并校验其回环端点仍然可达。
+pub async fn discover_local_service(data_dir: impl AsRef<Path>) -> io::Result<ServiceDiscovery> {
+    let discovery = read_discovery(&data_dir.as_ref().join(DISCOVERY_FILE_NAME))?;
+    verify_loopback_endpoint(&discovery).await?;
+    Ok(discovery)
+}
+
 /// 表示其他本地应用连接 Memory Protocol 所需的发现信息。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceDiscovery {

@@ -27,6 +27,31 @@ test("构造请求时使用 v1 路径和认证头", async () => {
   assert.equal(mock.calls[0].init.headers.get("authorization"), "Bearer secret");
 });
 
+/** 验证 M3 Muse 登记请求保持固定来源和最小能力域。 */
+test("登记 Muse 最小连接授权", async () => {
+  const mock = createFetch(() => Response.json({
+    tokenId: "token-1",
+    token: "muse-secret",
+    scopes: ["memory:write"],
+    source: "muse",
+  }, { status: 201 }));
+  const client = new ProtocolClient({ endpoint: "http://127.0.0.1:4111", token: "holder", fetch: mock.fetch });
+  const result = await client.registerConnection({
+    app_id: "com.nexus.muse",
+    name: "Muse",
+    source: "muse",
+    scopes: ["memory:write"],
+  });
+  assert.equal(result.token, "muse-secret");
+  assert.equal(mock.calls[0].input, "http://127.0.0.1:4111/v1/connections");
+  assert.deepEqual(JSON.parse(mock.calls[0].init.body), {
+    app_id: "com.nexus.muse",
+    name: "Muse",
+    source: "muse",
+    scopes: ["memory:write"],
+  });
+});
+
 /** 验证服务端 JSON 错误被映射为包含状态码的专用错误。 */
 test("映射服务端错误", async () => {
   const mock = createFetch(() => Response.json({ error: "当前令牌无权执行此操作" }, { status: 403 }));

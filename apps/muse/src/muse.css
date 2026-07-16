@@ -1,0 +1,268 @@
+/** 本文件按 Nexus 设计系统实现 Muse M3 最小来源的紧凑响应式布局。 */
+
+body {
+  min-height: 100vh;
+  background: hsl(var(--background));
+}
+
+.muse-shell {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+}
+
+.muse-panel {
+  width: min(100%, 520px);
+  overflow: hidden;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-lg);
+  background: hsl(var(--surface));
+  box-shadow: var(--shadow-md);
+}
+
+.muse-header {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.muse-brand {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-md);
+  color: hsl(var(--primary-hover));
+  background: hsl(var(--surface-active));
+}
+
+.muse-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.muse-header p {
+  margin: 2px 0 0;
+  color: hsl(var(--foreground-muted));
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.connection-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-secondary));
+  font-size: 11px;
+}
+
+.connection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--foreground-disabled));
+}
+
+.connection-badge.is-connected .connection-dot {
+  background: hsl(var(--success));
+}
+
+.connection-badge.is-connecting .connection-dot {
+  background: hsl(var(--warning));
+}
+
+.connection-row {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--background));
+  font-size: 11px;
+}
+
+.connection-copy {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Geist Mono", "JetBrains Mono", monospace;
+}
+
+.retry-button,
+.submit-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.retry-button {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface));
+  font-size: 11px;
+}
+
+.retry-button:hover:not(:disabled) {
+  background: hsl(var(--surface-hover));
+}
+
+.capture-form {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+}
+
+.capture-form label {
+  color: hsl(var(--foreground-secondary));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.capture-form textarea {
+  width: 100%;
+  min-height: 116px;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.capture-form textarea:focus {
+  border-color: hsl(var(--ring));
+}
+
+.capture-form textarea:disabled {
+  cursor: not-allowed;
+  color: hsl(var(--foreground-disabled));
+  background: hsl(var(--muted));
+}
+
+.capture-form textarea::placeholder {
+  color: hsl(var(--foreground-muted));
+}
+
+.form-actions {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 12px;
+}
+
+.feedback {
+  display: inline-flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--foreground-muted));
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.feedback.is-success {
+  color: hsl(var(--success));
+}
+
+.feedback.is-error {
+  color: hsl(var(--danger));
+}
+
+.submit-button {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.submit-button:hover:not(:disabled) {
+  background: hsl(var(--primary-hover));
+}
+
+.retry-button:disabled,
+.submit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.scope-footer {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  border-top: 1px solid hsl(var(--border-subtle));
+  color: hsl(var(--foreground-disabled));
+  background: hsl(var(--background));
+  font-family: "Geist Mono", "JetBrains Mono", monospace;
+  font-size: 10px;
+}
+
+.scope-footer span:not(:last-of-type)::after {
+  margin-left: 8px;
+  content: "·";
+}
+
+.scope-footer kbd {
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface));
+  font: inherit;
+}
+
+@media (max-width: 520px) {
+  .muse-shell {
+    padding: 12px;
+    place-items: stretch;
+  }
+
+  .muse-panel {
+    align-self: center;
+  }
+
+  .form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .submit-button {
+    width: 100%;
+  }
+
+  .scope-footer span:nth-of-type(2) {
+    display: none;
+  }
+}

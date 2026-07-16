@@ -1,9 +1,8 @@
 /** 本文件实现 Orbit 连接与隐私设置中心，集成已连接应用管理、加密同步状态及安全体检检查器。 */
 import React, { useState, useEffect } from "react";
 import {
-  Link2, Trash2, ShieldCheck, Download, Key, Monitor,
-  BookOpen, Lock, Sparkles, RefreshCw, KeyRound, CheckCircle,
-  Smartphone, Laptop, HelpCircle, Eye, EyeOff
+  Link2, Trash2, ShieldCheck, Download, Key, Lock, RefreshCw,
+  Smartphone, Laptop, Eye, EyeOff
 } from "lucide-react";
 import { listConnectedApps, revokeApp } from "../core";
 import type { ConnectedApp } from "../core";
@@ -37,12 +36,26 @@ export default function ConnectionsPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [revoking, setRevoking] = useState<string | null>(null);
   const [showPhrase, setShowPhrase] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+
+  /** 从真实 Memory Protocol 刷新连接列表，并保留可重试的错误状态。 */
+  async function loadConnections(showLoading = false): Promise<void> {
+    if (showLoading) setLoading(true);
+    try {
+      setApps(await listConnectedApps());
+      setConnectionError(null);
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    void listConnectedApps().then((a) => {
-      setApps(a);
-      setLoading(false);
-    });
+    void loadConnections(true);
+    // M3 登记发生在独立 Muse 进程中，轻量轮询让连接管理无需重载即可回显。
+    const timer = window.setInterval(() => void loadConnections(), 2_000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -67,8 +80,8 @@ export default function ConnectionsPage(): React.JSX.Element {
         title="Connections & Privacy"
         subtitle="Control how Orbit connects, syncs, and protects your data."
         actions={
-          <button className="secondary-button">
-            <BookOpen size={14} />Learn more
+          <button className="secondary-button" onClick={() => void loadConnections(true)} disabled={loading}>
+            <RefreshCw size={14} />{loading ? "Refreshing" : "Refresh connections"}
           </button>
         }
       />
@@ -94,10 +107,10 @@ export default function ConnectionsPage(): React.JSX.Element {
               <Key size={12} style={{ color: "hsl(var(--warning))" }} />
             </div>
             <div className="stat-card-value">
-              7<span>tokens</span>
+              {apps.length}<span>tokens</span>
             </div>
             <div className="stat-card-footer success">
-              All healthy
+              {apps.length === 0 ? "No active grants" : "Scoped & revocable"}
             </div>
           </div>
 
@@ -135,6 +148,15 @@ export default function ConnectionsPage(): React.JSX.Element {
           </div>
           {loading ? (
             <p className="loading-hint">Loading sources...</p>
+          ) : connectionError ? (
+            <div className="empty-state-compact" role="alert">
+              <p>{connectionError}</p>
+              <button className="secondary-button" onClick={() => void loadConnections(true)}>Retry</button>
+            </div>
+          ) : apps.length === 0 ? (
+            <div className="empty-state-compact">
+              <p>尚无已授权来源。启动 Muse 并连接 Orbit 后会在这里出现。</p>
+            </div>
           ) : (
             <div className="conn-table-scroll">
               <table className="conn-sources-table">
@@ -143,6 +165,7 @@ export default function ConnectionsPage(): React.JSX.Element {
                   <th>Source</th>
                   <th>Scopes</th>
                   <th>Last active</th>
+                  <th>Memories</th>
                   <th>Sync status</th>
                   <th>Actions</th>
                 </tr>
@@ -171,6 +194,7 @@ export default function ConnectionsPage(): React.JSX.Element {
                     <td style={{ color: "hsl(var(--foreground-secondary))" }}>
                       {formatRelTime(app.lastActiveAt)}
                     </td>
+                    <td style={{ color: "hsl(var(--foreground-secondary))" }}>{app.memoriesCount}</td>
                     <td>
                       <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", color: "hsl(var(--foreground-secondary))" }}>
                         <span className="status-dot success" style={{ width: "6px", height: "6px", borderRadius: "50%", background: "hsl(var(--success))" }} />

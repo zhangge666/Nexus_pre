@@ -1,0 +1,32 @@
+# 本文件定义 Muse M3 最小 Tauri 壳及其 Memory Protocol 客户端依赖。
+
+[package]
+name = "muse-app"
+description = "Muse M3 最小文字来源适配器"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+name = "muse_app_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+nexus-protocol = { path = "../../../crates/nexus-protocol" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+nexus-core = { path = "../../../crates/nexus-core" }
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

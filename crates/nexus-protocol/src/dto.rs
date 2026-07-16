@@ -4,6 +4,53 @@ use nexus_core::{Block, ContentFormat, LinkCreator, LinkRelation, Memory, Memory
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// 表示第一方本地应用请求最小 capability token 的登记信息。
+#[derive(Debug, Deserialize)]
+pub struct RegisterConnectionRequest {
+    /// 稳定应用标识；M3 仅接受 Muse 桌面来源。
+    pub app_id: String,
+    /// 面向用户展示的应用名称。
+    pub name: String,
+    /// 令牌允许写入的统一来源。
+    pub source: String,
+    /// 应用申请的最小能力域。
+    pub scopes: Vec<String>,
+}
+
+/// 表示登记成功后签发给本地应用的 capability token。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterConnectionResponse {
+    /// 连接管理使用的令牌标识，不等同于敏感令牌正文。
+    pub token_id: Uuid,
+    /// 后续协议请求携带的 Bearer token。
+    pub token: String,
+    /// 实际授予的能力域。
+    pub scopes: Vec<String>,
+    /// 实际限制的可写来源。
+    pub source: String,
+}
+
+/// 表示 Orbit 连接管理页面使用的已授权应用摘要。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectedAppResponse {
+    /// 稳定应用标识。
+    pub id: String,
+    /// 面向用户的应用名称。
+    pub name: String,
+    /// 令牌限定的来源。
+    pub source: String,
+    /// 已授予的能力域。
+    pub scopes: Vec<String>,
+    /// 最近成功鉴权的 Unix 毫秒时间。
+    pub last_active_at: i64,
+    /// 当前来源已经写入的记忆数量。
+    pub memories_count: usize,
+    /// 可撤销令牌的非敏感标识。
+    pub token_id: Uuid,
+}
+
 /// 表示 `POST /v1/memories` 的请求正文。
 #[derive(Debug, Deserialize)]
 pub struct CreateMemoryRequest {
