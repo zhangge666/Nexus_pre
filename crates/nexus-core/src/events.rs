@@ -32,6 +32,20 @@ pub enum CoreEvent {
         /// 记忆来源稳定字符串。
         source: String,
     },
+    /// 一张知识卡片已经到期，复习客户端应刷新队列。
+    ReviewDue {
+        /// 到期卡片的 Memory 标识。
+        id: Uuid,
+        /// 卡片本轮到期时间。
+        due_at: i64,
+    },
+    /// 一张卡片完成评分并产生新的调度结果。
+    ReviewGraded {
+        /// 已评分卡片的 Memory 标识。
+        id: Uuid,
+        /// 评分后的下次到期时间。
+        due_at: i64,
+    },
 }
 
 /// 表示一个按发送顺序接收核心事件的订阅。

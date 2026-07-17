@@ -14,6 +14,7 @@ const MIGRATION_V1: &str = include_str!("../migrations/0001_initial.sql");
 const MIGRATION_V2: &str = include_str!("../migrations/0002_media.sql");
 const MIGRATION_V3: &str = include_str!("../migrations/0003_vector_index.sql");
 const MIGRATION_V4: &str = include_str!("../migrations/0004_organization.sql");
+const MIGRATION_V5: &str = include_str!("../migrations/0005_intelligence.sql");
 
 /// 持有单写者 SQLite 连接并在创建时自动执行迁移。
 pub struct MemoryStore {
@@ -129,6 +130,9 @@ impl MemoryStore {
         }
         if version < 4 {
             connection.execute_batch(MIGRATION_V4)?;
+        }
+        if version < 5 {
+            connection.execute_batch(MIGRATION_V5)?;
         }
         Ok(())
     }

@@ -478,11 +478,13 @@ async fn events(
             let source = match &event {
                 nexus_core::CoreEvent::MemoryCreated { source, .. }
                 | nexus_core::CoreEvent::MemoryUpdated { source, .. }
-                | nexus_core::CoreEvent::MemoryDeleted { source, .. } => source,
+                | nexus_core::CoreEvent::MemoryDeleted { source, .. } => Some(source.as_str()),
+                nexus_core::CoreEvent::ReviewDue { .. }
+                | nexus_core::CoreEvent::ReviewGraded { .. } => None,
             };
             if source_restriction
                 .as_ref()
-                .is_some_and(|allowed| allowed != source)
+                .is_some_and(|allowed| source != Some(allowed.as_str()))
             {
                 continue;
             }
@@ -490,6 +492,8 @@ async fn events(
                 nexus_core::CoreEvent::MemoryCreated { .. } => "memory.created",
                 nexus_core::CoreEvent::MemoryUpdated { .. } => "memory.updated",
                 nexus_core::CoreEvent::MemoryDeleted { .. } => "memory.deleted",
+                nexus_core::CoreEvent::ReviewDue { .. } => "review.due",
+                nexus_core::CoreEvent::ReviewGraded { .. } => "review.graded",
             };
             if !requested_types.is_empty()
                 && !requested_types.iter().any(|value| value == event_name)

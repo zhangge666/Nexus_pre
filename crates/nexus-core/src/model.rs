@@ -389,3 +389,124 @@ pub struct CollectionPatch {
     /// 新排序值。
     pub sort: Option<i64>,
 }
+
+/// 表示知识卡片当前所处的复习学习阶段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewPhase {
+    /// 尚未评分的新卡片。
+    New,
+    /// 首轮学习中的卡片。
+    Learning,
+    /// 已进入长期复习的卡片。
+    Review,
+    /// 遗忘后重新学习的卡片。
+    Relearning,
+}
+
+/// 表示用户对一次回忆质量的四档评分。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Rating {
+    /// 完全遗忘。
+    Again,
+    /// 回忆困难或有明显犹豫。
+    Hard,
+    /// 正常回忆成功。
+    Good,
+    /// 轻松且快速回忆成功。
+    Easy,
+}
+
+impl Rating {
+    /// 返回 FSRS 公式使用的稳定评分序号 1–4。
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::Again => 1,
+            Self::Hard => 2,
+            Self::Good => 3,
+            Self::Easy => 4,
+        }
+    }
+}
+
+/// 表示一张知识卡片的持久化 FSRS 复习状态。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReviewState {
+    /// 对应 `kind=card` 的 Memory 标识。
+    pub memory_id: Uuid,
+    /// 卡片正面问题。
+    pub card_front: String,
+    /// 卡片背面答案。
+    pub card_back: String,
+    /// FSRS 稳定度，单位为天。
+    pub stability: f64,
+    /// FSRS 难度，范围 1–10。
+    pub difficulty: f64,
+    /// 下次到期 Unix 毫秒时间。
+    pub due_at: i64,
+    /// 最近一次评分时间。
+    pub last_reviewed_at: Option<i64>,
+    /// 累计评分次数。
+    pub reps: u32,
+    /// 累计遗忘次数。
+    pub lapses: u32,
+    /// 当前学习阶段。
+    pub state: ReviewPhase,
+    /// 可选复习集名称。
+    pub deck: Option<String>,
+    /// 卡片加入复习系统的时间。
+    pub created_at: i64,
+}
+
+/// 表示一次评分完成后的关键调度结果。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GradeResult {
+    /// 下次到期 Unix 毫秒时间。
+    pub next_due_at: i64,
+    /// 更新后的稳定度。
+    pub new_stability: f64,
+    /// 更新后的难度。
+    pub new_difficulty: f64,
+    /// 更新后的学习阶段。
+    pub new_state: ReviewPhase,
+}
+
+/// 表示 Orbit 复习首页使用的聚合统计。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReviewStats {
+    /// 当前已经到期的卡片数。
+    pub due_today: usize,
+    /// 当天新建卡片数。
+    pub new_today: usize,
+    /// 当天已完成评分次数。
+    pub reviewed_today: usize,
+    /// 连续有评分记录的自然日数。
+    pub streak: usize,
+    /// 稳定度不少于 21 天的成熟卡数量。
+    pub mature: usize,
+    /// 已学习但尚未成熟的卡数量。
+    pub young: usize,
+    /// 全部卡片数量。
+    pub total_cards: usize,
+}
+
+/// 表示创建知识卡片所需的正反面、来源和组织信息。
+#[derive(Debug, Clone)]
+pub struct CreateCardInput {
+    /// 卡片正面问题。
+    pub card_front: String,
+    /// 卡片背面答案。
+    pub card_back: String,
+    /// 可选来源记忆，存在时创建 `derived_from` 关联。
+    pub source_memory_id: Option<Uuid>,
+    /// 可选复习集名称。
+    pub deck: Option<String>,
+    /// 附加到卡片 Memory 的标签。
+    pub tags: Vec<String>,
+    /// 关联创建主体，AI 生成时使用 `Ai`。
+    pub created_by: LinkCreator,
+    /// 生成 Provider 标识，手动创建时为空。
+    pub provider: Option<String>,
+}

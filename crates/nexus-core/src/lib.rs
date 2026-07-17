@@ -5,10 +5,12 @@ pub mod embed;
 pub mod error;
 pub mod events;
 pub mod ingest;
+mod intelligence;
 pub mod media;
 pub mod model;
 mod organization;
 mod repository;
+pub mod review;
 pub mod search;
 pub mod store;
 
@@ -19,9 +21,10 @@ pub use events::{CoreEvent, EventSubscription};
 pub use ingest::Ingestor;
 pub use media::MediaService;
 pub use model::{
-    Block, Collection, CollectionPatch, ContentFormat, IngestInput, Link, LinkCreator,
-    LinkRelation, ListQuery, MediaKind, MediaMetadata, MediaRecord, Memory, MemoryFilters,
-    MemoryKind, MemoryPage, MemoryPatch, MemorySource, SearchHit, SearchMode, SearchQuery,
+    Block, Collection, CollectionPatch, ContentFormat, CreateCardInput, GradeResult, IngestInput,
+    Link, LinkCreator, LinkRelation, ListQuery, MediaKind, MediaMetadata, MediaRecord, Memory,
+    MemoryFilters, MemoryKind, MemoryPage, MemoryPatch, MemorySource, Rating, ReviewPhase,
+    ReviewState, ReviewStats, SearchHit, SearchMode, SearchQuery,
 };
 pub use nexus_ai::{Embedder, EmbeddingError, LocalOnnxEmbedder};
 pub use store::MemoryStore;
@@ -37,6 +40,8 @@ pub const fn modules() -> &'static [&'static str] {
         "embed",
         "crypto",
         "organization",
+        "review",
+        "intelligence",
         "events",
     ]
 }
