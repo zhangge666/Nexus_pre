@@ -362,8 +362,9 @@ nav { display: grid; gap: 2px; }
 .bubble-content p { margin: 0 0 6px; color: hsl(var(--foreground-secondary)); }
 .citations-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid hsl(var(--border-subtle)); }
 .citations-label { font-size: 11px; font-weight: 600; color: hsl(var(--foreground-muted)); margin: 0 0 6px; }
-.citation-card { display: flex; gap: 10px; padding: 8px 10px; border: 1px solid hsl(var(--border-subtle)); border-radius: var(--radius); background: hsl(var(--surface-hover) / 0.5); cursor: pointer; margin-bottom: 4px; }
+.citation-card { display: flex; width: 100%; gap: 10px; padding: 8px 10px; border: 1px solid hsl(var(--border-subtle)); border-radius: var(--radius); background: hsl(var(--surface-hover) / 0.5); color: inherit; text-align: left; cursor: pointer; margin-bottom: 4px; }
 .citation-card:hover { border-color: hsl(var(--border-strong)); }
+.citation-card:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
 .citation-icon { font-size: 14px; flex-shrink: 0; }
 .citation-body strong { display: block; font-size: 12px; font-weight: 600; color: hsl(var(--foreground-secondary)); margin-bottom: 2px; }
 .citation-body p { margin: 0; font-size: 11px; color: hsl(var(--foreground-muted)); line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -456,9 +457,13 @@ nav { display: grid; gap: 2px; }
 .card-preview-content { font-size: 14px; color: hsl(var(--foreground)); line-height: 1.6; white-space: pre-wrap; }
 .card-preview-source { font-size: 12px; color: hsl(var(--foreground-muted)); margin-top: 12px; display: flex; align-items: center; gap: 4px; }
 .card-preview-stats { display: flex; gap: 16px; margin-top: 10px; font-size: 11px; color: hsl(var(--foreground-muted)); }
-.create-card-form { display: flex; flex-direction: column; }
+.create-card-form { display: flex; flex-direction: column; gap: 8px; }
 .form-label { font-size: 12px; font-weight: 500; color: hsl(var(--foreground-secondary)); margin-bottom: 6px; }
 .form-textarea { border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--surface)); color: hsl(var(--foreground)); padding: 8px; font-size: 13px; font: inherit; resize: vertical; }
+.form-textarea:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.form-help { margin: 0; color: hsl(var(--foreground-muted)); font-size: 11px; line-height: 1.45; }
+.form-error { margin: 0; color: hsl(var(--danger)); font-size: 12px; line-height: 1.45; }
+.inline-notice { margin: 8px var(--page-inline, 32px); padding: 8px 10px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--surface)); color: hsl(var(--foreground-secondary)); font-size: 12px; line-height: 1.45; }
 
 /* ============================================================
    Graph Page
@@ -593,6 +598,14 @@ nav { display: grid; gap: 2px; }
   .flash-card { width: 95%; }
   .rating-buttons { gap: 6px; }
   .rating-btn { min-width: 64px; padding: 8px 10px; }
+  .settings-layout { display: flex; flex-direction: column; overflow-y: auto; }
+  .settings-nav { display: flex; flex: 0 0 auto; width: 100%; padding: 4px 8px; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid hsl(var(--border-subtle)); scrollbar-width: none; }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav-item { flex: 0 0 auto; width: auto; min-height: 32px; padding: 6px 10px; white-space: nowrap; }
+  .settings-content { flex: 1 0 auto; max-width: none; padding: 20px 16px 32px; overflow: visible; }
+  .setting-row { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .setting-control { width: 100%; }
+  .settings-select, .settings-input:not(.short) { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

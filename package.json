@@ -8,7 +8,8 @@
     "check": "turbo run check",
     "test": "turbo run test",
     "verify:orbit-m2": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m2.ps1",
-    "verify:muse-m3": "powershell -ExecutionPolicy Bypass -File scripts/verify-muse-m3.ps1"
+    "verify:muse-m3": "powershell -ExecutionPolicy Bypass -File scripts/verify-muse-m3.ps1",
+    "verify:orbit-m4": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m4.ps1"
   },
   "devDependencies": {
     "turbo": "^2.5.0",

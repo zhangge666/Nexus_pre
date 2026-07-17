@@ -2,8 +2,8 @@
 import type React from "react";
 import { useState, useEffect } from "react";
 import { Layers, Plus, BookOpen } from "lucide-react";
-import { listReviewCards } from "../core";
-import type { ReviewCard, ReviewState } from "../core";
+import { createCard, generateCards, listMemories, listReviewCards } from "../core";
+import type { MemorySummary, ReviewCard, ReviewState } from "../core";
 import { Topbar } from "../components/Topbar";
 import { EmptyState } from "../components/EmptyState";
 import { Modal } from "../components/Modal";
@@ -69,9 +69,22 @@ export default function CardsPage(): React.JSX.Element {
   const [createOpen, setCreateOpen] = useState(false);
   const [frontText, setFrontText] = useState("");
   const [backText, setBackText] = useState("");
+  const [deckText, setDeckText] = useState("默认");
+  const [createMode, setCreateMode] = useState<"manual" | "ai">("manual");
+  const [sources, setSources] = useState<MemorySummary[]>([]);
+  const [sourceMemoryId, setSourceMemoryId] = useState("");
+  const [instruction, setInstruction] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    void listReviewCards().then((cs) => { setCards(cs); setLoading(false); });
+    void Promise.all([listReviewCards(), listMemories()])
+      .then(([cs, memories]) => {
+        setCards(cs);
+        setSources(memories.filter((memory) => memory.kind !== "card"));
+      })
+      .catch((error) => setNotice(`卡片加载失败：${String(error)}`))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -90,6 +103,37 @@ export default function CardsPage(): React.JSX.Element {
     acc[deck] = filtered.filter((c) => (c.deck ?? "默认") === deck);
     return acc;
   }, {});
+
+  /** 创建手动卡片或从选定来源生成卡片；失败时保留全部输入。 */
+  async function handleCreate(): Promise<void> {
+    if (submitting) return;
+    setSubmitting(true);
+    setNotice(null);
+    try {
+      const created = createMode === "manual"
+        ? [await createCard({
+            cardFront: frontText,
+            cardBack: backText,
+            deck: deckText || null,
+          })]
+        : await generateCards({
+            sourceMemoryId,
+            instruction: instruction || null,
+            deck: deckText || null,
+            maxCards: 3,
+          });
+      setCards((current) => [...created, ...current]);
+      setCreateOpen(false);
+      setFrontText("");
+      setBackText("");
+      setInstruction("");
+      setNotice(`已创建 ${created.length} 张卡片`);
+    } catch (error) {
+      setNotice(`创建失败：${String(error)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <PageLayout className="cards-page">
@@ -128,6 +172,7 @@ export default function CardsPage(): React.JSX.Element {
       </div>
 
       <div className="cards-content page-list-content">
+        {notice && <p className="inline-notice" role="status" aria-live="polite">{notice}</p>}
         {loading && <p className="loading-hint">加载卡片中…</p>}
 
         {!loading && filtered.length === 0 && (
@@ -164,36 +209,48 @@ export default function CardsPage(): React.JSX.Element {
             <button className="secondary-button" onClick={() => setCreateOpen(false)}>取消</button>
             <button
               className="primary-small"
-              disabled={!frontText.trim() || !backText.trim()}
-              onClick={() => {
-                // TODO: 调用 createCard API
-                setCreateOpen(false);
-                setFrontText("");
-                setBackText("");
-              }}
+              disabled={submitting || (createMode === "manual"
+                ? !frontText.trim() || !backText.trim()
+                : !sourceMemoryId)}
+              onClick={() => void handleCreate()}
             >
-              创建卡片
+              {submitting ? "创建中…" : createMode === "manual" ? "创建卡片" : "生成卡片"}
             </button>
           </div>
         }
       >
         <div className="create-card-form">
-          <label className="form-label">正面（问题）</label>
-          <textarea
-            className="form-textarea"
-            value={frontText}
-            onChange={(e) => setFrontText(e.target.value)}
-            placeholder="输入问题…"
-            rows={3}
-          />
-          <label className="form-label" style={{ marginTop: 12 }}>背面（答案）</label>
-          <textarea
-            className="form-textarea"
-            value={backText}
-            onChange={(e) => setBackText(e.target.value)}
-            placeholder="输入答案…"
-            rows={3}
-          />
+          <div className="filter-row" role="group" aria-label="卡片创建方式">
+            <button type="button" className={`filter-button${createMode === "manual" ? " active" : ""}`} onClick={() => setCreateMode("manual")}>手动创建</button>
+            <button type="button" className={`filter-button${createMode === "ai" ? " active" : ""}`} onClick={() => setCreateMode("ai")}>从记忆生成</button>
+          </div>
+          {createMode === "manual" ? (
+            <>
+              <label className="form-label" htmlFor="card-front">正面（问题）</label>
+              <textarea id="card-front" className="form-textarea" value={frontText}
+                onChange={(e) => setFrontText(e.target.value)} placeholder="输入问题…" rows={3} />
+              <label className="form-label" htmlFor="card-back">背面（答案）</label>
+              <textarea id="card-back" className="form-textarea" value={backText}
+                onChange={(e) => setBackText(e.target.value)} placeholder="输入答案…" rows={3} />
+            </>
+          ) : (
+            <>
+              <label className="form-label" htmlFor="card-source">来源记忆</label>
+              <select id="card-source" className="settings-select" value={sourceMemoryId}
+                onChange={(event) => setSourceMemoryId(event.target.value)}>
+                <option value="">选择一条记忆…</option>
+                {sources.map((memory) => <option key={memory.id} value={memory.id}>{memory.title ?? memory.content.slice(0, 42)}</option>)}
+              </select>
+              <label className="form-label" htmlFor="card-instruction">补充要求（可选）</label>
+              <textarea id="card-instruction" className="form-textarea" value={instruction}
+                onChange={(event) => setInstruction(event.target.value)} placeholder="例如：聚焦核心概念" rows={2} />
+              <p className="form-help">只会把这条来源记忆的必要文本发送给当前 Completion Provider。</p>
+            </>
+          )}
+          <label className="form-label" htmlFor="card-deck">复习集</label>
+          <input id="card-deck" className="settings-input" value={deckText}
+            onChange={(event) => setDeckText(event.target.value)} placeholder="默认" />
+          {notice?.startsWith("创建失败") && <p className="form-error" role="alert">{notice}</p>}
         </div>
       </Modal>
     </PageLayout>

@@ -33,10 +33,12 @@ export default function ReviewPage(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [done, setDone] = useState(false);
   const [shuffle, setShuffle] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   /** 重新加载复习队列与统计数据，并重置本轮复习状态。 */
   const load = useCallback(async () => {
     setLoading(true);
+    setNotice(null);
     try {
       const [q, s] = await Promise.all([getReviewQueue(), getReviewStats()]);
       setQueue(q);
@@ -46,6 +48,8 @@ export default function ReviewPage(): React.JSX.Element {
       setCurrent(0);
       setFlipped(false);
       setReviewed(0);
+    } catch (error) {
+      setNotice(`复习队列加载失败：${String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -58,15 +62,17 @@ export default function ReviewPage(): React.JSX.Element {
   // 仅在答案已经翻开时响应快捷键，避免误触直接提交评分。
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!flipped || done || loading || grading) return;
+      if (done || loading || grading) return;
+      if (!flipped && (e.key.toLowerCase() === "s" || e.key === " ")) {
+        e.preventDefault();
+        setFlipped(true);
+        return;
+      }
+      if (!flipped) return;
       if (e.key === "1") void handleRate("again");
       if (e.key === "2") void handleRate("hard");
       if (e.key === "3") void handleRate("good");
       if (e.key === "4") void handleRate("easy");
-      if (e.key.toLowerCase() === "s" || e.key === " ") {
-        e.preventDefault();
-        setFlipped(true);
-      }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
@@ -77,8 +83,9 @@ export default function ReviewPage(): React.JSX.Element {
     const card = queue[current];
     if (!card || grading) return;
     setGrading(true);
+    setNotice(null);
     try {
-      await gradeCard(card.memoryId, rating);
+      const result = await gradeCard(card.memoryId, rating);
       const next = current + 1;
       setReviewed(prev => prev + 1);
       if (next >= queue.length) {
@@ -89,6 +96,11 @@ export default function ReviewPage(): React.JSX.Element {
       }
       // 评分写入成功后异步刷新统计，不阻塞下一张卡片的展示。
       void getReviewStats().then(setStats);
+      const hours = Math.max(1, Math.round((result.nextDueAt - Date.now()) / 3_600_000));
+      setNotice(`评分已保存，下次约 ${hours < 48 ? `${hours} 小时` : `${Math.round(hours / 24)} 天`}后复习`);
+    } catch (error) {
+      // 写入失败时保留当前卡片和翻面状态，方便用户直接重试。
+      setNotice(`评分失败：${String(error)}`);
     } finally {
       setGrading(false);
     }
@@ -149,6 +161,8 @@ export default function ReviewPage(): React.JSX.Element {
         }
       />
 
+        {notice && <p className="inline-notice" role={notice.includes("失败") ? "alert" : "status"}>{notice}</p>}
+
         {/* 1. 统计卡片行 */}
         <section className="stats-cards-grid" aria-label="复习统计">
           <div className="dashboard-stat-card">
@@ -157,10 +171,10 @@ export default function ReviewPage(): React.JSX.Element {
               <Clock size={12} />
             </div>
             <div className="stat-card-value">
-              {stats?.dueToday || 36}<span>cards</span>
+              {stats?.dueToday ?? 0}<span>cards</span>
             </div>
             <div className="stat-card-footer success">
-              +{stats?.newToday || 8} new
+              +{stats?.newToday ?? 0} new
             </div>
           </div>
 
@@ -182,30 +196,27 @@ export default function ReviewPage(): React.JSX.Element {
 
           <div className="dashboard-stat-card">
             <div className="stat-card-header">
-              <span>RETENTION</span>
+              <span>MATURE</span>
               <BarChart2 size={12} />
             </div>
             <div className="stat-card-value">
-              87%
+              {stats?.mature ?? 0}<span>cards</span>
             </div>
             <div className="stat-card-footer success" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>7-day average</span>
-              <svg width="36" height="12" viewBox="0 0 36 12">
-                <path d="M 0 10 L 8 8 L 16 9 L 24 4 L 32 6 L 36 2" fill="none" stroke="hsl(var(--success))" strokeWidth="1.5" />
-              </svg>
+              <span>稳定度 ≥ 21 天</span>
             </div>
           </div>
 
           <div className="dashboard-stat-card">
             <div className="stat-card-header">
-              <span>AVG. TIME</span>
+              <span>REVIEWED TODAY</span>
               <Clock size={12} />
             </div>
             <div className="stat-card-value">
-              18s
+              {stats?.reviewedToday ?? 0}<span>times</span>
             </div>
             <div className="stat-card-footer muted">
-              per card
+              已写入评分日志
             </div>
           </div>
         </section>
@@ -246,8 +257,8 @@ export default function ReviewPage(): React.JSX.Element {
                   Question
                 </span>
                 <div style={{ display: "flex", gap: "6px", color: "hsl(var(--foreground-muted))" }}>
-                  <button className="icon-button"><Star size={14} /></button>
-                  <button className="icon-button"><MoreHorizontal size={14} /></button>
+                  <button className="icon-button" aria-label="收藏卡片"><Star size={14} /></button>
+                  <button className="icon-button" aria-label="更多卡片操作"><MoreHorizontal size={14} /></button>
                 </div>
               </div>
 
@@ -288,19 +299,19 @@ export default function ReviewPage(): React.JSX.Element {
             <div className="review-rating-row">
               <button className="rating-action-card again" onClick={() => void handleRate("again")} disabled={grading}>
                 <span className="rating-action-label">Again</span>
-                <span className="rating-action-desc">&lt; 1m</span>
+                <span className="rating-action-desc">重新学习</span>
               </button>
               <button className="rating-action-card hard" onClick={() => void handleRate("hard")} disabled={grading}>
                 <span className="rating-action-label">Hard</span>
-                <span className="rating-action-desc">10m</span>
+                <span className="rating-action-desc">较短间隔</span>
               </button>
               <button className="rating-action-card good" onClick={() => void handleRate("good")} disabled={grading}>
                 <span className="rating-action-label">Good</span>
-                <span className="rating-action-desc">3d</span>
+                <span className="rating-action-desc">标准间隔</span>
               </button>
               <button className="rating-action-card easy" onClick={() => void handleRate("easy")} disabled={grading}>
                 <span className="rating-action-label">Easy</span>
-                <span className="rating-action-desc">7d</span>
+                <span className="rating-action-desc">较长间隔</span>
               </button>
             </div>
           ) : (
@@ -319,9 +330,9 @@ export default function ReviewPage(): React.JSX.Element {
         {stats && (
           <section style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "hsl(var(--foreground-muted))", borderTop: "1px solid hsl(var(--border-subtle))", paddingTop: "12px" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}><Flame size={12} className="warning-color" /> Streak: {stats.streak} days</span>
-            <span>Longest streak: 48 days</span>
-            <span>Total reviewed: 1,248 cards</span>
-            <span>Cards learned: 312</span>
+            <span>Young cards: {stats.young}</span>
+            <span>Total cards: {stats.totalCards}</span>
+            <span>Reviewed today: {stats.reviewedToday}</span>
             <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}><ShieldCheck size={12} className="success-color" /> FSRS Algorithm</span>
           </section>
         )}

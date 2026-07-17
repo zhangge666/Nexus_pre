@@ -22,6 +22,8 @@ struct OrbitState {
     token: String,
     role: ServiceRole,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    settings_path: PathBuf,
+    settings: Mutex<serde_json::Value>,
 }
 
 /// 表示当前 Orbit 是本地服务持有者还是连接既有服务的客户端。
@@ -40,6 +42,92 @@ struct ServiceStatus {
     endpoint: String,
     available: bool,
     message: Option<String>,
+}
+
+/// 返回 Orbit M4 全量默认设置；Completion 默认离线且不发送任何数据。
+fn default_settings() -> serde_json::Value {
+    serde_json::json!({
+        "search": {"defaultMode": "hybrid", "enableRerank": true, "defaultScope": "all"},
+        "rag": {
+            "provider": "local",
+            "apiKey": "",
+            "hasApiKey": false,
+            "model": "",
+            "customEndpoint": "",
+            "streamEnabled": false,
+            "confirmBeforeSend": true
+        },
+        "cards": {"generationMode": "ai", "provider": "local", "maxCardsPerNote": 10, "defaultDeck": "默认"},
+        "review": {"algorithm": "fsrs", "dailyNewLimit": 20, "dailyReviewLimit": 100, "reminderTime": "08:00", "reminderEnabled": true},
+        "links": {"autoLink": true, "dedupeThreshold": 0.85, "graphDensity": 0.6},
+        "sync": {"mode": "local", "relayEndpoint": "", "conflictStrategy": "auto"},
+        "appearance": {"theme": "dark", "language": "zh-CN"}
+    })
+}
+
+/// 从磁盘读取非敏感设置并与当前默认值做深度合并。
+fn load_settings(path: &Path) -> serde_json::Value {
+    let mut settings = default_settings();
+    if let Ok(content) = fs::read_to_string(path)
+        && let Ok(saved) = serde_json::from_str::<serde_json::Value>(&content)
+    {
+        merge_json(&mut settings, &saved);
+    }
+    // API Key 永远不从磁盘恢复；应用重启后云 Provider 需重新输入自带 Key。
+    set_json_string(&mut settings, "/rag/apiKey", "");
+    set_json_bool(&mut settings, "/rag/hasApiKey", false);
+    settings
+}
+
+/// 递归合并 JSON 对象，使前端可以只提交一个设置分组。
+fn merge_json(target: &mut serde_json::Value, patch: &serde_json::Value) {
+    match (target, patch) {
+        (serde_json::Value::Object(target), serde_json::Value::Object(patch)) => {
+            for (key, value) in patch {
+                if let Some(existing) = target.get_mut(key) {
+                    merge_json(existing, value);
+                } else {
+                    target.insert(key.clone(), value.clone());
+                }
+            }
+        }
+        (target, patch) => *target = patch.clone(),
+    }
+}
+
+/// 设置已存在的 JSON 字符串字段。
+fn set_json_string(value: &mut serde_json::Value, pointer: &str, next: &str) {
+    if let Some(slot) = value.pointer_mut(pointer) {
+        *slot = serde_json::Value::String(next.into());
+    }
+}
+
+/// 设置已存在的 JSON 布尔字段。
+fn set_json_bool(value: &mut serde_json::Value, pointer: &str, next: bool) {
+    if let Some(slot) = value.pointer_mut(pointer) {
+        *slot = serde_json::Value::Bool(next);
+    }
+}
+
+/// 返回不会暴露 API Key 的设置副本，并用 `hasApiKey` 告知当前进程是否已配置。
+fn public_settings(settings: &serde_json::Value) -> serde_json::Value {
+    let mut public = settings.clone();
+    let has_api_key = settings
+        .pointer("/rag/apiKey")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.is_empty());
+    set_json_string(&mut public, "/rag/apiKey", "");
+    set_json_bool(&mut public, "/rag/hasApiKey", has_api_key);
+    public
+}
+
+/// 持久化设置时剔除敏感 Key 和仅在进程内成立的 Key 状态。
+fn persist_settings(path: &Path, settings: &serde_json::Value) -> Result<(), String> {
+    let mut safe = settings.clone();
+    set_json_string(&mut safe, "/rag/apiKey", "");
+    set_json_bool(&mut safe, "/rag/hasApiKey", false);
+    let content = serde_json::to_vec_pretty(&safe).map_err(|error| error.to_string())?;
+    fs::write(path, content).map_err(|error| error.to_string())
 }
 
 /// 准备产品族共享目录，并在首次升级时复制 Orbit 旧目录中的数据库与媒体。
@@ -235,6 +323,156 @@ impl OrbitState {
         .map(|_| ())
     }
 
+    /// 返回当前已经到期的真实 FSRS 复习队列。
+    async fn get_review_queue(&self) -> Result<Vec<ReviewCard>, String> {
+        self.send_json(
+            self.client.get(format!("{}/v1/reviews/due", self.endpoint)),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// 返回全部知识卡片及其派生来源。
+    async fn list_review_cards(&self) -> Result<Vec<ReviewCard>, String> {
+        self.send_json(
+            self.client.get(format!("{}/v1/reviews", self.endpoint)),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// 返回真实复习统计。
+    async fn get_review_stats(&self) -> Result<ReviewStats, String> {
+        self.send_json(
+            self.client
+                .get(format!("{}/v1/reviews/stats", self.endpoint)),
+            serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// 提交一张卡片的 Again/Hard/Good/Easy 评分。
+    async fn grade_card(&self, memory_id: String, rating: String) -> Result<GradeResult, String> {
+        self.send_json(
+            self.client
+                .post(format!("{}/v1/reviews/{memory_id}/grade", self.endpoint)),
+            serde_json::json!({"rating": rating}),
+        )
+        .await
+    }
+
+    /// 创建一张手动知识卡片。
+    async fn create_card(&self, request: CreateCardRequest) -> Result<ReviewCard, String> {
+        self.send_json(
+            self.client.post(format!("{}/v1/cards", self.endpoint)),
+            serde_json::json!({
+                "card_front": request.card_front,
+                "card_back": request.card_back,
+                "source_memory_id": request.source_memory_id,
+                "deck": request.deck,
+                "tags": request.tags,
+            }),
+        )
+        .await
+    }
+
+    /// 从用户选中的来源记忆生成卡片。
+    async fn generate_cards(
+        &self,
+        request: GenerateCardsRequest,
+    ) -> Result<Vec<ReviewCard>, String> {
+        self.send_json(
+            self.client
+                .post(format!("{}/v1/cards/generate", self.endpoint)),
+            serde_json::json!({
+                "source_memory_id": request.source_memory_id,
+                "instruction": request.instruction,
+                "deck": request.deck,
+                "tags": request.tags,
+                "max_cards": request.max_cards,
+            }),
+        )
+        .await
+    }
+
+    /// 执行真实 `/v1/ask`，保留引用和 Provider 数据流向元数据。
+    async fn ask_memory(
+        &self,
+        question: String,
+        scope: Option<AskScope>,
+    ) -> Result<AskResponse, String> {
+        self.send_json(
+            self.client.post(format!("{}/v1/ask", self.endpoint)),
+            serde_json::json!({"question": question, "scope": scope}),
+        )
+        .await
+    }
+
+    /// 返回脱敏后的 Orbit 设置；API Key 只通过 `hasApiKey` 表示存在。
+    fn get_settings(&self) -> Result<serde_json::Value, String> {
+        self.settings
+            .lock()
+            .map(|settings| public_settings(&settings))
+            .map_err(|_| "Orbit 设置状态不可用".into())
+    }
+
+    /// 深度合并设置、切换服务端 Provider，并只持久化非敏感字段。
+    async fn save_settings(&self, patch: serde_json::Value) -> Result<(), String> {
+        let current = self
+            .settings
+            .lock()
+            .map_err(|_| "Orbit 设置状态不可用".to_owned())?
+            .clone();
+        let current_provider = json_string(&current, "/rag/provider");
+        let current_key = json_string(&current, "/rag/apiKey");
+        let submitted_key = patch
+            .pointer("/rag/apiKey")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let mut next = current;
+        merge_json(&mut next, &patch);
+        let provider = json_string(&next, "/rag/provider");
+        let api_key = if provider == "local" {
+            String::new()
+        } else if !submitted_key.is_empty() {
+            submitted_key
+        } else if provider == current_provider {
+            current_key
+        } else {
+            String::new()
+        };
+        if provider != "local" && api_key.is_empty() {
+            return Err(format!("请为 {provider} 填写 API Key"));
+        }
+        set_json_string(&mut next, "/rag/apiKey", &api_key);
+
+        let endpoint = (provider == "custom")
+            .then(|| json_string(&next, "/rag/customEndpoint"))
+            .filter(|value| !value.is_empty());
+        let status: CompletionStatus = self
+            .send_json(
+                self.client.post(format!("{}/v1/completion", self.endpoint)),
+                serde_json::json!({
+                    "provider": provider,
+                    "api_key": (!api_key.is_empty()).then_some(api_key),
+                    "model": json_string(&next, "/rag/model"),
+                    "endpoint": endpoint,
+                }),
+            )
+            .await?;
+        if status.provider != provider || status.sends_data_remote != (status.provider != "local") {
+            return Err("本地服务未激活所选 Completion Provider".into());
+        }
+        persist_settings(&self.settings_path, &next)?;
+        *self
+            .settings
+            .lock()
+            .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
+        Ok(())
+    }
+
     /// 探测已发现的回环服务，供前端在失败时显示可操作的本地诊断信息。
     async fn service_status(&self) -> ServiceStatus {
         let response = self
@@ -290,6 +528,23 @@ impl OrbitState {
     }
 }
 
+/// 读取 JSON 指针指向的字符串设置，缺失时返回空串。
+fn json_string(value: &serde_json::Value, pointer: &str) -> String {
+    value
+        .pointer(pointer)
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+/// 返回到期扫描使用的 Unix 毫秒时间。
+fn unix_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_millis() as i64)
+}
+
 impl Drop for OrbitState {
     /// 在状态释放时通知当前进程持有的本地服务优雅停止。
     fn drop(&mut self) {
@@ -326,6 +581,132 @@ struct MemoryHit {
 #[derive(Debug, Deserialize)]
 struct SearchResponse {
     hits: Vec<MemoryHit>,
+}
+
+/// 表示前端手动创建卡片的输入。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateCardRequest {
+    card_front: String,
+    card_back: String,
+    source_memory_id: Option<String>,
+    deck: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+/// 表示前端从来源记忆生成卡片的输入。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerateCardsRequest {
+    source_memory_id: String,
+    instruction: Option<String>,
+    deck: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    max_cards: usize,
+}
+
+/// 表示 Orbit 卡片和复习页面使用的完整卡片摘要。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewCard {
+    #[serde(alias = "memory_id")]
+    memory_id: String,
+    #[serde(alias = "card_front")]
+    card_front: String,
+    #[serde(alias = "card_back")]
+    card_back: String,
+    state: String,
+    stability: f64,
+    difficulty: f64,
+    #[serde(alias = "due_at")]
+    due_at: i64,
+    #[serde(alias = "last_reviewed_at")]
+    last_reviewed_at: Option<i64>,
+    reps: u32,
+    lapses: u32,
+    #[serde(alias = "source_memory_id")]
+    source_memory_id: Option<String>,
+    #[serde(alias = "source_title")]
+    source_title: Option<String>,
+    deck: Option<String>,
+    tags: Vec<String>,
+}
+
+/// 表示复习首页使用的真实聚合统计。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReviewStats {
+    #[serde(alias = "due_today")]
+    due_today: usize,
+    #[serde(alias = "new_today")]
+    new_today: usize,
+    #[serde(alias = "reviewed_today")]
+    reviewed_today: usize,
+    streak: usize,
+    mature: usize,
+    young: usize,
+    #[serde(alias = "total_cards")]
+    total_cards: usize,
+}
+
+/// 表示评分后的真实 FSRS 调度结果。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GradeResult {
+    #[serde(alias = "next_due_at")]
+    next_due_at: i64,
+    #[serde(alias = "new_stability")]
+    new_stability: f64,
+    #[serde(alias = "new_difficulty")]
+    new_difficulty: f64,
+    #[serde(alias = "new_state")]
+    new_state: String,
+}
+
+/// 表示问答可选集合或来源范围。
+#[derive(Debug, Deserialize, Serialize)]
+struct AskScope {
+    collection: Option<String>,
+    source: Option<String>,
+}
+
+/// 表示 RAG 回答的一条块级引用。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Citation {
+    #[serde(alias = "memory_id")]
+    memory_id: String,
+    #[serde(alias = "block_id")]
+    block_id: String,
+    snippet: String,
+    #[serde(alias = "source_title")]
+    source_title: Option<String>,
+    #[serde(alias = "source_kind")]
+    source_kind: String,
+    #[serde(alias = "created_at")]
+    created_at: i64,
+}
+
+/// 表示带引用与 Provider 数据流向信息的问答响应。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskResponse {
+    answer: String,
+    citations: Vec<Citation>,
+    provider: String,
+    #[serde(alias = "sent_context_count")]
+    sent_context_count: usize,
+    #[serde(alias = "sends_data_remote")]
+    sends_data_remote: bool,
+}
+
+/// 表示 Completion 配置成功后的非敏感状态。
+#[derive(Debug, Deserialize)]
+struct CompletionStatus {
+    provider: String,
+    sends_data_remote: bool,
 }
 
 /// 表示 Orbit 列表和详情面板共用的记忆数据。
@@ -486,6 +867,77 @@ async fn revoke_app(token_id: String, state: State<'_, Arc<OrbitState>>) -> Resu
     state.revoke_app(token_id).await
 }
 
+/// 通过 Tauri IPC 返回真实到期复习队列。
+#[tauri::command]
+async fn get_review_queue(state: State<'_, Arc<OrbitState>>) -> Result<Vec<ReviewCard>, String> {
+    state.get_review_queue().await
+}
+
+/// 通过 Tauri IPC 返回全部知识卡片。
+#[tauri::command]
+async fn list_review_cards(state: State<'_, Arc<OrbitState>>) -> Result<Vec<ReviewCard>, String> {
+    state.list_review_cards().await
+}
+
+/// 通过 Tauri IPC 返回复习统计。
+#[tauri::command]
+async fn get_review_stats(state: State<'_, Arc<OrbitState>>) -> Result<ReviewStats, String> {
+    state.get_review_stats().await
+}
+
+/// 通过 Tauri IPC 提交 FSRS 四档评分。
+#[tauri::command]
+async fn grade_card(
+    memory_id: String,
+    rating: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<GradeResult, String> {
+    state.grade_card(memory_id, rating).await
+}
+
+/// 通过 Tauri IPC 创建手动卡片。
+#[tauri::command]
+async fn create_card(
+    request: CreateCardRequest,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<ReviewCard, String> {
+    state.create_card(request).await
+}
+
+/// 通过 Tauri IPC 从选定来源生成卡片。
+#[tauri::command]
+async fn generate_cards(
+    request: GenerateCardsRequest,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<Vec<ReviewCard>, String> {
+    state.generate_cards(request).await
+}
+
+/// 通过 Tauri IPC 执行带引用的本地 RAG 问答。
+#[tauri::command]
+async fn ask_memory(
+    question: String,
+    scope: Option<AskScope>,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<AskResponse, String> {
+    state.ask_memory(question, scope).await
+}
+
+/// 通过 Tauri IPC 返回脱敏设置。
+#[tauri::command]
+fn get_settings(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
+    state.get_settings()
+}
+
+/// 通过 Tauri IPC 保存设置并切换进程内 Completion Provider。
+#[tauri::command]
+async fn save_settings(
+    settings: serde_json::Value,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<(), String> {
+    state.save_settings(settings).await
+}
+
 /// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -493,6 +945,8 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let data_dir = prepare_shared_data_dir(&app_data_dir)?;
+            let settings_path = data_dir.join("orbit-settings.json");
+            let initial_settings = load_settings(&settings_path);
             let claim = tauri::async_runtime::block_on(LocalServiceClaim::acquire(&data_dir))?;
             let state = match claim {
                 LocalServiceClaim::Holder {
@@ -517,6 +971,20 @@ pub fn run() {
                             }
                         }
                     });
+                    let reminder_store = Arc::clone(&store);
+                    // 持有者每分钟扫描一次到期状态；核心去重字段确保同一调度周期只发一次事件。
+                    tauri::async_runtime::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(60));
+                        loop {
+                            interval.tick().await;
+                            let store = Arc::clone(&reminder_store);
+                            let _ = tauri::async_runtime::spawn_blocking(move || {
+                                store.notify_due_reviews(unix_millis(), 200)
+                            })
+                            .await;
+                        }
+                    });
                     let grant = CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
                     let protocol_state = ProtocolState::from_shared(store, embedder, grant);
                     let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
@@ -537,6 +1005,8 @@ pub fn run() {
                         token: discovery.token,
                         role: ServiceRole::Holder,
                         shutdown: Mutex::new(Some(shutdown_sender)),
+                        settings_path,
+                        settings: Mutex::new(initial_settings),
                     }
                 }
                 LocalServiceClaim::Client(discovery) => OrbitState {
@@ -545,6 +1015,8 @@ pub fn run() {
                     token: discovery.token,
                     role: ServiceRole::Client,
                     shutdown: Mutex::new(None),
+                    settings_path,
+                    settings: Mutex::new(initial_settings),
                 },
             };
             app.manage(Arc::new(state));
@@ -562,7 +1034,16 @@ pub fn run() {
             add_memory_to_collection,
             get_service_status,
             list_connected_apps,
-            revoke_app
+            revoke_app,
+            get_review_queue,
+            list_review_cards,
+            get_review_stats,
+            grade_card,
+            create_card,
+            generate_cards,
+            ask_memory,
+            get_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("Orbit Tauri 运行时启动失败");
@@ -607,12 +1088,15 @@ mod tests {
                 .await
                 .expect("测试服务应正常运行");
         });
+        let settings_dir = tempfile::tempdir().expect("应创建临时设置目录");
         let state = OrbitState {
             client: reqwest::Client::new(),
             endpoint,
             token,
             role: ServiceRole::Holder,
             shutdown: Mutex::new(None),
+            settings_path: settings_dir.path().join("orbit-settings.json"),
+            settings: Mutex::new(default_settings()),
         };
         let created = state
             .create_memory("Tauri IPC connects through Memory Protocol.".into())
@@ -623,8 +1107,33 @@ mod tests {
             .await
             .expect("协议检索应成功");
         assert_eq!(hits[0].memory_id, created.id);
+        let answer = state
+            .ask_memory("Memory Protocol 如何连接？".into(), None)
+            .await
+            .expect("本地 RAG 问答应成功");
+        assert_eq!(answer.provider, "local");
+        assert!(!answer.citations.is_empty());
+        assert!(!answer.sends_data_remote);
+        let card = state
+            .create_card(CreateCardRequest {
+                card_front: "Memory Protocol 的用途是什么？".into(),
+                card_back: "连接 Orbit 与来源应用。".into(),
+                source_memory_id: Some(created.id.clone()),
+                deck: Some("协议".into()),
+                tags: vec!["m4".into()],
+            })
+            .await
+            .expect("手动卡片应创建成功");
+        assert_eq!(card.source_memory_id.as_deref(), Some(created.id.as_str()));
+        assert_eq!(state.get_review_queue().await.unwrap().len(), 1);
+        let graded = state
+            .grade_card(card.memory_id, "good".into())
+            .await
+            .expect("真实评分应成功");
+        assert_eq!(graded.new_state, "review");
+        assert_eq!(state.get_review_stats().await.unwrap().total_cards, 1);
         let listed = state.list_memories(None).await.expect("协议列表读取应成功");
-        assert_eq!(listed.len(), 1);
+        assert_eq!(listed.len(), 2);
         let updated = state
             .update_memory(
                 created.id.clone(),
@@ -672,6 +1181,23 @@ mod tests {
             .await
             .expect("Orbit 应撤销 Muse 连接");
         assert!(state.list_connected_apps().await.unwrap().is_empty());
+
+        state
+            .save_settings(serde_json::json!({
+                "rag": {
+                    "provider": "custom",
+                    "apiKey": "process-only-secret",
+                    "model": "qwen",
+                    "customEndpoint": "http://127.0.0.1:11434/v1"
+                }
+            }))
+            .await
+            .expect("自定义 Provider 设置应保存成功");
+        let public = state.get_settings().expect("设置应可读取");
+        assert_eq!(public["rag"]["apiKey"], "");
+        assert_eq!(public["rag"]["hasApiKey"], true);
+        let persisted = fs::read_to_string(&state.settings_path).expect("非敏感设置应持久化");
+        assert!(!persisted.contains("process-only-secret"));
         server.abort();
     }
 }

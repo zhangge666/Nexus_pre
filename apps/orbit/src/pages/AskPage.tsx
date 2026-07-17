@@ -2,27 +2,28 @@
 import type React from "react";
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { Send, MessageCircle, AlertTriangle } from "lucide-react";
-import { askMemory } from "../core";
-import type { ChatMessage, Citation } from "../core";
+import { askMemory, getSettings } from "../core";
+import type { ChatMessage, Citation, OrbitSettings } from "../core";
 import { Topbar } from "../components/Topbar";
 import { EmptyState } from "../components/EmptyState";
+import { useNavigate } from "react-router-dom";
 
-function CitationCard({ citation }: { citation: Citation }): React.JSX.Element {
+function CitationCard({ citation, onOpen }: { citation: Citation; onOpen: () => void }): React.JSX.Element {
   const kindIcon: Record<string, string> = {
     idea: "💡", note: "📝", screen: "🖥", voice: "🎤", card: "🃏", clip: "📎", file: "📄",
   };
   return (
-    <div className="citation-card">
+    <button className="citation-card" onClick={onOpen} aria-label={`打开引用：${citation.sourceTitle ?? citation.memoryId}`}>
       <span className="citation-icon">{kindIcon[citation.sourceKind ?? "note"] ?? "📎"}</span>
       <div className="citation-body">
         <strong>{citation.sourceTitle ?? citation.memoryId}</strong>
         <p>{citation.snippet}</p>
       </div>
-    </div>
+    </button>
   );
 }
 
-function ChatBubble({ msg }: { msg: ChatMessage }): React.JSX.Element {
+function ChatBubble({ msg, onOpenCitation }: { msg: ChatMessage; onOpenCitation: (citation: Citation) => void }): React.JSX.Element {
   return (
     <div className={`chat-bubble ${msg.role}`}>
       {msg.role === "ai" ? (
@@ -36,7 +37,7 @@ function ChatBubble({ msg }: { msg: ChatMessage }): React.JSX.Element {
             <div className="citations-block">
               <p className="citations-label">📎 引用来源：</p>
               {msg.citations.map((c: Citation) => (
-                <CitationCard key={c.blockId} citation={c} />
+                <CitationCard key={c.blockId} citation={c} onOpen={() => onOpenCitation(c)} />
               ))}
             </div>
           )}
@@ -49,11 +50,18 @@ function ChatBubble({ msg }: { msg: ChatMessage }): React.JSX.Element {
 }
 
 export default function AskPage(): React.JSX.Element {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streamText, setStreamText] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [ragSettings, setRagSettings] = useState<OrbitSettings["rag"] | null>(null);
+  const [lastFlow, setLastFlow] = useState<{ provider: string; count: number; remote: boolean } | null>(null);
+
+  useEffect(() => {
+    void getSettings().then((settings) => setRagSettings(settings.rag));
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,6 +71,12 @@ export default function AskPage(): React.JSX.Element {
     e.preventDefault();
     const question = input.trim();
     if (!question || loading) return;
+    if (ragSettings?.provider !== "local" && ragSettings?.confirmBeforeSend) {
+      const confirmed = window.confirm(
+        `本次问答将只把本地检索命中的必要片段发送到 ${ragSettings.provider}，不会发送整库。是否继续？`,
+      );
+      if (!confirmed) return;
+    }
 
     const userMsg: ChatMessage = {
       id: "msg-" + Date.now(),
@@ -76,13 +90,16 @@ export default function AskPage(): React.JSX.Element {
     setStreamText("");
 
     try {
-      // 模拟流式输出（每隔 30ms 追加一个字符）
       const response = await askMemory({ question });
-      let displayed = "";
-      for (const char of response.answer) {
-        displayed += char;
-        setStreamText(displayed);
-        await new Promise((r) => setTimeout(r, 18));
+      setLastFlow({ provider: response.provider, count: response.sentContextCount, remote: response.sendsDataRemote });
+      // 当前协议返回完整回答；这里只做轻量呈现动画，不伪装成服务端 token streaming。
+      if (ragSettings?.streamEnabled && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        let displayed = "";
+        for (const char of response.answer) {
+          displayed += char;
+          setStreamText(displayed);
+          await new Promise((resolve) => setTimeout(resolve, 12));
+        }
       }
       setStreamText("");
       const aiMsg: ChatMessage = {
@@ -94,6 +111,7 @@ export default function AskPage(): React.JSX.Element {
       };
       setMessages((ms) => [...ms, aiMsg]);
     } catch (e) {
+      setInput(question);
       const errMsg: ChatMessage = {
         id: "msg-" + Date.now(),
         role: "ai",
@@ -127,7 +145,7 @@ export default function AskPage(): React.JSX.Element {
         )}
 
         {messages.map((msg) => (
-          <ChatBubble key={msg.id} msg={msg} />
+          <ChatBubble key={msg.id} msg={msg} onOpenCitation={(citation) => navigate(`/search?id=${citation.memoryId}`)} />
         ))}
 
         {/* 流式输出中 */}
@@ -149,7 +167,13 @@ export default function AskPage(): React.JSX.Element {
       <div className="ask-input-area">
         <div className="provider-notice">
           <AlertTriangle size={12} />
-          本次问答将使用本地 Mock，真实环境下会调用你配置的 AI Provider 处理检索片段
+          {lastFlow
+            ? lastFlow.remote
+              ? `上次仅向 ${lastFlow.provider} 发送了 ${lastFlow.count} 条检索片段`
+              : `上次由 ${lastFlow.provider} 在本地处理，未发送数据`
+            : ragSettings?.provider && ragSettings.provider !== "local"
+              ? `将只向 ${ragSettings.provider} 发送本地命中的必要片段，不发送整库`
+              : "使用本地 Completion，不会发送记忆数据"}
         </div>
         <form className="ask-form" onSubmit={handleSubmit}>
           <textarea

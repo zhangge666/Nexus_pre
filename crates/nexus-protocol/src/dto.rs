@@ -295,7 +295,7 @@ pub struct AskRequest {
     pub question: String,
     /// 可选集合或来源范围。
     #[serde(default)]
-    pub scope: AskScopeRequest,
+    pub scope: Option<AskScopeRequest>,
 }
 
 /// 表示 RAG 回答中的一条可回跳块级引用。
@@ -327,6 +327,28 @@ pub struct AskResponse {
     /// 本次发给 Completion 的片段数量。
     pub sent_context_count: usize,
     /// 本次 Provider 是否会把片段发送到远程端点。
+    pub sends_data_remote: bool,
+}
+
+/// 表示管理员切换 Completion Provider 所需的进程内配置。
+#[derive(Debug, Deserialize)]
+pub struct CompletionConfigRequest {
+    /// local、claude、openai 或 custom。
+    pub provider: String,
+    /// 云 Provider 自带 Key；仅驻留进程内存。
+    pub api_key: Option<String>,
+    /// 模型标识。
+    pub model: Option<String>,
+    /// Claude、OpenAI 或自定义兼容端点的可选覆盖地址。
+    pub endpoint: Option<String>,
+}
+
+/// 表示当前激活 Completion Provider 的非敏感状态。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CompletionStatusResponse {
+    /// 当前实际 Provider 标识。
+    pub provider: String,
+    /// 当前 Provider 是否会发送最小上下文到远程端点。
     pub sends_data_remote: bool,
 }
 

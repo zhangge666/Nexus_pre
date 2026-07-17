@@ -154,9 +154,10 @@ pub trait Transcriber {                 // 语音转写 (Muse)
 pub trait Ocr {                         // 图像文字识别 (Echo)
     async fn recognize(&self, image: ImageRef) -> Result<OcrResult>;
 }
-pub trait Completion {                  // 总结/卡片/问答
-    async fn complete(&self, req: CompletionReq) -> Result<CompletionResp>;
-    async fn stream(&self, req: CompletionReq) -> Result<TokenStream>;
+pub trait Completion: Send + Sync {      // 总结/卡片/问答
+    fn complete<'a>(&'a self, req: CompletionRequest) -> CompletionFuture<'a>;
+    fn provider_name(&self) -> &str;
+    fn sends_data_remote(&self) -> bool;
 }
 
 pub enum ProviderKind {
@@ -165,8 +166,12 @@ pub enum ProviderKind {
 }
 ```
 
-- **路由策略**：按任务与用户设置选择 Provider；离线时自动回落本地；云端不可用时降级。
+- **M4 实现**：`LocalExtractiveCompletion` 提供零网络回退；`AnthropicCompletion`、
+  `OpenAiCompletion`、`CustomCompletion` 分别对接 Claude Messages、OpenAI Chat
+  Completions 和 OpenAI-compatible 自定义端点。
+- **路由策略**：Orbit 默认使用本地 Provider，并可按用户设置在进程内原子切换 Provider。
 - **成本与隐私护栏**：云端调用前做数据最小化与用户提示（见 data-model.md §5.5）。
+- **Key 边界**：API Key 不进入 Memory、协议响应、日志或设置文件；M4 最小实现只驻留当前进程内存。
 - **默认矩阵**：见 architecture.md §2.5。
 
 ---

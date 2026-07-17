@@ -5,7 +5,9 @@ import type {
   AskResponse,
   ChatMessage,
   ConnectedApp,
+  CreateCardRequest,
   GradeResult,
+  GenerateCardsRequest,
   GraphEdge,
   GraphNode,
   InboxItem,
@@ -443,13 +445,15 @@ export const mockChatHistory: ChatMessage[] = [
 export const mockSettings: OrbitSettings = {
   search: { defaultMode: "hybrid", enableRerank: true, defaultScope: "all" },
   rag: {
-    provider: "claude",
+    provider: "local",
     apiKey: "",
+    hasApiKey: false,
+    model: "",
     customEndpoint: "",
     streamEnabled: true,
     confirmBeforeSend: true,
   },
-  cards: { generationMode: "ai", provider: "claude", maxCardsPerNote: 10, defaultDeck: "默认" },
+  cards: { generationMode: "ai", provider: "local", maxCardsPerNote: 10, defaultDeck: "默认" },
   review: {
     algorithm: "fsrs",
     dailyNewLimit: 20,
@@ -552,8 +556,45 @@ export async function gradeCard(memoryId: string, rating: Rating): Promise<Grade
   return {
     nextDueAt: Date.now() + intervals[rating],
     newStability: 15.2,
+    newDifficulty: 5.1,
     newState: rating === "again" ? "relearning" : "review",
   };
+}
+
+export async function createCard(request: CreateCardRequest): Promise<ReviewCard> {
+  await delay(200);
+  const card: ReviewCard = {
+    memoryId: `card-${Date.now()}`,
+    cardFront: request.cardFront,
+    cardBack: request.cardBack,
+    state: "new",
+    stability: 0,
+    difficulty: 5,
+    dueAt: Date.now(),
+    lastReviewedAt: null,
+    reps: 0,
+    lapses: 0,
+    sourceMemoryId: request.sourceMemoryId ?? null,
+    sourceTitle: request.sourceMemoryId
+      ? mockMemories.find((memory) => memory.id === request.sourceMemoryId)?.title ?? null
+      : null,
+    deck: request.deck ?? null,
+    tags: request.tags ?? [],
+  };
+  mockReviewCards.push(card);
+  return card;
+}
+
+export async function generateCards(request: GenerateCardsRequest): Promise<ReviewCard[]> {
+  const source = mockMemories.find((memory) => memory.id === request.sourceMemoryId);
+  if (!source) throw new Error("来源记忆不存在");
+  return [await createCard({
+    cardFront: `「${source.title ?? "这条记忆"}」的核心要点是什么？`,
+    cardBack: source.content.slice(0, 320),
+    sourceMemoryId: source.id,
+    deck: request.deck,
+    tags: request.tags,
+  })];
 }
 
 export async function askMemory(req: AskRequest): Promise<AskResponse> {
@@ -570,6 +611,9 @@ export async function askMemory(req: AskRequest): Promise<AskResponse> {
         createdAt: Date.now() - 3_600_000,
       },
     ],
+    provider: "local",
+    sentContextCount: 1,
+    sendsDataRemote: false,
   };
 }
 

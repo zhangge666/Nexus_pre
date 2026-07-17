@@ -5,6 +5,8 @@ import type {
   AskRequest,
   AskResponse,
   ConnectedApp,
+  CreateCardRequest,
+  GenerateCardsRequest,
   GradeResult,
   GraphEdge,
   GraphNode,
@@ -68,6 +70,18 @@ export async function getReviewStats(): Promise<ReviewStats> {
 
 export async function gradeCard(memoryId: string, rating: Rating): Promise<GradeResult> {
   return invoke<GradeResult>("grade_card", { memoryId, rating });
+}
+
+/** 创建手动知识卡片并立即加入复习队列。 */
+export async function createCard(request: CreateCardRequest): Promise<ReviewCard> {
+  return invoke<ReviewCard>("create_card", { request });
+}
+
+/** 从用户选择的一条来源记忆生成并创建卡片。 */
+export async function generateCards(request: GenerateCardsRequest): Promise<ReviewCard[]> {
+  return invoke<ReviewCard[]>("generate_cards", {
+    request: { ...request, maxCards: request.maxCards ?? 3 },
+  });
 }
 
 export async function askMemory(req: AskRequest): Promise<AskResponse> {

@@ -71,8 +71,13 @@ export default function SettingsPage(): React.JSX.Element {
   const [settings, setSettings] = useState<OrbitSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => { void getSettings().then(setSettings); }, []);
+  useEffect(() => {
+    void getSettings()
+      .then(setSettings)
+      .catch((reason) => setError(`设置加载失败：${String(reason)}`));
+  }, []);
 
   function update<K extends keyof OrbitSettings>(
     category: K,
@@ -84,16 +89,20 @@ export default function SettingsPage(): React.JSX.Element {
   async function handleSave(): Promise<void> {
     if (!settings) return;
     setSaving(true);
+    setError(null);
     try {
       await saveSettings(settings);
+      setSettings(await getSettings());
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (reason) {
+      setError(`保存失败：${String(reason)}`);
     } finally {
       setSaving(false);
     }
   }
 
-  if (!settings) return <div className="page-enter"><Topbar title="设置" /><p className="loading-hint">加载设置…</p></div>;
+  if (!settings) return <div className="page-enter"><Topbar title="设置" /><p className="loading-hint">{error ?? "加载设置…"}</p></div>;
 
   function renderContent(): React.JSX.Element {
     if (!settings) return <></>;
@@ -132,11 +141,18 @@ export default function SettingsPage(): React.JSX.Element {
           </select>
         </SettingRow>
         {settings.rag.provider !== "local" && (
-          <SettingRow label="API Key" id="api-key">
-            <input type="password" className="settings-input" value={settings.rag.apiKey}
-              onChange={(e) => update("rag", { apiKey: e.target.value })}
-              placeholder="sk-…" />
-          </SettingRow>
+          <>
+            <SettingRow label="模型" description="留空使用 Provider 默认模型" id="provider-model">
+              <input id="provider-model" type="text" className="settings-input" value={settings.rag.model}
+                onChange={(e) => update("rag", { model: e.target.value })}
+                placeholder={settings.rag.provider === "claude" ? "claude-sonnet-4-20250514" : "gpt-4.1-mini"} />
+            </SettingRow>
+            <SettingRow label="API Key" description={settings.rag.hasApiKey ? "当前进程已配置；留空将继续使用" : "只保存在当前进程内，重启后需重新输入"} id="api-key">
+              <input id="api-key" type="password" className="settings-input" value={settings.rag.apiKey}
+                onChange={(e) => update("rag", { apiKey: e.target.value })}
+                placeholder={settings.rag.hasApiKey ? "已配置（不回显）" : "输入自带 Key"} autoComplete="off" />
+            </SettingRow>
+          </>
         )}
         {settings.rag.provider === "custom" && (
           <SettingRow label="自定义端点" id="custom-endpoint">
@@ -145,7 +161,7 @@ export default function SettingsPage(): React.JSX.Element {
               placeholder="https://your-api.example.com/v1" />
           </SettingRow>
         )}
-        <SettingRow label="流式输出" description="逐 token 显示回答" id="stream">
+        <SettingRow label="逐字呈现" description="收到完整回答后以轻量动画呈现；减少动态效果时自动关闭" id="stream">
           <Toggle id="stream" value={settings.rag.streamEnabled} onChange={(v) => update("rag", { streamEnabled: v })} />
         </SettingRow>
         <SettingRow label="发送前确认" description="发送到云端前展示将要发送的内容" id="confirm">
@@ -305,6 +321,7 @@ export default function SettingsPage(): React.JSX.Element {
         </nav>
         <div className="settings-content">{renderContent()}</div>
       </div>
+      {error && <p className="inline-notice" role="alert">{error}</p>}
     </div>
   );
 }

@@ -77,6 +77,9 @@ core/协议    Orbit+库      完整闭环       Muse最小源    卡片/复习/
 - 间隔复习：FSRS、复习队列、到期提醒（review.due 事件）。
 - RAG 问答（`/v1/ask` + Completion Provider，带引用）。
 - 云 AI Provider 接入（Claude/OpenAI/自定义端点，自带 Key，数据最小化护栏）。
+- **当前实现（2026-07-17）**：已打通 Orbit 桌面端卡片创建/生成、持久化 ReviewState、
+  FSRS 四档评分、到期队列与通知、带块级引用的 RAG、local/Claude/OpenAI/custom
+  Completion 配置；Key 仅驻留进程内存，云端只接收本地筛选后的必要片段。
 
 ### M5 · 多端
 - Orbit 移动端（iOS/Android），优先验证 Tauri 移动关键路径。

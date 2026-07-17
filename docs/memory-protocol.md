@@ -174,10 +174,39 @@ GET    /v1/collections/{collection_id}/memories
 ```http
 POST /v1/ask
 { "question": "我上周关于定价的想法是什么？", "scope": { "collection": "ideas" } }
-→ 200 { "answer": "...", "citations": [ {"memory_id":"...","block_id":"..."} ] }
+→ 200 {
+  "answer": "... [1]",
+  "citations": [{
+    "memory_id":"...", "block_id":"...", "snippet":"...",
+    "source_title":"产品定价", "source_kind":"idea", "created_at":1710000000000
+  }],
+  "provider":"local", "sent_context_count":1, "sends_data_remote":false
+}
 ```
 
-服务端本地检索取材，按用户设置调用本地/云端模型，返回带引用的答案。
+服务端本地检索取材，先应用 collection/source scope，再把最多 6 条、每条最多 1200
+字符的必要片段交给 Completion。无命中时不会调用远程 Provider。回答始终返回可回跳的
+Memory/Block 引用及实际 Provider、发送片段数和远程数据流向状态。
+
+M4 卡片与复习端点统一使用 `review` scope（`admin` 隐含该能力）：
+
+```http
+POST /v1/cards                         # 手动创建 kind=card，并建立 ReviewState
+POST /v1/cards/generate                # 从一条明确来源记忆生成卡片
+GET  /v1/reviews                       # 全部卡片和来源摘要
+GET  /v1/reviews/due                   # 当前到期队列
+POST /v1/reviews/{id}/grade            # Again / Hard / Good / Easy
+GET  /v1/reviews/stats                 # 到期、新卡、成熟度、streak
+POST /v1/reviews/notify-due            # 去重发布 review.due
+```
+
+Orbit 持有者可用 `admin` scope 在进程内配置 Completion；响应永不返回 Key：
+
+```http
+GET  /v1/completion
+POST /v1/completion
+{ "provider":"openai", "api_key":"...", "model":"gpt-4.1-mini", "endpoint":null }
+```
 
 ### 5.5 订阅事件
 

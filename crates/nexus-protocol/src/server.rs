@@ -19,8 +19,8 @@ use axum::{
     routing::{get, post},
 };
 use nexus_ai::{
-    Completion, CompletionContext, CompletionError, CompletionRequest, CompletionTask,
-    LocalExtractiveCompletion,
+    AnthropicCompletion, Completion, CompletionContext, CompletionError, CompletionRequest,
+    CompletionTask, CustomCompletion, LocalExtractiveCompletion, OpenAiCompletion,
 };
 use nexus_core::{
     Collection, CollectionPatch, CoreError, CreateCardInput, HashEmbedder, IngestInput, Ingestor,
@@ -35,13 +35,13 @@ use uuid::Uuid;
 use crate::{
     CapabilityGrant, Scope,
     dto::{
-        AskRequest, AskResponse, CapabilitiesResponse, CitationResponse, ConnectedAppResponse,
-        CreateCardRequest, CreateCollectionRequest, CreateLinkRequest, CreateMemoryRequest,
-        CreateMemoryResponse, GenerateCardsRequest, GradeReviewRequest, GradeReviewResponse,
-        ListLinksRequest, ListMemoriesRequest, ListMemoriesResponse, MemoryResponse,
-        NotifyDueResponse, RegisterConnectionRequest, RegisterConnectionResponse,
-        ReviewCardResponse, ReviewStatsResponse, SearchHitResponse, SearchRequest, SearchResponse,
-        UpdateCollectionRequest, UpdateMemoryRequest,
+        AskRequest, AskResponse, CapabilitiesResponse, CitationResponse, CompletionConfigRequest,
+        CompletionStatusResponse, ConnectedAppResponse, CreateCardRequest, CreateCollectionRequest,
+        CreateLinkRequest, CreateMemoryRequest, CreateMemoryResponse, GenerateCardsRequest,
+        GradeReviewRequest, GradeReviewResponse, ListLinksRequest, ListMemoriesRequest,
+        ListMemoriesResponse, MemoryResponse, NotifyDueResponse, RegisterConnectionRequest,
+        RegisterConnectionResponse, ReviewCardResponse, ReviewStatsResponse, SearchHitResponse,
+        SearchRequest, SearchResponse, UpdateCollectionRequest, UpdateMemoryRequest,
     },
     protocol_version,
 };
@@ -60,6 +60,7 @@ const IMPLEMENTED_CAPABILITIES: &[&str] = &[
     "ask",
     "cards:manage",
     "reviews:manage",
+    "completion:configure",
     "capabilities",
 ];
 
@@ -207,6 +208,10 @@ pub fn router(state: ProtocolState) -> Router {
         )
         .route("/v1/search", post(search))
         .route("/v1/ask", post(ask))
+        .route(
+            "/v1/completion",
+            get(completion_status).post(configure_completion),
+        )
         .route("/v1/cards", post(create_card))
         .route("/v1/cards/generate", post(generate_cards))
         .route("/v1/reviews", get(list_reviews))
@@ -797,9 +802,10 @@ async fn ask(
         return Err(ProtocolError::InvalidRequest("问题不能为空".into()));
     }
 
-    let mut sources = request.scope.source.into_iter().collect::<Vec<_>>();
+    let scope = request.scope.unwrap_or_default();
+    let mut sources = scope.source.into_iter().collect::<Vec<_>>();
     apply_source_restriction(&mut sources, &grant)?;
-    let allowed_memories = resolve_collection_scope(&state, request.scope.collection.as_deref())?;
+    let allowed_memories = resolve_collection_scope(&state, scope.collection.as_deref())?;
     let hits = state.store.search(
         &SearchQuery {
             text: question.clone(),
@@ -877,6 +883,67 @@ async fn ask(
         sent_context_count,
         sends_data_remote,
     }))
+}
+
+/// 返回当前实际 Completion Provider 的非敏感数据流向状态。
+async fn completion_status(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<CompletionStatusResponse>, ProtocolError> {
+    authorize_admin(&headers, &state)?;
+    let (provider, sends_data_remote) = state.completion_status()?;
+    Ok(Json(CompletionStatusResponse {
+        provider: provider.into(),
+        sends_data_remote,
+    }))
+}
+
+/// 校验管理员配置并原子切换进程内 Completion Provider，不持久化 API Key。
+async fn configure_completion(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<CompletionConfigRequest>,
+) -> Result<Json<CompletionStatusResponse>, ProtocolError> {
+    authorize_admin(&headers, &state)?;
+    let model = request.model.unwrap_or_default();
+    let api_key = request.api_key.unwrap_or_default();
+    let completion: Arc<dyn Completion> = match request.provider.as_str() {
+        "local" => Arc::new(LocalExtractiveCompletion),
+        "claude" => Arc::new(AnthropicCompletion::new(
+            api_key,
+            non_empty_or(model, "claude-sonnet-4-20250514"),
+            request.endpoint,
+        )?),
+        "openai" => Arc::new(OpenAiCompletion::new(
+            api_key,
+            non_empty_or(model, "gpt-4.1-mini"),
+            request.endpoint,
+        )?),
+        "custom" => Arc::new(CustomCompletion::new(
+            request.endpoint.ok_or_else(|| {
+                ProtocolError::InvalidRequest("自定义 Provider 必须填写端点".into())
+            })?,
+            api_key,
+            non_empty_or(model, "default"),
+        )?),
+        provider => {
+            return Err(ProtocolError::InvalidRequest(format!(
+                "未知 Completion Provider: {provider}"
+            )));
+        }
+    };
+    state.set_completion(completion)?;
+    completion_status(State(state), headers).await
+}
+
+/// 空白配置使用 Provider 的稳定默认模型。
+fn non_empty_or(value: String, fallback: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        fallback.into()
+    } else {
+        value.into()
+    }
 }
 
 /// 手动创建卡片 Memory、derived_from 关联和初始 ReviewState。

@@ -81,7 +81,26 @@ export interface ReviewCard {
 export interface GradeResult {
   nextDueAt: number;
   newStability: number;
+  newDifficulty: number;
   newState: ReviewState;
+}
+
+/** 手动创建知识卡片的输入。 */
+export interface CreateCardRequest {
+  cardFront: string;
+  cardBack: string;
+  sourceMemoryId?: string | null;
+  deck?: string | null;
+  tags?: string[];
+}
+
+/** 从指定来源记忆生成卡片的输入。 */
+export interface GenerateCardsRequest {
+  sourceMemoryId: string;
+  instruction?: string | null;
+  deck?: string | null;
+  tags?: string[];
+  maxCards?: number;
 }
 
 /** 复习统计 */
@@ -115,6 +134,9 @@ export interface Citation {
 export interface AskResponse {
   answer: string;
   citations: Citation[];
+  provider: string;
+  sentContextCount: number;
+  sendsDataRemote: boolean;
 }
 
 /** 对话消息 */
@@ -192,6 +214,8 @@ export interface OrbitSettings {
   rag: {
     provider: "local" | "claude" | "openai" | "custom";
     apiKey: string;
+    hasApiKey: boolean;
+    model: string;
     customEndpoint: string;
     streamEnabled: boolean;
     confirmBeforeSend: boolean;
@@ -234,8 +258,6 @@ export interface ServiceStatus {
 }
 
 /** 由 core 事务提交后广播给 Orbit 前端的记忆变更事件。 */
-export interface MemoryChangedEvent {
-  type: "memory_created" | "memory_updated" | "memory_deleted";
-  id: string;
-  source: MemorySource;
-}
+export type MemoryChangedEvent =
+  | { type: "memory_created" | "memory_updated" | "memory_deleted"; id: string; source: MemorySource }
+  | { type: "review_due" | "review_graded"; id: string; due_at: number };
