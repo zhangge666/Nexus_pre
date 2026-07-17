@@ -23,6 +23,7 @@ import { listCollections, createCollection } from "../core";
 import type { MemoryCollection } from "../core";
 import { useMemoryChanges } from "../core/events";
 import { ServiceStatus } from "./ServiceStatus";
+import { useSidebar } from "./SidebarState";
 
 /** 将路由激活状态映射为设计系统定义的导航样式。 */
 function navCls({ isActive }: { isActive: boolean }): string {
@@ -32,6 +33,7 @@ function navCls({ isActive }: { isActive: boolean }): string {
 /** 渲染 Orbit 全局导航与可折叠的记忆集合树。 */
 export function Sidebar(): React.JSX.Element {
   const navigate = useNavigate();
+  const { collapsed } = useSidebar();
   const [collections, setCollections] = useState<MemoryCollection[]>([]);
   const [collectionName, setCollectionName] = useState("");
   const [collectionsOpen, setCollectionsOpen] = useState(true);
@@ -66,7 +68,7 @@ export function Sidebar(): React.JSX.Element {
   const childrenOf = (id: string) => collections.filter((c: import("../core").MemoryCollection) => c.parentId === id);
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
       {/* 品牌 */}
       <div className="brand" data-tauri-drag-region>
         <OrbitIcon size={18} aria-hidden="true" data-tauri-drag-region />
@@ -75,34 +77,34 @@ export function Sidebar(): React.JSX.Element {
 
       {/* 主导航 */}
       <nav aria-label="主导航">
-        <NavLink className={navCls} to="/today" end>
+        <NavLink className={navCls} to="/today" end title="今日" aria-label="今日">
           <Sun size={15} />今日
         </NavLink>
-        <NavLink className={navCls} to="/search">
+        <NavLink className={navCls} to="/search" title="记忆" aria-label="记忆">
           <Search size={15} />记忆
         </NavLink>
-        <NavLink className={navCls} to="/timeline">
+        <NavLink className={navCls} to="/timeline" title="时间线" aria-label="时间线">
           <BookOpenText size={15} />时间线
         </NavLink>
-        <NavLink className={navCls} to="/inbox">
+        <NavLink className={navCls} to="/inbox" title="收件箱" aria-label="收件箱">
           <Inbox size={15} />收件箱
         </NavLink>
-        <NavLink className={navCls} to="/review">
+        <NavLink className={navCls} to="/review" title="复习" aria-label="复习">
           <BrainCircuit size={15} />复习
         </NavLink>
-        <NavLink className={navCls} to="/cards">
+        <NavLink className={navCls} to="/cards" title="卡片" aria-label="卡片">
           <Layers size={15} />卡片
         </NavLink>
-        <NavLink className={navCls} to="/ask">
+        <NavLink className={navCls} to="/ask" title="问答" aria-label="问答">
           <MessageCircle size={15} />问答
         </NavLink>
-        <NavLink className={navCls} to="/graph">
+        <NavLink className={navCls} to="/graph" title="知识图谱" aria-label="知识图谱">
           <Network size={15} />图谱
         </NavLink>
-        <NavLink className={navCls} to="/connections">
+        <NavLink className={navCls} to="/connections" title="连接" aria-label="连接">
           <Link2 size={15} />连接
         </NavLink>
-        <NavLink className={navCls} to="/settings">
+        <NavLink className={navCls} to="/settings" title="设置" aria-label="设置">
           <Settings size={15} />设置
         </NavLink>
       </nav>

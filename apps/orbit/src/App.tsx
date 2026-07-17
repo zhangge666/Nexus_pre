@@ -3,6 +3,7 @@
 import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
+import { SidebarProvider, useSidebar } from "./components/SidebarState";
 import { Titlebar } from "./components/Titlebar";
 import { InspectorPanel, InspectorProvider } from "./components/Inspector";
 
@@ -18,12 +19,14 @@ const ConnectionsPage = lazy(() => import("./pages/ConnectionsPage"));
 const SettingsPage    = lazy(() => import("./pages/SettingsPage"));
 
 /** 组合全局标题栏、导航、工作区与可控制的检查器。 */
-export function App(): React.JSX.Element {
+/** 组合侧边栏状态、全局检查器和路由页面，令工作区网格随侧边栏状态同步调整。 */
+function AppShell(): React.JSX.Element {
+  const { collapsed } = useSidebar();
   return (
     <InspectorProvider>
       <div className="orbit-root">
         <Titlebar />
-        <div className="app-shell">
+        <div className={`app-shell${collapsed ? " sidebar-collapsed" : ""}`}>
           <Sidebar />
           <main className="workspace">
             <Suspense fallback={<div className="page-loading"><span className="page-loading-spinner" />加载中…</div>}>
@@ -50,4 +53,9 @@ export function App(): React.JSX.Element {
       </div>
     </InspectorProvider>
   );
+}
+
+/** 装配 Orbit 应用的全局布局状态。 */
+export function App(): React.JSX.Element {
+  return <SidebarProvider><AppShell /></SidebarProvider>;
 }

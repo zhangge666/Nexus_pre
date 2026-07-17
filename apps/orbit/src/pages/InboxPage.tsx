@@ -82,9 +82,24 @@ function InboxCard({ item, onMarkRead }: { item: InboxItem; onMarkRead: (id: str
 export default function InboxPage(): React.JSX.Element {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  /** 加载真实收件箱数据；接口异常时结束加载并保留可理解的空状态，而非停留在加载提示。 */
+  async function loadInbox(): Promise<void> {
+    setLoading(true);
+    try {
+      setItems(await listInboxItems());
+      setLoadError(null);
+    } catch (error) {
+      setItems([]);
+      setLoadError(`收件箱暂不可用：${String(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    void listInboxItems().then((its) => { setItems(its); setLoading(false); });
+    void loadInbox();
   }, []);
 
   async function handleMarkRead(id: string): Promise<void> {
@@ -116,11 +131,12 @@ export default function InboxPage(): React.JSX.Element {
 
       <div className="inbox-content">
         {loading && <p className="loading-hint">加载中…</p>}
+        {loadError && <p className="inline-notice" role="alert">{loadError}</p>}
         {!loading && items.length === 0 && (
           <EmptyState
             icon={<Inbox size={40} />}
-            title="收件箱为空"
-            description="新到达的记忆和通知会出现在这里"
+            title="收件箱暂无待处理内容"
+            description="新的记忆、关联建议和复习提醒会出现在这里。"
           />
         )}
 

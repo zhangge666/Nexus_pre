@@ -1,53 +1,71 @@
-/** 本文件实现 Orbit 今日复习队列页面，集成 FSRS 算法控制与多维度指标检查面板。 */
-import React, { useState, useEffect, useCallback } from "react";
-import {
-  Flame, BookOpen, RotateCcw, Clock, ShieldCheck,
-  HelpCircle, Eye, RefreshCw, BarChart2, Star, MoreHorizontal,
-  ChevronRight, Calendar, Sparkles, CheckCircle, CornerDownLeft
-} from "lucide-react";
+/** 本文件实现 Orbit 的复习工作区，并将 FSRS 队列、评分和统计收敛到紧凑的单一主任务界面。 */
+import type React from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Clock, CornerDownLeft, Eye, Flame, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
 import { getReviewQueue, getReviewStats, gradeCard } from "../core";
-import type { ReviewCard, ReviewStats, Rating } from "../core";
-import { Topbar } from "../components/Topbar";
+import type { Rating, ReviewCard, ReviewStats } from "../core";
 import { EmptyState } from "../components/EmptyState";
 import { useInspector } from "../components/Inspector";
 import { PageLayout } from "../components/PageLayout";
+import { Topbar } from "../components/Topbar";
 import { useNavigate } from "react-router-dom";
 
-/** 渲染当前复习卡片的关键调度数据，作为根级检查器内容展示。 */
-function ReviewInspector({ card, remaining, onNavigate }: { card: ReviewCard | undefined; remaining: number; onNavigate: (path: string) => void }): React.JSX.Element {
-  if (!card) return <div className="inspector-placeholder"><p>当前没有待复习卡片。</p></div>;
-  return <div className="today-inspector"><section className="inspector-section"><div className="review-inspector-title">卡片详情</div><div className="review-detail-grid"><div className="review-detail-row"><span>来源</span><button className="detail-action" onClick={() => onNavigate(`/search?id=${card.memoryId}`)}>{card.sourceTitle || "未命名记忆"}</button></div><div className="review-detail-row"><span>复习次数</span><strong>{card.reps}</strong></div><div className="review-detail-row"><span>剩余卡片</span><strong>{remaining}</strong></div></div></section><section className="inspector-section"><div className="review-inspector-title">FSRS 调度</div><div className="review-detail-grid"><div className="review-detail-row"><span>稳定度</span><strong>{card.stability.toFixed(1)}</strong></div><div className="review-detail-row"><span>难度</span><strong>{card.difficulty.toFixed(1)}</strong></div><div className="review-detail-row"><span>遗忘次数</span><strong>{card.lapses}</strong></div></div></section></div>;
+/** 在全局检查器中展示当前卡片的真实调度信息。 */
+function ReviewInspector({ card, remaining, onNavigate }: {
+  card: ReviewCard | undefined;
+  remaining: number;
+  onNavigate: (path: string) => void;
+}): React.JSX.Element {
+  if (!card) {
+    return <div className="inspector-placeholder"><p>当前没有待复习卡片。</p></div>;
+  }
+
+  return (
+    <div className="today-inspector">
+      <section className="inspector-section">
+        <div className="review-inspector-title">卡片详情</div>
+        <div className="review-detail-grid">
+          <div className="review-detail-row"><span>来源</span><button className="detail-action" onClick={() => onNavigate(`/search?id=${card.memoryId}`)}>{card.sourceTitle ?? "未关联来源"}</button></div>
+          <div className="review-detail-row"><span>复习次数</span><strong>{card.reps}</strong></div>
+          <div className="review-detail-row"><span>剩余卡片</span><strong>{remaining}</strong></div>
+        </div>
+      </section>
+      <section className="inspector-section">
+        <div className="review-inspector-title">FSRS 调度</div>
+        <div className="review-detail-grid">
+          <div className="review-detail-row"><span>稳定度</span><strong>{card.stability.toFixed(1)}</strong></div>
+          <div className="review-detail-row"><span>难度</span><strong>{card.difficulty.toFixed(1)}</strong></div>
+          <div className="review-detail-row"><span>遗忘次数</span><strong>{card.lapses}</strong></div>
+        </div>
+      </section>
+    </div>
+  );
 }
 
-/** 渲染复习队列，并将当前卡片的辅助详情放入全局检查器。 */
+/** 渲染到期复习队列，并在评分成功后推进到下一张卡片。 */
 export default function ReviewPage(): React.JSX.Element {
   const navigate = useNavigate();
   const { present } = useInspector();
   const [queue, setQueue] = useState<ReviewCard[]>([]);
-  const [current, setCurrent] = useState(0);
-  const [flipped, setFlipped] = useState(false);
   const [stats, setStats] = useState<ReviewStats | null>(null);
+  const [current, setCurrent] = useState(0);
   const [reviewed, setReviewed] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [grading, setGrading] = useState(false);
+  const [flipped, setFlipped] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [done, setDone] = useState(false);
-  const [shuffle, setShuffle] = useState(false);
+  const [grading, setGrading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
-  /** 重新加载复习队列与统计数据，并重置本轮复习状态。 */
-  const load = useCallback(async () => {
+  /** 重新读取服务端的到期队列和统计，并重置本轮复习进度。 */
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setNotice(null);
     try {
-      const [q, s] = await Promise.all([getReviewQueue(), getReviewStats()]);
-      setQueue(q);
-      setTotal(q.length);
-      setStats(s);
-      setDone(q.length === 0);
+      const [nextQueue, nextStats] = await Promise.all([getReviewQueue(), getReviewStats()]);
+      setQueue(nextQueue);
+      setStats(nextStats);
       setCurrent(0);
-      setFlipped(false);
       setReviewed(0);
+      setFlipped(false);
     } catch (error) {
       setNotice(`复习队列加载失败：${String(error)}`);
     } finally {
@@ -55,287 +73,124 @@ export default function ReviewPage(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  // 仅在答案已经翻开时响应快捷键，避免误触直接提交评分。
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (done || loading || grading) return;
-      if (!flipped && (e.key.toLowerCase() === "s" || e.key === " ")) {
-        e.preventDefault();
-        setFlipped(true);
-        return;
-      }
-      if (!flipped) return;
-      if (e.key === "1") void handleRate("again");
-      if (e.key === "2") void handleRate("hard");
-      if (e.key === "3") void handleRate("good");
-      if (e.key === "4") void handleRate("easy");
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  });
+  const card = queue[current];
+  const completed = !loading && queue.length > 0 && current >= queue.length;
+  const total = queue.length;
+  const progress = total === 0 ? 0 : Math.min((reviewed / total) * 100, 100);
 
-  /** 提交当前卡片评分，并推进到队列中的下一张卡片。 */
-  async function handleRate(rating: Rating): Promise<void> {
-    const card = queue[current];
-    if (!card || grading) return;
+  /** 将用户评分写入协议服务；失败时保留当前卡片供用户重试。 */
+  const handleRate = useCallback(async (rating: Rating): Promise<void> => {
+    const activeCard = queue[current];
+    if (!activeCard || grading) return;
+
     setGrading(true);
     setNotice(null);
     try {
-      const result = await gradeCard(card.memoryId, rating);
-      const next = current + 1;
-      setReviewed(prev => prev + 1);
-      if (next >= queue.length) {
-        setDone(true);
-      } else {
-        setCurrent(next);
-        setFlipped(false);
-      }
-      // 评分写入成功后异步刷新统计，不阻塞下一张卡片的展示。
-      void getReviewStats().then(setStats);
+      const result = await gradeCard(activeCard.memoryId, rating);
+      setReviewed((count) => count + 1);
+      setCurrent((index) => index + 1);
+      setFlipped(false);
+      void getReviewStats().then(setStats).catch(() => undefined);
       const hours = Math.max(1, Math.round((result.nextDueAt - Date.now()) / 3_600_000));
-      setNotice(`评分已保存，下次约 ${hours < 48 ? `${hours} 小时` : `${Math.round(hours / 24)} 天`}后复习`);
+      setNotice(`评分已保存，下次约 ${hours < 48 ? `${hours} 小时` : `${Math.round(hours / 24)} 天`}后复习。`);
     } catch (error) {
-      // 写入失败时保留当前卡片和翻面状态，方便用户直接重试。
       setNotice(`评分失败：${String(error)}`);
     } finally {
       setGrading(false);
     }
-  }
+  }, [current, grading, queue]);
 
-  /** 随机重排尚未完成的复习队列，并回到新队列起点。 */
-  const handleShuffle = (): void => {
-    if (queue.length <= 1) return;
-    const shuffled = [...queue].sort(() => Math.random() - 0.5);
-    setQueue(shuffled);
-    setCurrent(0);
-    setFlipped(false);
-    setShuffle(true);
-    setTimeout(() => setShuffle(false), 500);
-  };
+  /** 支持空格翻面及 1 至 4 的评分快捷键，避免鼠标成为唯一入口。 */
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (loading || grading || !card) return;
+      if (!flipped && (event.key === " " || event.key.toLowerCase() === "s")) {
+        event.preventDefault();
+        setFlipped(true);
+        return;
+      }
+      if (!flipped) return;
+      const ratings: Record<string, Rating> = { "1": "again", "2": "hard", "3": "good", "4": "easy" };
+      if (ratings[event.key]) void handleRate(ratings[event.key]);
+    }
 
-  const card = queue[current];
-  const progress = total > 0 ? (reviewed / total) * 100 : 0;
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [card, flipped, grading, handleRate, loading]);
 
   useEffect(() => {
-    if (card) present("复习详情", <ReviewInspector card={card} remaining={Math.max(queue.length - current - 1, 0)} onNavigate={navigate} />);
-  }, [card, current, navigate, present, queue.length]);
+    present("复习详情", <ReviewInspector card={card} remaining={Math.max(total - current - 1, 0)} onNavigate={navigate} />);
+  }, [card, current, navigate, present, total]);
+
+  const topbar = (
+    <Topbar
+      title="复习"
+      subtitle={loading ? "正在读取今日到期队列" : `今日到期 ${stats?.dueToday ?? total} 张 · 本轮已完成 ${reviewed} 张`}
+      actions={<button className="secondary-button" onClick={() => void load()} disabled={loading || grading}><RefreshCw size={14} />刷新队列</button>}
+    />
+  );
 
   if (loading) {
-    return (
-      <PageLayout className="review-page">
-        <Topbar title="Review Queue" subtitle="Strengthen your memory through spaced repetition." />
-        <div className="review-loading" style={{ padding: "40px", color: "hsl(var(--foreground-muted))" }}>Loading review queue…</div>
-      </PageLayout>
-    );
+    return <PageLayout className="review-page">{topbar}<div className="review-loading">正在加载复习队列…</div></PageLayout>;
   }
 
-  if (done) {
+  if (!card) {
     return (
       <PageLayout className="review-page">
-        <Topbar title="Review Queue" subtitle="Strengthen your memory through spaced repetition." />
-        <div style={{ marginTop: "40px" }}>
-          <EmptyState
-            icon={<Sparkles size={48} className="primary-color" />}
-            title="🎉 All caught up for today!"
-            description={`Fantastic! You've reviewed all ${reviewed} cards in your queue. Come back tomorrow!`}
-            action={{ label: "Go to Search Page", onClick: () => navigate("/search") }}
-          />
-        </div>
+        {topbar}
+        <EmptyState
+          icon={<Sparkles size={36} />}
+          title={completed ? "今日复习已完成" : "暂无到期卡片"}
+          description={completed ? `本轮已复习 ${reviewed} 张卡片，明天再来看看。` : "创建知识卡片后，Orbit 会在到期时将它们加入这里。"}
+          action={{ label: "前往记忆", onClick: () => navigate("/search") }}
+        />
+        {notice && <p className="inline-notice" role={notice.includes("失败") ? "alert" : "status"}>{notice}</p>}
       </PageLayout>
     );
   }
 
   return (
-    <PageLayout className="review-workspace">
-      <Topbar
-        title="Review Queue"
-        subtitle="Strengthen your memory through spaced repetition."
-        actions={
-          <button className="secondary-button" onClick={() => void load()}>
-            <RotateCcw size={14} />Refresh Queue
-          </button>
-        }
-      />
-
+    <PageLayout className="review-page">
+      {topbar}
+      <div className="review-workspace-content">
         {notice && <p className="inline-notice" role={notice.includes("失败") ? "alert" : "status"}>{notice}</p>}
+        <section className="review-summary" aria-label="复习统计">
+          <div><span>今日到期</span><strong>{stats?.dueToday ?? total}</strong></div>
+          <div><span>本轮完成</span><strong>{reviewed} / {total}</strong></div>
+          <div><span>成熟卡片</span><strong>{stats?.mature ?? 0}</strong></div>
+          <div><span>今日已复习</span><strong>{stats?.reviewedToday ?? 0}</strong></div>
+        </section>
 
-        {/* 1. 统计卡片行 */}
-        <section className="stats-cards-grid" aria-label="复习统计">
-          <div className="dashboard-stat-card">
-            <div className="stat-card-header">
-              <span>DUE TODAY</span>
-              <Clock size={12} />
-            </div>
-            <div className="stat-card-value">
-              {stats?.dueToday ?? 0}<span>cards</span>
-            </div>
-            <div className="stat-card-footer success">
-              +{stats?.newToday ?? 0} new
-            </div>
-          </div>
+        <section className="review-progress" aria-label="复习进度">
+          <span>第 {current + 1} / {total} 张</span>
+          <div className="review-progress-bar"><div className="review-progress-fill" style={{ width: `${progress}%` }} /></div>
+          <span>{Math.round(progress)}%</span>
+        </section>
 
-          <div className="dashboard-stat-card">
-            <div className="stat-card-header">
-              <span>COMPLETED</span>
-              <CheckCircle size={12} style={{ color: "hsl(var(--success))" }} />
-            </div>
-            <div className="stat-card-value">
-              {reviewed}<span>/ {total}</span>
-            </div>
-            <div className="stat-card-footer success" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <div style={{ background: "hsl(var(--muted))", height: "4px", width: "60px", borderRadius: "2px", overflow: "hidden" }}>
-                <div style={{ background: "hsl(var(--success))", height: "100%", width: `${progress}%` }} />
-              </div>
-              <span>{Math.round(progress)}%</span>
-            </div>
-          </div>
-
-          <div className="dashboard-stat-card">
-            <div className="stat-card-header">
-              <span>MATURE</span>
-              <BarChart2 size={12} />
-            </div>
-            <div className="stat-card-value">
-              {stats?.mature ?? 0}<span>cards</span>
-            </div>
-            <div className="stat-card-footer success" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>稳定度 ≥ 21 天</span>
-            </div>
-          </div>
-
-          <div className="dashboard-stat-card">
-            <div className="stat-card-header">
-              <span>REVIEWED TODAY</span>
-              <Clock size={12} />
-            </div>
-            <div className="stat-card-value">
-              {stats?.reviewedToday ?? 0}<span>times</span>
-            </div>
-            <div className="stat-card-footer muted">
-              已写入评分日志
-            </div>
+        <section className="review-card" aria-live="polite">
+          <div className="review-card-header"><span>{flipped ? "答案" : "问题"}</span>{card.deck && <span className="review-deck">{card.deck}</span>}</div>
+          <p className="review-card-content">{flipped ? card.cardBack : card.cardFront}</p>
+          <div className="review-card-footer">
+            <span>来源：{card.sourceTitle ?? "未关联来源"}</span>
+            {!flipped && <button className="primary-small" onClick={() => setFlipped(true)}><Eye size={14} />显示答案</button>}
           </div>
         </section>
 
-        {/* 2. 进度条与随机排序 */}
-        <section style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", marginTop: "12px" }}>
-          <div style={{ flex: 1, display: "flex", alignItems: "center", gap: "12px", fontSize: "12px", color: "hsl(var(--foreground-muted))" }}>
-            <span>Card <strong>{current + 1}</strong> of {total}</span>
-            <div style={{ flex: 1, background: "hsl(var(--muted))", height: "6px", borderRadius: "3px", overflow: "hidden" }}>
-              <div style={{ background: "hsl(var(--primary))", height: "100%", width: `${((current + 1) / total) * 100}%`, transition: "width 200ms ease" }} />
-            </div>
-            <span>{Math.round(((current + 1) / total) * 100)}% complete</span>
-          </div>
-          <button className="secondary-button" onClick={handleShuffle} disabled={shuffle}>
-            <RefreshCw size={12} className={shuffle ? "spin" : ""} style={{ marginRight: "4px" }} />Shuffle
-          </button>
-        </section>
-
-        {/* 3. 复习主卡片 */}
-        <section style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-          {card && (
-            <div className="review-card-container" style={{
-              flex: 1,
-              background: "hsl(var(--surface-elevated))",
-              border: "1px solid hsl(var(--border-strong))",
-              borderRadius: "var(--radius-lg)",
-              boxShadow: "0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05)",
-              padding: "40px",
-              display: "flex",
-              flexDirection: "column",
-              position: "relative",
-              justifyContent: "space-between",
-              minHeight: "260px"
-            }}>
-              {/* 卡片头部 */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span className="scope-badge" style={{ background: "hsl(var(--muted))", color: "hsl(var(--foreground-secondary))", textTransform: "uppercase", fontSize: "10px", padding: "3px 8px", borderRadius: "4px", fontWeight: 600 }}>
-                  Question
-                </span>
-                <div style={{ display: "flex", gap: "6px", color: "hsl(var(--foreground-muted))" }}>
-                  <button className="icon-button" aria-label="收藏卡片"><Star size={14} /></button>
-                  <button className="icon-button" aria-label="更多卡片操作"><MoreHorizontal size={14} /></button>
-                </div>
-              </div>
-
-              {/* 卡片正文 */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, padding: "20px 0" }}>
-                <p style={{
-                  fontSize: "20px",
-                  fontWeight: 500,
-                  textAlign: "center",
-                  lineHeight: 1.5,
-                  maxWidth: "520px",
-                  color: "hsl(var(--foreground))"
-                }}>
-                  {flipped ? card.cardBack : card.cardFront}
-                </p>
-              </div>
-
-              {/* 卡片底部 */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid hsl(var(--border-subtle))", paddingTop: "16px", marginTop: "16px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11px", color: "hsl(var(--foreground-muted))" }}>
-                  <span className="source-mark src-quill" style={{ width: "16px", height: "16px", fontSize: "9px" }}>📝</span>
-                  <span>Derived from Quill note</span>
-                  <span style={{ color: "hsl(var(--foreground-secondary))", fontWeight: 500 }}>{card.sourceTitle || "Design Principles"}</span>
-                </div>
-                {!flipped && (
-                  <button className="primary-small" onClick={() => setFlipped(true)} style={{ gap: "6px" }}>
-                    <Eye size={13} />Show answer
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* 4. 评分按钮 */}
-        <section style={{ height: "72px", display: "flex", flexDirection: "column", gap: "8px" }}>
-          {flipped ? (
-            <div className="review-rating-row">
-              <button className="rating-action-card again" onClick={() => void handleRate("again")} disabled={grading}>
-                <span className="rating-action-label">Again</span>
-                <span className="rating-action-desc">重新学习</span>
-              </button>
-              <button className="rating-action-card hard" onClick={() => void handleRate("hard")} disabled={grading}>
-                <span className="rating-action-label">Hard</span>
-                <span className="rating-action-desc">较短间隔</span>
-              </button>
-              <button className="rating-action-card good" onClick={() => void handleRate("good")} disabled={grading}>
-                <span className="rating-action-label">Good</span>
-                <span className="rating-action-desc">标准间隔</span>
-              </button>
-              <button className="rating-action-card easy" onClick={() => void handleRate("easy")} disabled={grading}>
-                <span className="rating-action-label">Easy</span>
-                <span className="rating-action-desc">较长间隔</span>
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100%", border: "1px dashed hsl(var(--border))", borderRadius: "var(--radius-md)", fontSize: "11px", color: "hsl(var(--foreground-disabled))", gap: "6px" }}>
-              <CornerDownLeft size={12} /> Press Spacebar to reveal the answer
-            </div>
-          )}
-          {flipped && (
-            <div style={{ display: "flex", justifyContent: "center", fontSize: "10px", color: "hsl(var(--foreground-disabled))", gap: "12px" }}>
-              <span>Tip: Use 1-4 keys or click</span>
-            </div>
-          )}
-        </section>
-
-        {/* 5. 底部统计条 */}
-        {stats && (
-          <section style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "hsl(var(--foreground-muted))", borderTop: "1px solid hsl(var(--border-subtle))", paddingTop: "12px" }}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}><Flame size={12} className="warning-color" /> Streak: {stats.streak} days</span>
-            <span>Young cards: {stats.young}</span>
-            <span>Total cards: {stats.totalCards}</span>
-            <span>Reviewed today: {stats.reviewedToday}</span>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}><ShieldCheck size={12} className="success-color" /> FSRS Algorithm</span>
+        {flipped ? (
+          <section className="review-rating-row" aria-label="为卡片评分">
+            <button className="rating-action-card again" onClick={() => void handleRate("again")} disabled={grading}><span className="rating-action-label">重来</span><span className="rating-action-desc">重新学习 · 1</span></button>
+            <button className="rating-action-card hard" onClick={() => void handleRate("hard")} disabled={grading}><span className="rating-action-label">困难</span><span className="rating-action-desc">较短间隔 · 2</span></button>
+            <button className="rating-action-card good" onClick={() => void handleRate("good")} disabled={grading}><span className="rating-action-label">良好</span><span className="rating-action-desc">标准间隔 · 3</span></button>
+            <button className="rating-action-card easy" onClick={() => void handleRate("easy")} disabled={grading}><span className="rating-action-label">简单</span><span className="rating-action-desc">较长间隔 · 4</span></button>
           </section>
+        ) : (
+          <div className="review-keyboard-hint"><CornerDownLeft size={13} />按空格键或 S 显示答案</div>
         )}
+
+        {stats && <footer className="review-stats-bar"><span><Flame size={13} />连续复习 {stats.streak} 天</span><span>新卡 {stats.newToday} 张</span><span>年轻卡片 {stats.young} 张</span><span><ShieldCheck size={13} />FSRS 调度</span></footer>}
+      </div>
     </PageLayout>
   );
 }

@@ -10,7 +10,7 @@ use std::{
 
 use chrono::{Local, Timelike};
 use futures_util::StreamExt;
-use nexus_core::{Collection, HashEmbedder, MemoryStore};
+use nexus_core::{Collection, HashEmbedder, Link, LinkRelation, MemoryStore};
 use nexus_protocol::dto::{ListMemoriesResponse, MemoryResponse};
 use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
@@ -207,6 +207,10 @@ impl OrbitState {
 
     /// 读取用于 Orbit 时间线和筛选界面的记忆分页数据。
     async fn list_memories(&self, source: Option<String>) -> Result<Vec<MemorySummary>, String> {
+        let source = source.filter(|value| {
+            let value = value.trim();
+            !value.is_empty() && value != "all"
+        });
         let path = source.map_or_else(
             || "/v1/memories?limit=100".to_owned(),
             |value| format!("/v1/memories?limit=100&source={value}"),
@@ -222,6 +226,66 @@ impl OrbitState {
             .into_iter()
             .map(MemorySummary::from)
             .collect())
+    }
+
+    /// 聚合全部记忆及其关联，用于知识图谱展示；无关联的独立记忆同样必须作为节点返回。
+    async fn get_graph_data(&self) -> Result<GraphData, String> {
+        let memories = self.list_memories(None).await?;
+        let memory_ids = memories
+            .iter()
+            .map(|memory| memory.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        let mut seen_edges = std::collections::HashSet::new();
+        let mut edges = Vec::new();
+        for memory in &memories {
+            let links: Vec<Link> = self
+                .send_json(
+                    self.client.get(format!(
+                        "{}/v1/links?memory_id={}",
+                        self.endpoint, memory.id
+                    )),
+                    serde_json::json!({}),
+                )
+                .await?;
+            for link in links {
+                let from = link.from_id.to_string();
+                let to = link.to_id.to_string();
+                let relation = graph_relation(link.relation);
+                if !memory_ids.contains(&from)
+                    || !memory_ids.contains(&to)
+                    || !seen_edges.insert((from.clone(), to.clone(), relation))
+                {
+                    continue;
+                }
+                edges.push(GraphEdge {
+                    from,
+                    to,
+                    relation: relation.into(),
+                });
+            }
+        }
+        Ok(GraphData {
+            nodes: memories
+                .into_iter()
+                .map(|memory| GraphNode {
+                    id: memory.id,
+                    title: memory.title.unwrap_or_else(|| memory.kind.clone()),
+                    kind: memory.kind,
+                    source: memory.source,
+                })
+                .collect(),
+            edges,
+        })
+    }
+
+    /// 当前收件箱没有独立持久化模型，先返回稳定的空集合，确保前端显示空状态而不是无限加载。
+    async fn list_inbox_items(&self) -> Result<Vec<serde_json::Value>, String> {
+        Ok(Vec::new())
+    }
+
+    /// 收件箱为空时将已读操作视为幂等成功，为后续持久化收件箱实现保持 IPC 契约。
+    async fn mark_inbox_read(&self, _id: String) -> Result<(), String> {
+        Ok(())
     }
 
     /// 读取指定集合中的记忆，使集合导航与 Memory Protocol 的集合成员关系保持一致。
@@ -612,6 +676,16 @@ fn json_string(value: &serde_json::Value, pointer: &str) -> String {
         .to_owned()
 }
 
+/// 将核心关联枚举映射为前端图谱使用的稳定 snake_case 字符串。
+fn graph_relation(relation: LinkRelation) -> &'static str {
+    match relation {
+        LinkRelation::References => "references",
+        LinkRelation::DerivedFrom => "derived_from",
+        LinkRelation::Related => "related",
+        LinkRelation::Duplicate => "duplicate",
+    }
+}
+
 /// 判断 Provider 是否需要由系统凭据库维护 API Key，纯本地模式永远不读取或写入密钥。
 fn provider_uses_api_key(provider: &str) -> bool {
     matches!(provider, "claude" | "openai" | "custom")
@@ -913,6 +987,33 @@ struct MemorySummary {
     links: Vec<serde_json::Value>,
 }
 
+/// 表示知识图谱所需的最小节点字段，内容来自 Memory Protocol 的真实记忆列表。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphNode {
+    id: String,
+    title: String,
+    kind: String,
+    source: String,
+}
+
+/// 表示知识图谱中的一条已持久化关联。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphEdge {
+    from: String,
+    to: String,
+    relation: String,
+}
+
+/// 汇总 Orbit 图谱 IPC 响应的节点与关联，字段名与前端 `GraphNode`/`GraphEdge` 保持一致。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphData {
+    nodes: Vec<GraphNode>,
+    edges: Vec<GraphEdge>,
+}
+
 /// 表示 Orbit 连接管理页面展示的真实本地授权应用。
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -992,6 +1093,26 @@ async fn list_collection_memories(
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<Vec<MemorySummary>, String> {
     state.list_collection_memories(collection_id).await
+}
+
+/// 通过 Tauri IPC 返回所有已持久化记忆和关联，供知识图谱显示独立节点与关联边。
+#[tauri::command]
+async fn get_graph_data(state: State<'_, Arc<OrbitState>>) -> Result<GraphData, String> {
+    state.get_graph_data().await
+}
+
+/// 通过 Tauri IPC 返回收件箱项目；当前没有待处理内容时返回空数组。
+#[tauri::command]
+async fn list_inbox_items(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<Vec<serde_json::Value>, String> {
+    state.list_inbox_items().await
+}
+
+/// 通过 Tauri IPC 标记收件箱项目已读，当前空收件箱实现保持幂等成功。
+#[tauri::command]
+async fn mark_inbox_read(id: String, state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
+    state.mark_inbox_read(id).await
 }
 
 /// 通过 Tauri IPC 保存记忆编辑结果。
@@ -1269,6 +1390,9 @@ pub fn run() {
             list_memories,
             get_memory,
             list_collection_memories,
+            get_graph_data,
+            list_inbox_items,
+            mark_inbox_read,
             update_memory,
             list_collections,
             create_collection,
@@ -1444,6 +1568,23 @@ mod tests {
         assert_eq!(state.get_review_stats().await.unwrap().total_cards, 1);
         let listed = state.list_memories(None).await.expect("协议列表读取应成功");
         assert_eq!(listed.len(), 2);
+        let all_listed = state
+            .list_memories(Some("all".into()))
+            .await
+            .expect("全部筛选应映射为全量记忆");
+        assert_eq!(all_listed.len(), 2);
+        let graph = state
+            .get_graph_data()
+            .await
+            .expect("图谱应返回已创建的独立记忆节点");
+        assert!(graph.nodes.iter().any(|node| node.id == created.id));
+        assert!(
+            state
+                .list_inbox_items()
+                .await
+                .expect("空收件箱应返回可用结果")
+                .is_empty()
+        );
         let updated = state
             .update_memory(
                 created.id.clone(),

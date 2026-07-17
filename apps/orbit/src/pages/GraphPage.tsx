@@ -35,6 +35,7 @@ export default function GraphPage(): React.JSX.Element {
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [selected, setSelected] = useState<GraphNode | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [scale, setScale] = useState(1);
   const animRef = useRef<number>(0);
   const nodesRef = useRef<NodeWithPos[]>([]);
@@ -55,6 +56,14 @@ export default function GraphPage(): React.JSX.Element {
       setNodes(positioned);
       nodesRef.current = positioned;
       setEdges(rawEdges);
+      setSelected(null);
+      setLoadError(null);
+    } catch (error) {
+      setNodes([]);
+      nodesRef.current = [];
+      setEdges([]);
+      setSelected(null);
+      setLoadError(`无法读取知识图谱：${String(error)}`);
     } finally {
       setLoading(false);
     }
@@ -198,7 +207,18 @@ export default function GraphPage(): React.JSX.Element {
         </div>
       )}
 
-      <div className="graph-container">
+      {!loading && nodes.length === 0 && (
+        <div className="graph-empty">
+          <EmptyState
+            icon={<Network size={40} />}
+            title={loadError ? "知识图谱暂不可用" : "尚未形成知识图谱"}
+            description={loadError ?? "创建记忆后会显示为图谱节点；为记忆创建关联后会显示连接线。"}
+            action={{ label: "重新加载", onClick: () => void loadGraph() }}
+          />
+        </div>
+      )}
+
+      {!loading && nodes.length > 0 && <div className="graph-container">
         <canvas
           ref={canvasRef}
           className="graph-canvas"
@@ -238,7 +258,7 @@ export default function GraphPage(): React.JSX.Element {
             </div>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

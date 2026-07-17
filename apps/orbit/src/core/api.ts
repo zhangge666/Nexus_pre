@@ -31,7 +31,9 @@ export async function searchMemory(req: SearchRequest): Promise<MemoryHit[]> {
 
 /** 调用真实 IPC 获取记忆列表。 */
 export async function listMemories(source?: string): Promise<MemorySummary[]> {
-  return invoke<MemorySummary[]>("list_memories", { source });
+  // “全部”是界面筛选状态，不是 Memory Protocol 的真实来源标识；传空值才能请求全库。
+  const normalizedSource = source && source !== "all" ? source : undefined;
+  return invoke<MemorySummary[]>("list_memories", { source: normalizedSource });
 }
 
 /** 调用真实 IPC 获取指定集合中的记忆。 */
