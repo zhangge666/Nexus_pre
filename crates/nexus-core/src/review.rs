@@ -12,6 +12,18 @@ use crate::{
 const DAY_MS: i64 = 86_400_000;
 const MINUTE_MS: i64 = 60_000;
 
+/// FSRS-4.5 官方默认参数。参数、稳定度和难度始终只保存在本地数据库中。
+///
+/// 该版本采用 Anki/FSRS 使用的 17 个默认权重，并以 90% 为默认目标可回忆率。
+/// 后续个性化拟合只需要替换这组权重，不会改变已有 `ReviewState` 的存储结构。
+const FSRS_45_DEFAULT_WEIGHTS: [f64; 17] = [
+    0.40255, 1.18385, 3.173, 15.69105, 7.1949, 0.5345, 1.4604, 0.0046, 1.54575, 0.1192, 1.01925,
+    1.9395, 0.11, 0.29605, 2.2698, 0.2315, 2.9898,
+];
+const FSRS_DEFAULT_DESIRED_RETENTION: f64 = 0.9;
+const FSRS_DECAY: f64 = -0.5;
+const FSRS_FACTOR: f64 = 19.0 / 81.0;
+
 impl MemoryStore {
     /// 为 `kind=card` 的 Memory 建立初始 ReviewState，并使其立即进入新卡队列。
     pub fn create_review_state(
@@ -195,19 +207,10 @@ pub fn schedule_review(
 ) -> (ReviewState, GradeResult) {
     let mut updated = current.clone();
     let was_new = current.reps == 0;
-    let elapsed_days = current.last_reviewed_at.map_or(0.0, |last| {
-        ((reviewed_at - last).max(0) as f64 / DAY_MS as f64).max(0.0)
-    });
-    let retrievability = if current.stability > 0.0 {
-        (1.0 + (19.0 / 81.0) * elapsed_days / current.stability).powf(-0.5)
-    } else {
-        0.0
-    };
 
-    updated.difficulty = initial_or_next_difficulty(current, rating);
     let interval_ms = if was_new {
-        let initial_stability = [0.4, 0.6, 2.4, 5.8][usize::from(rating.value() - 1)];
-        updated.stability = initial_stability;
+        updated.stability = initial_stability(rating);
+        updated.difficulty = initial_difficulty(rating);
         match rating {
             Rating::Again => {
                 updated.state = ReviewPhase::Learning;
@@ -219,39 +222,52 @@ pub fn schedule_review(
             }
             Rating::Good | Rating::Easy => {
                 updated.state = ReviewPhase::Review;
-                days_to_millis(updated.stability)
+                interval_to_millis(updated.stability)
             }
         }
     } else {
+        let elapsed_days = current.last_reviewed_at.map_or(0.0, |last| {
+            ((reviewed_at - last).max(0) as f64 / DAY_MS as f64).max(0.0)
+        });
+        let retrievability = retrievability(current.stability, elapsed_days);
+        updated.difficulty = next_difficulty(current.difficulty, rating);
         match rating {
             Rating::Again => {
                 updated.stability =
-                    (current.stability * (0.35 + (1.0 - retrievability) * 0.2)).clamp(0.2, 36500.0);
+                    next_forget_stability(current.stability, updated.difficulty, retrievability);
                 updated.state = ReviewPhase::Relearning;
                 updated.lapses = updated.lapses.saturating_add(1);
                 10 * MINUTE_MS
             }
             Rating::Hard => {
-                updated.stability =
-                    (current.stability * (1.15 + (1.0 - retrievability) * 0.2)).clamp(0.2, 36500.0);
+                updated.stability = next_recall_stability(
+                    current.stability,
+                    updated.difficulty,
+                    retrievability,
+                    rating,
+                );
                 updated.state = ReviewPhase::Review;
-                days_to_millis(updated.stability.max(1.0))
+                interval_to_millis(updated.stability)
             }
             Rating::Good => {
-                let difficulty_factor = ((11.0 - updated.difficulty) / 6.0).clamp(0.5, 1.5);
-                updated.stability =
-                    (current.stability * (1.9 + (1.0 - retrievability) * 0.6) * difficulty_factor)
-                        .clamp(0.2, 36500.0);
+                updated.stability = next_recall_stability(
+                    current.stability,
+                    updated.difficulty,
+                    retrievability,
+                    rating,
+                );
                 updated.state = ReviewPhase::Review;
-                days_to_millis(updated.stability)
+                interval_to_millis(updated.stability)
             }
             Rating::Easy => {
-                let difficulty_factor = ((11.0 - updated.difficulty) / 5.5).clamp(0.6, 1.7);
-                updated.stability =
-                    (current.stability * (2.6 + (1.0 - retrievability) * 0.8) * difficulty_factor)
-                        .clamp(0.2, 36500.0);
+                updated.stability = next_recall_stability(
+                    current.stability,
+                    updated.difficulty,
+                    retrievability,
+                    rating,
+                );
                 updated.state = ReviewPhase::Review;
-                days_to_millis(updated.stability)
+                interval_to_millis(updated.stability)
             }
         }
     };
@@ -267,23 +283,71 @@ pub fn schedule_review(
     (updated, result)
 }
 
-/// 计算初始或增量难度，并向默认难度做轻量均值回归。
-fn initial_or_next_difficulty(current: &ReviewState, rating: Rating) -> f64 {
-    if current.reps == 0 {
-        return (5.0 - (f64::from(rating.value()) - 3.0) * 0.8).clamp(1.0, 10.0);
-    }
-    let delta = match rating {
-        Rating::Again => 0.8,
-        Rating::Hard => 0.15,
-        Rating::Good => -0.15,
-        Rating::Easy => -0.6,
-    };
-    ((current.difficulty + delta) * 0.9 + 5.0 * 0.1).clamp(1.0, 10.0)
+/// 计算新卡按 Again/Hard/Good/Easy 首次评分得到的官方 FSRS 初始稳定度。
+fn initial_stability(rating: Rating) -> f64 {
+    FSRS_45_DEFAULT_WEIGHTS[usize::from(rating.value() - 1)]
 }
 
-/// 将稳定度天数转换为安全的毫秒间隔。
-fn days_to_millis(days: f64) -> i64 {
-    (days.clamp(1.0 / 144.0, 36500.0) * DAY_MS as f64).round() as i64
+/// 计算新卡初始难度；评分越轻松，初始难度越低。
+fn initial_difficulty(rating: Rating) -> f64 {
+    let weights = FSRS_45_DEFAULT_WEIGHTS;
+    (weights[4] - (f64::from(rating.value()) - 3.0) * weights[5]).clamp(1.0, 10.0)
+}
+
+/// 使用 FSRS 的线性难度漂移与均值回归更新下一次难度。
+fn next_difficulty(difficulty: f64, rating: Rating) -> f64 {
+    let weights = FSRS_45_DEFAULT_WEIGHTS;
+    let delta = difficulty - weights[6] * (f64::from(rating.value()) - 3.0);
+    (weights[7] * initial_difficulty(Rating::Again) + (1.0 - weights[7]) * delta).clamp(1.0, 10.0)
+}
+
+/// 根据稳定度和经过天数计算 FSRS 可回忆率，避免负时钟造成异常值。
+fn retrievability(stability: f64, elapsed_days: f64) -> f64 {
+    if stability <= 0.0 {
+        return 0.0;
+    }
+    (1.0 + FSRS_FACTOR * elapsed_days.max(0.0) / stability).powf(FSRS_DECAY)
+}
+
+/// 计算成功回忆后的稳定度增长，Hard/Easy 使用 FSRS 对应的惩罚与奖励权重。
+fn next_recall_stability(
+    stability: f64,
+    difficulty: f64,
+    retrievability: f64,
+    rating: Rating,
+) -> f64 {
+    let weights = FSRS_45_DEFAULT_WEIGHTS;
+    let hard_penalty = (rating == Rating::Hard)
+        .then_some(weights[15])
+        .unwrap_or(1.0);
+    let easy_bonus = (rating == Rating::Easy)
+        .then_some(weights[16])
+        .unwrap_or(1.0);
+    let growth = 1.0
+        + weights[8].exp()
+            * (11.0 - difficulty)
+            * stability.max(0.1).powf(-weights[9])
+            * ((1.0 - retrievability).max(0.0) * weights[10]).exp_m1()
+            * hard_penalty
+            * easy_bonus;
+    (stability * growth).clamp(0.1, 36_500.0)
+}
+
+/// 计算遗忘后的稳定度，遗忘次数越多或回忆率越低时会进入更保守的复习节奏。
+fn next_forget_stability(stability: f64, difficulty: f64, retrievability: f64) -> f64 {
+    let weights = FSRS_45_DEFAULT_WEIGHTS;
+    (weights[11]
+        * difficulty.max(1.0).powf(-weights[12])
+        * ((stability.max(0.1) + 1.0).powf(weights[13]) - 1.0)
+        * ((1.0 - retrievability).max(0.0) * weights[14]).exp())
+    .clamp(0.1, 36_500.0)
+}
+
+/// 将 FSRS 稳定度换算为达到目标可回忆率的下次间隔，并转换为安全毫秒值。
+fn interval_to_millis(stability: f64) -> i64 {
+    let days =
+        stability / FSRS_FACTOR * (FSRS_DEFAULT_DESIRED_RETENTION.powf(1.0 / FSRS_DECAY) - 1.0);
+    (days.clamp(1.0 / 144.0, 36_500.0) * DAY_MS as f64).round() as i64
 }
 
 /// 计算以今天或昨天为结尾的连续复习天数。

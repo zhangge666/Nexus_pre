@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use nexus_core::{
     ContentFormat, CoreEvent, CreateCardInput, HashEmbedder, IngestInput, Ingestor, LinkCreator,
-    LinkRelation, MemoryKind, MemorySource, MemoryStore, Rating, ReviewPhase,
+    LinkRelation, MemoryKind, MemorySource, MemoryStore, Rating, ReviewPhase, ReviewState,
     review::schedule_review,
 };
 
@@ -136,6 +136,50 @@ fn schedules_new_card_ratings_in_expected_order() {
     assert_eq!(hard.state, ReviewPhase::Learning);
     assert_eq!(good.state, ReviewPhase::Review);
     assert_eq!(easy.state, ReviewPhase::Review);
+}
+
+/// 验证官方 FSRS-4.5 默认权重的关键回归向量，防止后续改动退回近似乘数调度。
+#[test]
+fn uses_official_fsrs_default_weight_regression_vectors() {
+    let reviewed_at = 3 * DAY_MS;
+    let review = ReviewState {
+        memory_id: uuid::Uuid::nil(),
+        card_front: "FSRS 回归向量".into(),
+        card_back: "验证默认权重".into(),
+        stability: 3.173,
+        difficulty: 7.1949,
+        due_at: reviewed_at,
+        last_reviewed_at: Some(0),
+        reps: 1,
+        lapses: 0,
+        state: ReviewPhase::Review,
+        deck: None,
+        created_at: 0,
+    };
+
+    let (again, _) = schedule_review(&review, Rating::Again, reviewed_at);
+    let (hard, _) = schedule_review(&review, Rating::Hard, reviewed_at);
+    let (good, _) = schedule_review(&review, Rating::Good, reviewed_at);
+    let (easy, _) = schedule_review(&review, Rating::Easy, reviewed_at);
+
+    assert!(
+        (again.stability - 0.984_000_063).abs() < 0.000_001,
+        "实际 Again 稳定度: {}",
+        again.stability
+    );
+    assert!(
+        (hard.stability - 3.891_823_988).abs() < 0.000_001,
+        "实际 Hard 稳定度: {}",
+        hard.stability
+    );
+    assert!((good.stability - 8.201_696_105).abs() < 0.000_001);
+    assert!(
+        (easy.stability - 23.959_049_297).abs() < 0.000_001,
+        "实际 Easy 稳定度: {}",
+        easy.stability
+    );
+    assert!(again.difficulty > review.difficulty);
+    assert!(easy.difficulty < review.difficulty);
 }
 
 /// 验证评分原子更新状态、写入历史并在提交后发布事件。
