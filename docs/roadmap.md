@@ -78,8 +78,10 @@ core/协议    Orbit+库      完整闭环       Muse最小源    卡片/复习/
 - RAG 问答（`/v1/ask` + Completion Provider，带引用）。
 - 云 AI Provider 接入（Claude/OpenAI/自定义端点，自带 Key，数据最小化护栏）。
 - **当前实现（2026-07-17）**：已打通 Orbit 桌面端卡片创建/生成、持久化 ReviewState、
-  FSRS 四档评分、到期队列与通知、带块级引用的 RAG、local/Claude/OpenAI/custom
-  Completion 配置；Key 仅驻留进程内存，云端只接收本地筛选后的必要片段。
+  基于 FSRS-4.5 官方默认权重的四档评分、到期队列与定时系统桌面通知、带块级引用的 RAG
+  及 `/v1/ask/stream` 服务端流式输出；Completion 支持 local/Ollama/Claude/OpenAI/custom。
+  云端 Key 保存于系统凭据库而非设置文件，Ollama 与回环 custom 不外发数据，远程 Provider
+  只接收本地筛选后的必要片段。
 
 ### M5 · 多端
 - Orbit 移动端（iOS/Android），优先验证 Tauri 移动关键路径。

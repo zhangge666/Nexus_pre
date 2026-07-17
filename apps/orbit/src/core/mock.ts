@@ -617,6 +617,16 @@ export async function askMemory(req: AskRequest): Promise<AskResponse> {
   };
 }
 
+/** 浏览器预览使用单次 mock 回答模拟真实流式接口，避免依赖 Tauri 事件总线。 */
+export async function askMemoryStream(
+  req: AskRequest,
+  onDelta: (text: string) => void,
+): Promise<AskResponse> {
+  const response = await askMemory(req);
+  onDelta(response.answer);
+  return response;
+}
+
 export async function listCollections(): Promise<MemoryCollection[]> {
   await delay(100);
   return mockCollections;

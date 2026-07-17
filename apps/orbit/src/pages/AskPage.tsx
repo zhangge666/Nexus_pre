@@ -2,11 +2,28 @@
 import type React from "react";
 import { useState, useRef, useEffect, FormEvent } from "react";
 import { Send, MessageCircle, AlertTriangle } from "lucide-react";
-import { askMemory, getSettings } from "../core";
+import { askMemory, askMemoryStream, getSettings } from "../core";
 import type { ChatMessage, Citation, OrbitSettings } from "../core";
 import { Topbar } from "../components/Topbar";
 import { EmptyState } from "../components/EmptyState";
 import { useNavigate } from "react-router-dom";
+
+/** 判断自定义端点是否严格指向本机回环地址，避免将相似域名误判成本地服务。 */
+function isLoopbackEndpoint(endpoint: string): boolean {
+  try {
+    const hostname = new URL(endpoint.trim()).hostname.toLowerCase();
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
+/** 按当前设置预判问答是否会向远程 Provider 发送经过最小化的检索上下文。 */
+function sendsDataRemote(settings: OrbitSettings["rag"] | null): boolean {
+  return settings?.provider === "claude"
+    || settings?.provider === "openai"
+    || (settings?.provider === "custom" && !isLoopbackEndpoint(settings.customEndpoint));
+}
 
 function CitationCard({ citation, onOpen }: { citation: Citation; onOpen: () => void }): React.JSX.Element {
   const kindIcon: Record<string, string> = {
@@ -71,7 +88,7 @@ export default function AskPage(): React.JSX.Element {
     e.preventDefault();
     const question = input.trim();
     if (!question || loading) return;
-    if (ragSettings?.provider !== "local" && ragSettings?.confirmBeforeSend) {
+    if (sendsDataRemote(ragSettings) && ragSettings?.confirmBeforeSend) {
       const confirmed = window.confirm(
         `本次问答将只把本地检索命中的必要片段发送到 ${ragSettings.provider}，不会发送整库。是否继续？`,
       );
@@ -90,17 +107,12 @@ export default function AskPage(): React.JSX.Element {
     setStreamText("");
 
     try {
-      const response = await askMemory({ question });
+      const response = ragSettings?.streamEnabled
+        ? await askMemoryStream({ question }, (delta) => {
+            setStreamText((current) => current + delta);
+          })
+        : await askMemory({ question });
       setLastFlow({ provider: response.provider, count: response.sentContextCount, remote: response.sendsDataRemote });
-      // 当前协议返回完整回答；这里只做轻量呈现动画，不伪装成服务端 token streaming。
-      if (ragSettings?.streamEnabled && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        let displayed = "";
-        for (const char of response.answer) {
-          displayed += char;
-          setStreamText(displayed);
-          await new Promise((resolve) => setTimeout(resolve, 12));
-        }
-      }
       setStreamText("");
       const aiMsg: ChatMessage = {
         id: "msg-" + Date.now(),
@@ -171,8 +183,8 @@ export default function AskPage(): React.JSX.Element {
             ? lastFlow.remote
               ? `上次仅向 ${lastFlow.provider} 发送了 ${lastFlow.count} 条检索片段`
               : `上次由 ${lastFlow.provider} 在本地处理，未发送数据`
-            : ragSettings?.provider && ragSettings.provider !== "local"
-              ? `将只向 ${ragSettings.provider} 发送本地命中的必要片段，不发送整库`
+            : sendsDataRemote(ragSettings)
+              ? `将只向 ${ragSettings?.provider ?? "远程 Provider"} 发送本地命中的必要片段，不发送整库`
               : "使用本地 Completion，不会发送记忆数据"}
         </div>
         <form className="ask-form" onSubmit={handleSubmit}>

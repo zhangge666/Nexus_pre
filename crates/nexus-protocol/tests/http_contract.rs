@@ -191,6 +191,42 @@ async fn asks_with_citations_and_minimized_context() {
     assert!(request.context[0].text.len() < long_content.len());
 }
 
+/// 验证 `/v1/ask/stream` 先发送元数据，再逐段发送回答，并以 done 事件结束。
+#[tokio::test]
+async fn streams_ask_with_citations_and_provider_metadata() {
+    let app = test_router([Scope::Admin], None);
+    let source = create_protocol_memory(&app, "流式问答只使用本地命中的必要记忆片段。").await;
+    let response = app
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/ask/stream",
+            Some(json!({"question": "流式问答发送什么内容？"})),
+        ))
+        .await
+        .expect("流式问答请求应返回响应");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("text/event-stream")
+    );
+    let payload = response
+        .into_body()
+        .collect()
+        .await
+        .expect("流式响应应完整返回")
+        .to_bytes();
+    let payload = std::str::from_utf8(&payload).expect("SSE 应为 UTF-8");
+    assert!(payload.contains("event: meta"));
+    assert!(payload.contains("event: delta"));
+    assert!(payload.contains("event: done"));
+    assert!(payload.contains("\"provider\":\"local\""));
+    assert!(payload.contains(&source));
+}
+
 /// 验证问答集合范围在 Completion 调用前完成过滤，空范围不会向远程 Provider 发送数据。
 #[tokio::test]
 async fn narrows_ask_to_collection_before_completion() {

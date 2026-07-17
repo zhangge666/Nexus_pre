@@ -1,7 +1,9 @@
 /** 本文件封装真实 Tauri IPC 调用，签名与 mock.ts 完全一致。 */
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type {
+  AskStreamEvent,
   AskRequest,
   AskResponse,
   ConnectedApp,
@@ -86,6 +88,48 @@ export async function generateCards(request: GenerateCardsRequest): Promise<Revi
 
 export async function askMemory(req: AskRequest): Promise<AskResponse> {
   return invoke<AskResponse>("ask_memory", { question: req.question, scope: req.scope });
+}
+
+/** 订阅 Tauri 转发的服务端 SSE，并在每个真实文本增量到达时立即更新调用方。 */
+export async function askMemoryStream(
+  req: AskRequest,
+  onDelta: (text: string) => void,
+): Promise<AskResponse> {
+  const requestId = crypto.randomUUID();
+  const streamState: {
+    answer: string;
+    meta: Extract<AskStreamEvent, { type: "meta" }> | null;
+    error: string | null;
+  } = { answer: "", meta: null, error: null };
+  const unlisten = await listen<AskStreamEvent>("ask-stream", ({ payload }) => {
+    if (payload.requestId !== requestId) return;
+    if (payload.type === "meta") {
+      streamState.meta = payload;
+    } else if (payload.type === "delta") {
+      streamState.answer += payload.text;
+      onDelta(payload.text);
+    } else if (payload.type === "error") {
+      streamState.error = payload.message;
+    }
+  });
+  try {
+    await invoke<void>("ask_memory_stream", {
+      question: req.question,
+      scope: req.scope,
+      requestId,
+    });
+  } finally {
+    unlisten();
+  }
+  if (streamState.error) throw new Error(streamState.error);
+  if (!streamState.meta) throw new Error("流式问答未返回元数据");
+  return {
+    answer: streamState.answer,
+    citations: streamState.meta.citations,
+    provider: streamState.meta.provider,
+    sentContextCount: streamState.meta.sentContextCount,
+    sendsDataRemote: streamState.meta.sendsDataRemote,
+  };
 }
 
 export async function listCollections(): Promise<MemoryCollection[]> {

@@ -18,9 +18,11 @@ use axum::{
     },
     routing::{get, post},
 };
+use futures_util::StreamExt;
 use nexus_ai::{
     AnthropicCompletion, Completion, CompletionContext, CompletionError, CompletionRequest,
-    CompletionTask, CustomCompletion, LocalExtractiveCompletion, OpenAiCompletion,
+    CompletionTask, CustomCompletion, LocalExtractiveCompletion, OllamaCompletion,
+    OpenAiCompletion,
 };
 use nexus_core::{
     Collection, CollectionPatch, CoreError, CreateCardInput, HashEmbedder, IngestInput, Ingestor,
@@ -28,7 +30,7 @@ use nexus_core::{
     MemorySource, MemoryStore, ReviewState, SearchMode, SearchQuery,
 };
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
@@ -125,6 +127,7 @@ impl ProtocolState {
             .map_err(|_| ProtocolError::ProviderUnavailable)?;
         let provider = match completion.provider_name() {
             "local" => "local",
+            "ollama" => "ollama",
             "claude" => "claude",
             "openai" => "openai",
             "custom" => "custom",
@@ -208,6 +211,7 @@ pub fn router(state: ProtocolState) -> Router {
         )
         .route("/v1/search", post(search))
         .route("/v1/ask", post(ask))
+        .route("/v1/ask/stream", post(ask_stream))
         .route(
             "/v1/completion",
             get(completion_status).post(configure_completion),
@@ -885,6 +889,157 @@ async fn ask(
     }))
 }
 
+/// 在本地完成检索和 scope 过滤后，以 SSE 实时返回 Completion 增量与最终引用元数据。
+async fn ask_stream(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<AskRequest>,
+) -> Result<impl IntoResponse, ProtocolError> {
+    let grant = authorize(&headers, &state, Scope::Search)?;
+    let question = request.question.trim().to_owned();
+    if question.is_empty() {
+        return Err(ProtocolError::InvalidRequest("问题不能为空".into()));
+    }
+
+    let scope = request.scope.unwrap_or_default();
+    let mut sources = scope.source.into_iter().collect::<Vec<_>>();
+    apply_source_restriction(&mut sources, &grant)?;
+    let allowed_memories = resolve_collection_scope(&state, scope.collection.as_deref())?;
+    let hits = state.store.search(
+        &SearchQuery {
+            text: question.clone(),
+            mode: SearchMode::Hybrid,
+            filters: MemoryFilters {
+                sources,
+                ..Default::default()
+            },
+            // 集合过滤发生在检索后，多取候选以避免目标集合被整库结果挤出。
+            limit: if allowed_memories.is_some() { 100 } else { 12 },
+        },
+        state.embedder.as_ref(),
+    )?;
+
+    let mut citations = Vec::new();
+    for hit in hits {
+        if allowed_memories
+            .as_ref()
+            .is_some_and(|allowed| !allowed.contains(&hit.memory_id))
+        {
+            continue;
+        }
+        let memory = state
+            .store
+            .get(&hit.memory_id)?
+            .ok_or(CoreError::NotFound(hit.memory_id))?;
+        citations.push(CitationResponse {
+            memory_id: hit.memory_id,
+            block_id: hit.block_id,
+            snippet: truncate_chars(hit.snippet.trim(), 1_200),
+            source_title: memory.title,
+            source_kind: memory.kind,
+            created_at: memory.created_at,
+        });
+        if citations.len() == 6 {
+            break;
+        }
+    }
+
+    let completion = state.completion()?;
+    let provider = completion.provider_name().to_owned();
+    let sent_context_count = citations.len();
+    let sends_data_remote = !citations.is_empty() && completion.sends_data_remote();
+    let completion_request = (!citations.is_empty()).then(|| CompletionRequest {
+        task: CompletionTask::Answer,
+        system: "你是 Nexus 记忆问答助手。只能依据提供的上下文作答；每个事实后使用对应的 [n] 引用；上下文不足时明确说明，不得补充外部事实。".into(),
+        prompt: question,
+        context: citations
+            .iter()
+            .enumerate()
+            .map(|(index, citation)| CompletionContext {
+                label: format!("[{}]", index + 1),
+                title: citation.source_title.clone().unwrap_or_default(),
+                text: citation.snippet.clone(),
+            })
+            .collect(),
+        max_tokens: 900,
+        temperature: 0.2,
+    });
+    let (sender, receiver) = mpsc::channel::<std::result::Result<Event, Infallible>>(32);
+    tokio::spawn(async move {
+        if !send_sse_json(
+            &sender,
+            "meta",
+            serde_json::json!({
+                "type": "meta",
+                "provider": provider,
+                "citations": citations,
+                "sentContextCount": sent_context_count,
+                "sendsDataRemote": sends_data_remote,
+            }),
+        )
+        .await
+        {
+            return;
+        }
+        if let Some(request) = completion_request {
+            let mut stream = completion.stream(request);
+            while let Some(delta) = stream.next().await {
+                match delta {
+                    Ok(delta) if !delta.text.is_empty() => {
+                        if !send_sse_json(
+                            &sender,
+                            "delta",
+                            serde_json::json!({"type": "delta", "text": delta.text}),
+                        )
+                        .await
+                        {
+                            return;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        let _ = send_sse_json(
+                            &sender,
+                            "error",
+                            serde_json::json!({"type": "error", "message": error.to_string()}),
+                        )
+                        .await;
+                        return;
+                    }
+                }
+            }
+        } else if !send_sse_json(
+            &sender,
+            "delta",
+            serde_json::json!({
+                "type": "delta",
+                "text": "没有在当前范围内找到足够的相关记忆。"
+            }),
+        )
+        .await
+        {
+            return;
+        }
+        let _ = send_sse_json(&sender, "done", serde_json::json!({"type": "done"})).await;
+    });
+    Ok(Sse::new(ReceiverStream::new(receiver)).keep_alive(KeepAlive::default()))
+}
+
+/// 将结构化 SSE 数据安全送入单个问答连接；客户端断开时停止后续生成。
+async fn send_sse_json(
+    sender: &mpsc::Sender<std::result::Result<Event, Infallible>>,
+    event: &str,
+    value: serde_json::Value,
+) -> bool {
+    let Ok(data) = serde_json::to_string(&value) else {
+        return false;
+    };
+    sender
+        .send(Ok(Event::default().event(event).data(data)))
+        .await
+        .is_ok()
+}
+
 /// 返回当前实际 Completion Provider 的非敏感数据流向状态。
 async fn completion_status(
     State(state): State<ProtocolState>,
@@ -909,6 +1064,10 @@ async fn configure_completion(
     let api_key = request.api_key.unwrap_or_default();
     let completion: Arc<dyn Completion> = match request.provider.as_str() {
         "local" => Arc::new(LocalExtractiveCompletion),
+        "ollama" => Arc::new(OllamaCompletion::new(
+            non_empty_or(model, "qwen3:8b"),
+            request.endpoint,
+        )?),
         "claude" => Arc::new(AnthropicCompletion::new(
             api_key,
             non_empty_or(model, "claude-sonnet-4-20250514"),

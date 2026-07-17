@@ -29,6 +29,7 @@ import {
   getReviewStats as _mockStats,
   gradeCard as _mockGrade,
   askMemory as _mockAsk,
+  askMemoryStream as _mockAskStream,
   listCollections as _mockListCols,
   createCollection as _mockCreateCol,
   addMemoryToCollection as _mockAddToCol,
@@ -72,6 +73,7 @@ export const getReviewQueue     = makeFn("getReviewQueue",     _mockQueue);
 export const getReviewStats     = makeFn("getReviewStats",     _mockStats);
 export const gradeCard          = makeFn("gradeCard",          _mockGrade);
 export const askMemory          = makeFn("askMemory",          _mockAsk);
+export const askMemoryStream    = makeFn("askMemoryStream",    _mockAskStream);
 export const listCollections    = makeFn("listCollections",    _mockListCols);
 export const createCollection   = makeFn("createCollection",   _mockCreateCol);
 export const addMemoryToCollection = makeFn("addMemoryToCollection", _mockAddToCol);

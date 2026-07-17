@@ -188,6 +188,18 @@ POST /v1/ask
 字符的必要片段交给 Completion。无命中时不会调用远程 Provider。回答始终返回可回跳的
 Memory/Block 引用及实际 Provider、发送片段数和远程数据流向状态。
 
+需要实时呈现时使用同一请求体调用流式端点：
+
+```http
+POST /v1/ask/stream
+Accept: text/event-stream
+```
+
+服务端按顺序发送 `event: meta`（`provider`、`citations`、`sentContextCount`、
+`sendsDataRemote`）、零到多条 `event: delta`（`text`）、最终 `event: done`；生成失败时发送
+`event: error`（`message`）。检索、scope 过滤、上下文上限与无命中不调用远程 Provider 的规则
+与 `/v1/ask` 完全一致。
+
 M4 卡片与复习端点统一使用 `review` scope（`admin` 隐含该能力）：
 
 ```http
@@ -207,6 +219,11 @@ GET  /v1/completion
 POST /v1/completion
 { "provider":"openai", "api_key":"...", "model":"gpt-4.1-mini", "endpoint":null }
 ```
+
+Provider 可选值为 `local`（抽取式离线回退）、`ollama`（仅回环地址的本地 LLM）、`claude`、
+`openai` 与 `custom`。`ollama` 无需 Key，`custom` 指向回环 OpenAI-compatible 服务时可不填 Key；
+其他远程端点必须使用 HTTPS。所有配置请求仅在进程内生效，Orbit 桌面端负责将云 Key 保存到系统
+凭据库，协议状态和响应均不持久化、不回显 Key。
 
 ### 5.5 订阅事件
 

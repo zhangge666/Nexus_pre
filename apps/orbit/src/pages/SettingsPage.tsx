@@ -134,7 +134,8 @@ export default function SettingsPage(): React.JSX.Element {
         <SettingRow label="Completion Provider" id="rag-provider">
           <select className="settings-select" value={settings.rag.provider}
             onChange={(e) => update("rag", { provider: e.target.value as OrbitSettings["rag"]["provider"] })}>
-            <option value="local">本地 LLM</option>
+            <option value="ollama">Ollama（本地 LLM）</option>
+            <option value="local">本地抽取式回退</option>
             <option value="claude">Claude</option>
             <option value="openai">OpenAI</option>
             <option value="custom">自定义端点</option>
@@ -145,23 +146,25 @@ export default function SettingsPage(): React.JSX.Element {
             <SettingRow label="模型" description="留空使用 Provider 默认模型" id="provider-model">
               <input id="provider-model" type="text" className="settings-input" value={settings.rag.model}
                 onChange={(e) => update("rag", { model: e.target.value })}
-                placeholder={settings.rag.provider === "claude" ? "claude-sonnet-4-20250514" : "gpt-4.1-mini"} />
+                placeholder={settings.rag.provider === "ollama" ? "qwen3:8b" : settings.rag.provider === "claude" ? "claude-sonnet-4-20250514" : "gpt-4.1-mini"} />
             </SettingRow>
-            <SettingRow label="API Key" description={settings.rag.hasApiKey ? "当前进程已配置；留空将继续使用" : "只保存在当前进程内，重启后需重新输入"} id="api-key">
-              <input id="api-key" type="password" className="settings-input" value={settings.rag.apiKey}
-                onChange={(e) => update("rag", { apiKey: e.target.value })}
-                placeholder={settings.rag.hasApiKey ? "已配置（不回显）" : "输入自带 Key"} autoComplete="off" />
-            </SettingRow>
+            {settings.rag.provider !== "ollama" && (
+              <SettingRow label="API Key" description={settings.rag.hasApiKey ? "已保存至系统凭据库；留空将继续使用" : "保存时将写入系统凭据库，不写入设置文件"} id="api-key">
+                <input id="api-key" type="password" className="settings-input" value={settings.rag.apiKey}
+                  onChange={(e) => update("rag", { apiKey: e.target.value })}
+                  placeholder={settings.rag.hasApiKey ? "已配置（不回显）" : "输入自带 Key"} autoComplete="off" />
+              </SettingRow>
+            )}
           </>
         )}
-        {settings.rag.provider === "custom" && (
-          <SettingRow label="自定义端点" id="custom-endpoint">
+        {["custom", "ollama"].includes(settings.rag.provider) && (
+          <SettingRow label={settings.rag.provider === "ollama" ? "Ollama 地址" : "自定义端点"} id="custom-endpoint">
             <input type="text" className="settings-input" value={settings.rag.customEndpoint}
               onChange={(e) => update("rag", { customEndpoint: e.target.value })}
-              placeholder="https://your-api.example.com/v1" />
+              placeholder={settings.rag.provider === "ollama" ? "http://127.0.0.1:11434" : "https://your-api.example.com/v1"} />
           </SettingRow>
         )}
-        <SettingRow label="逐字呈现" description="收到完整回答后以轻量动画呈现；减少动态效果时自动关闭" id="stream">
+        <SettingRow label="实时流式输出" description="服务端在生成过程中逐段返回文本；关闭后仍可使用完整问答" id="stream">
           <Toggle id="stream" value={settings.rag.streamEnabled} onChange={(v) => update("rag", { streamEnabled: v })} />
         </SettingRow>
         <SettingRow label="发送前确认" description="发送到云端前展示将要发送的内容" id="confirm">

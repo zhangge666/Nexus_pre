@@ -1,11 +1,15 @@
 //! 本文件装配 Orbit Tauri 运行时、本地服务持有者仲裁以及统一 HTTP 协议访问。
 
+mod credentials;
+
 use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
+use chrono::{Local, Timelike};
+use futures_util::StreamExt;
 use nexus_core::{Collection, HashEmbedder, MemoryStore};
 use nexus_protocol::dto::{ListMemoriesResponse, MemoryResponse};
 use nexus_protocol::{
@@ -14,6 +18,7 @@ use nexus_protocol::{
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_notification::NotificationExt;
 
 /// 持有 Orbit 使用的本地协议客户端以及当前持有服务的可选关闭信号。
 struct OrbitState {
@@ -23,7 +28,7 @@ struct OrbitState {
     role: ServiceRole,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     settings_path: PathBuf,
-    settings: Mutex<serde_json::Value>,
+    settings: Arc<Mutex<serde_json::Value>>,
 }
 
 /// 表示当前 Orbit 是本地服务持有者还是连接既有服务的客户端。
@@ -54,11 +59,11 @@ fn default_settings() -> serde_json::Value {
             "hasApiKey": false,
             "model": "",
             "customEndpoint": "",
-            "streamEnabled": false,
+            "streamEnabled": true,
             "confirmBeforeSend": true
         },
         "cards": {"generationMode": "ai", "provider": "local", "maxCardsPerNote": 10, "defaultDeck": "默认"},
-        "review": {"algorithm": "fsrs", "dailyNewLimit": 20, "dailyReviewLimit": 100, "reminderTime": "08:00", "reminderEnabled": true},
+        "review": {"algorithm": "fsrs", "dailyNewLimit": 20, "dailyReviewLimit": 100, "reminderTime": "08:00", "reminderEnabled": true, "lastDesktopReminderDate": ""},
         "links": {"autoLink": true, "dedupeThreshold": 0.85, "graphDensity": 0.6},
         "sync": {"mode": "local", "relayEndpoint": "", "conflictStrategy": "auto"},
         "appearance": {"theme": "dark", "language": "zh-CN"}
@@ -112,10 +117,12 @@ fn set_json_bool(value: &mut serde_json::Value, pointer: &str, next: bool) {
 /// 返回不会暴露 API Key 的设置副本，并用 `hasApiKey` 告知当前进程是否已配置。
 fn public_settings(settings: &serde_json::Value) -> serde_json::Value {
     let mut public = settings.clone();
+    let provider = json_string(settings, "/rag/provider");
     let has_api_key = settings
         .pointer("/rag/apiKey")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|value| !value.is_empty());
+        .is_some_and(|value| !value.is_empty())
+        || credentials::load_api_key(&provider).is_some();
     set_json_string(&mut public, "/rag/apiKey", "");
     set_json_bool(&mut public, "/rag/hasApiKey", has_api_key);
     public
@@ -408,7 +415,59 @@ impl OrbitState {
         .await
     }
 
-    /// 返回脱敏后的 Orbit 设置；API Key 只通过 `hasApiKey` 表示存在。
+    /// 连接协议 SSE 问答端点，并把元数据、文本增量和结束事件桥接到指定 Tauri 窗口。
+    async fn ask_memory_stream(
+        &self,
+        question: String,
+        scope: Option<AskScope>,
+        request_id: String,
+        app: tauri::AppHandle,
+    ) -> Result<(), String> {
+        let response = self
+            .client
+            .post(format!("{}/v1/ask/stream", self.endpoint))
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({"question": question, "scope": scope}))
+            .send()
+            .await
+            .map_err(|error| error.to_string())?;
+        let status = response.status();
+        if !status.is_success() {
+            let message = response.text().await.unwrap_or_default();
+            return Err(format!("本地记忆服务返回 {status}: {message}"));
+        }
+
+        let mut bytes = response.bytes_stream();
+        let mut buffer = String::new();
+        while let Some(chunk) = bytes.next().await {
+            let chunk = chunk.map_err(|error| error.to_string())?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            while let Some(data) = take_sse_data(&mut buffer) {
+                let frame: AskStreamFrame =
+                    serde_json::from_str(&data).map_err(|error| error.to_string())?;
+                app.emit(
+                    "ask-stream",
+                    AskStreamEvent {
+                        request_id: request_id.clone(),
+                        frame,
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 从系统凭据库恢复上次的 Provider 配置，使应用重启后无需重新输入云端 Key。
+    async fn restore_completion(&self) -> Result<(), String> {
+        let settings = self
+            .settings
+            .lock()
+            .map_err(|_| "Orbit 设置状态不可用".to_owned())?
+            .clone();
+        self.save_settings(settings).await
+    }
+
     fn get_settings(&self) -> Result<serde_json::Value, String> {
         self.settings
             .lock()
@@ -424,7 +483,14 @@ impl OrbitState {
             .map_err(|_| "Orbit 设置状态不可用".to_owned())?
             .clone();
         let current_provider = json_string(&current, "/rag/provider");
-        let current_key = json_string(&current, "/rag/apiKey");
+        let current_key = {
+            let in_memory = json_string(&current, "/rag/apiKey");
+            if in_memory.is_empty() {
+                credentials::load_api_key(&current_provider).unwrap_or_default()
+            } else {
+                in_memory
+            }
+        };
         let submitted_key = patch
             .pointer("/rag/apiKey")
             .and_then(serde_json::Value::as_str)
@@ -434,37 +500,45 @@ impl OrbitState {
         let mut next = current;
         merge_json(&mut next, &patch);
         let provider = json_string(&next, "/rag/provider");
-        let api_key = if provider == "local" {
+        let endpoint = matches!(provider.as_str(), "custom" | "ollama")
+            .then(|| json_string(&next, "/rag/customEndpoint"))
+            .filter(|value| !value.is_empty());
+        let api_key = if !provider_uses_api_key(&provider) {
             String::new()
         } else if !submitted_key.is_empty() {
             submitted_key
         } else if provider == current_provider {
             current_key
         } else {
-            String::new()
+            credentials::load_api_key(&provider).unwrap_or_default()
         };
-        if provider != "local" && api_key.is_empty() {
+        if provider_requires_api_key(&provider, endpoint.as_deref()) && api_key.is_empty() {
             return Err(format!("请为 {provider} 填写 API Key"));
         }
         set_json_string(&mut next, "/rag/apiKey", &api_key);
 
-        let endpoint = (provider == "custom")
-            .then(|| json_string(&next, "/rag/customEndpoint"))
-            .filter(|value| !value.is_empty());
         let status: CompletionStatus = self
             .send_json(
                 self.client.post(format!("{}/v1/completion", self.endpoint)),
                 serde_json::json!({
                     "provider": provider,
-                    "api_key": (!api_key.is_empty()).then_some(api_key),
+                    "api_key": (!api_key.is_empty()).then(|| api_key.clone()),
                     "model": json_string(&next, "/rag/model"),
                     "endpoint": endpoint,
                 }),
             )
             .await?;
-        if status.provider != provider || status.sends_data_remote != (status.provider != "local") {
+        if status.provider != provider
+            || status.sends_data_remote
+                != provider_sends_data_remote(&provider, endpoint.as_deref())
+        {
             return Err("本地服务未激活所选 Completion Provider".into());
         }
+        if provider_uses_api_key(&provider) && !api_key.is_empty() {
+            credentials::save_api_key(&provider, &api_key)?;
+        }
+        // Completion 已完成进程内切换，后续设置更新会按 Provider 从凭据库重新取得 Key。
+        set_json_string(&mut next, "/rag/apiKey", "");
         persist_settings(&self.settings_path, &next)?;
         *self
             .settings
@@ -538,11 +612,92 @@ fn json_string(value: &serde_json::Value, pointer: &str) -> String {
         .to_owned()
 }
 
+/// 判断 Provider 是否需要由系统凭据库维护 API Key，纯本地模式永远不读取或写入密钥。
+fn provider_uses_api_key(provider: &str) -> bool {
+    matches!(provider, "claude" | "openai" | "custom")
+}
+
+/// 判断自定义端点是否严格指向回环地址；本机 OpenAI-compatible 服务允许无 Key。
+fn is_loopback_endpoint(endpoint: Option<&str>) -> bool {
+    endpoint
+        .and_then(|value| reqwest::Url::parse(value.trim()).ok())
+        .is_some_and(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && matches!(
+                    url.host_str(),
+                    Some("127.0.0.1" | "localhost" | "::1" | "[::1]")
+                )
+        })
+}
+
+/// 判断切换 Provider 前是否必须输入 Key，避免对 Ollama 与本机兼容端点产生无效阻塞。
+fn provider_requires_api_key(provider: &str, endpoint: Option<&str>) -> bool {
+    matches!(provider, "claude" | "openai")
+        || (provider == "custom" && !is_loopback_endpoint(endpoint))
+}
+
+/// 映射 Provider 的实际数据流向，供保存设置后校验本地服务是否按预期生效。
+fn provider_sends_data_remote(provider: &str, endpoint: Option<&str>) -> bool {
+    matches!(provider, "claude" | "openai")
+        || (provider == "custom" && !is_loopback_endpoint(endpoint))
+}
+
+/// 判断当前本地日期是否已到设置的提醒时刻，并原子认领当天唯一一次桌面通知。
+fn claim_desktop_reminder(
+    settings: &mut serde_json::Value,
+    current_date: &str,
+    hour: u32,
+    minute: u32,
+) -> bool {
+    if !settings
+        .pointer("/review/reminderEnabled")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    let reminder_time = json_string(settings, "/review/reminderTime");
+    let Some((target_hour, target_minute)) = reminder_time
+        .split_once(':')
+        .and_then(|(hours, minutes)| {
+            Some((hours.parse::<u32>().ok()?, minutes.parse::<u32>().ok()?))
+        })
+        .filter(|(hours, minutes)| *hours < 24 && *minutes < 60)
+    else {
+        return false;
+    };
+    if (hour, minute) < (target_hour, target_minute)
+        || json_string(settings, "/review/lastDesktopReminderDate") == current_date
+    {
+        return false;
+    }
+    set_json_string(settings, "/review/lastDesktopReminderDate", current_date);
+    true
+}
+
 /// 返回到期扫描使用的 Unix 毫秒时间。
 fn unix_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as i64)
+}
+
+/// 从累积缓冲区取出一帧 SSE 的 data 内容，网络分片未完整时保留到下一次读取。
+fn take_sse_data(buffer: &mut String) -> Option<String> {
+    let separator = buffer
+        .find("\r\n\r\n")
+        .map(|index| (index, 4))
+        .or_else(|| buffer.find("\n\n").map(|index| (index, 2)))?;
+    let frame = buffer
+        .drain(..separator.0 + separator.1)
+        .collect::<String>();
+    let data = frame
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .map(str::trim_start)
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!data.is_empty()).then_some(data)
 }
 
 impl Drop for OrbitState {
@@ -673,7 +828,7 @@ struct AskScope {
 }
 
 /// 表示 RAG 回答的一条块级引用。
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Citation {
     #[serde(alias = "memory_id")]
@@ -700,6 +855,36 @@ struct AskResponse {
     sent_context_count: usize,
     #[serde(alias = "sends_data_remote")]
     sends_data_remote: bool,
+}
+
+/// 表示协议 SSE 返回的问答帧，字段保持与 `/v1/ask` 响应一致。
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum AskStreamFrame {
+    /// 首帧携带 Provider、引用和数据流向，不会重复传输到每个文本增量。
+    Meta {
+        provider: String,
+        citations: Vec<Citation>,
+        #[serde(rename = "sentContextCount", alias = "sent_context_count")]
+        sent_context_count: usize,
+        #[serde(rename = "sendsDataRemote", alias = "sends_data_remote")]
+        sends_data_remote: bool,
+    },
+    /// 一段新增的回答文本。
+    Delta { text: String },
+    /// 正常生成结束。
+    Done,
+    /// 生成过程出现 Provider 错误。
+    Error { message: String },
+}
+
+/// 向前端事件总线发送的流式问答帧，使用请求标识避免并发响应串台。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AskStreamEvent {
+    request_id: String,
+    #[serde(flatten)]
+    frame: AskStreamFrame,
 }
 
 /// 表示 Completion 配置成功后的非敏感状态。
@@ -923,7 +1108,21 @@ async fn ask_memory(
     state.ask_memory(question, scope).await
 }
 
-/// 通过 Tauri IPC 返回脱敏设置。
+/// 通过 Tauri IPC 启动服务端真实 SSE 问答，并把事件转发给当前 WebView。
+#[tauri::command]
+async fn ask_memory_stream(
+    question: String,
+    scope: Option<AskScope>,
+    request_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<(), String> {
+    state
+        .ask_memory_stream(question, scope, request_id, app)
+        .await
+}
+
+/// 通过 Tauri IPC 返回脱敏设置；API Key 仅通过 `hasApiKey` 表示存在。
 #[tauri::command]
 fn get_settings(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
     state.get_settings()
@@ -942,11 +1141,12 @@ async fn save_settings(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             let data_dir = prepare_shared_data_dir(&app_data_dir)?;
             let settings_path = data_dir.join("orbit-settings.json");
-            let initial_settings = load_settings(&settings_path);
+            let settings = Arc::new(Mutex::new(load_settings(&settings_path)));
             let claim = tauri::async_runtime::block_on(LocalServiceClaim::acquire(&data_dir))?;
             let state = match claim {
                 LocalServiceClaim::Holder {
@@ -972,6 +1172,9 @@ pub fn run() {
                         }
                     });
                     let reminder_store = Arc::clone(&store);
+                    let reminder_app = app.handle().clone();
+                    let reminder_settings = Arc::clone(&settings);
+                    let reminder_settings_path = settings_path.clone();
                     // 持有者每分钟扫描一次到期状态；核心去重字段确保同一调度周期只发一次事件。
                     tauri::async_runtime::spawn(async move {
                         let mut interval =
@@ -979,10 +1182,41 @@ pub fn run() {
                         loop {
                             interval.tick().await;
                             let store = Arc::clone(&reminder_store);
-                            let _ = tauri::async_runtime::spawn_blocking(move || {
-                                store.notify_due_reviews(unix_millis(), 200)
+                            let due_count = tauri::async_runtime::spawn_blocking(move || {
+                                store.notify_due_reviews(unix_millis(), 200)?;
+                                Ok::<usize, nexus_core::CoreError>(
+                                    store.reviews_due(unix_millis(), 200)?.len(),
+                                )
                             })
-                            .await;
+                            .await
+                            .ok()
+                            .and_then(Result::ok)
+                            .unwrap_or(0);
+                            if due_count == 0 {
+                                continue;
+                            }
+                            let now = Local::now();
+                            let should_notify =
+                                reminder_settings.lock().ok().is_some_and(|mut settings| {
+                                    if !claim_desktop_reminder(
+                                        &mut settings,
+                                        &now.format("%F").to_string(),
+                                        now.hour(),
+                                        now.minute(),
+                                    ) {
+                                        return false;
+                                    }
+                                    let _ = persist_settings(&reminder_settings_path, &settings);
+                                    true
+                                });
+                            if should_notify {
+                                let _ = reminder_app
+                                    .notification()
+                                    .builder()
+                                    .title("Orbit · 复习提醒")
+                                    .body(format!("今天有 {due_count} 张卡片等待复习"))
+                                    .show();
+                            }
                         }
                     });
                     let grant = CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
@@ -1006,7 +1240,7 @@ pub fn run() {
                         role: ServiceRole::Holder,
                         shutdown: Mutex::new(Some(shutdown_sender)),
                         settings_path,
-                        settings: Mutex::new(initial_settings),
+                        settings: Arc::clone(&settings),
                     }
                 }
                 LocalServiceClaim::Client(discovery) => OrbitState {
@@ -1016,10 +1250,17 @@ pub fn run() {
                     role: ServiceRole::Client,
                     shutdown: Mutex::new(None),
                     settings_path,
-                    settings: Mutex::new(initial_settings),
+                    settings: Arc::clone(&settings),
                 },
             };
-            app.manage(Arc::new(state));
+            let state = Arc::new(state);
+            let restored_state = Arc::clone(&state);
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = restored_state.restore_completion().await {
+                    eprintln!("恢复 Completion Provider 失败: {error}");
+                }
+            });
+            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1042,6 +1283,7 @@ pub fn run() {
             create_card,
             generate_cards,
             ask_memory,
+            ask_memory_stream,
             get_settings,
             save_settings
         ])
@@ -1053,6 +1295,61 @@ pub fn run() {
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
+
+    /// 验证桌面提醒只会在启用、到点且当天尚未认领时触发一次。
+    #[test]
+    fn claims_desktop_reminder_once_per_day_after_configured_time() {
+        let mut settings = default_settings();
+        assert!(!claim_desktop_reminder(&mut settings, "2026-07-17", 7, 59));
+        assert!(claim_desktop_reminder(&mut settings, "2026-07-17", 8, 0));
+        assert!(!claim_desktop_reminder(&mut settings, "2026-07-17", 8, 1));
+        assert!(claim_desktop_reminder(&mut settings, "2026-07-18", 8, 0));
+        set_json_bool(&mut settings, "/review/reminderEnabled", false);
+        assert!(!claim_desktop_reminder(&mut settings, "2026-07-19", 8, 0));
+    }
+
+    /// 验证本地端点判断仅接受完整 URL 的回环主机，防止相似域名绕过云端发送确认。
+    #[test]
+    fn distinguishes_loopback_from_similar_remote_domains() {
+        assert!(is_loopback_endpoint(Some("http://127.0.0.1:11434/v1")));
+        assert!(is_loopback_endpoint(Some("http://[::1]:11434/v1")));
+        assert!(!is_loopback_endpoint(Some(
+            "http://127.0.0.1.example.com/v1"
+        )));
+        assert!(!is_loopback_endpoint(Some(
+            "https://localhost.example.com/v1"
+        )));
+    }
+
+    /// 验证 Tauri SSE 桥接器可跨网络分片保留残片，并只在帧完整时输出 data。
+    #[test]
+    fn parses_complete_sse_data_without_losing_partial_frames() {
+        let mut buffer = "event: delta\ndata: {\"type\":\"delta\"".to_owned();
+        assert!(take_sse_data(&mut buffer).is_none());
+        buffer.push_str(",\"text\":\"你好\"}\n\n");
+        assert_eq!(
+            take_sse_data(&mut buffer).as_deref(),
+            Some("{\"type\":\"delta\",\"text\":\"你好\"}")
+        );
+        assert!(buffer.is_empty());
+    }
+
+    /// 验证密钥只保留在进程内与系统凭据库，设置 IPC 和 JSON 文件均不会返回或写入明文。
+    #[test]
+    fn excludes_api_key_from_ipc_and_persisted_settings() {
+        let mut settings = default_settings();
+        set_json_string(&mut settings, "/rag/apiKey", "process-only-secret");
+
+        let public = public_settings(&settings);
+        assert_eq!(public["rag"]["apiKey"], "");
+        assert_eq!(public["rag"]["hasApiKey"], true);
+
+        let directory = tempfile::tempdir().expect("应创建临时设置目录");
+        let path = directory.path().join("orbit-settings.json");
+        persist_settings(&path, &settings).expect("非敏感设置应持久化");
+        let persisted = fs::read_to_string(path).expect("应读取已持久化设置");
+        assert!(!persisted.contains("process-only-secret"));
+    }
 
     /// 验证升级到共享目录时保留旧 Orbit 数据库和媒体文件。
     #[test]
@@ -1096,7 +1393,7 @@ mod tests {
             role: ServiceRole::Holder,
             shutdown: Mutex::new(None),
             settings_path: settings_dir.path().join("orbit-settings.json"),
-            settings: Mutex::new(default_settings()),
+            settings: Arc::new(Mutex::new(default_settings())),
         };
         let created = state
             .create_memory("Tauri IPC connects through Memory Protocol.".into())
@@ -1114,6 +1411,19 @@ mod tests {
         assert_eq!(answer.provider, "local");
         assert!(!answer.citations.is_empty());
         assert!(!answer.sends_data_remote);
+        state
+            .save_settings(serde_json::json!({
+                "rag": {
+                    "provider": "ollama",
+                    "model": "qwen3:8b",
+                    "customEndpoint": "http://127.0.0.1:11434"
+                }
+            }))
+            .await
+            .expect("Ollama 本地 Provider 应无需 API Key 即可配置");
+        let settings = state.get_settings().expect("设置应可读取");
+        assert_eq!(settings["rag"]["provider"], "ollama");
+        assert_eq!(settings["rag"]["hasApiKey"], false);
         let card = state
             .create_card(CreateCardRequest {
                 card_front: "Memory Protocol 的用途是什么？".into(),
@@ -1182,22 +1492,6 @@ mod tests {
             .expect("Orbit 应撤销 Muse 连接");
         assert!(state.list_connected_apps().await.unwrap().is_empty());
 
-        state
-            .save_settings(serde_json::json!({
-                "rag": {
-                    "provider": "custom",
-                    "apiKey": "process-only-secret",
-                    "model": "qwen",
-                    "customEndpoint": "http://127.0.0.1:11434/v1"
-                }
-            }))
-            .await
-            .expect("自定义 Provider 设置应保存成功");
-        let public = state.get_settings().expect("设置应可读取");
-        assert_eq!(public["rag"]["apiKey"], "");
-        assert_eq!(public["rag"]["hasApiKey"], true);
-        let persisted = fs::read_to_string(&state.settings_path).expect("非敏感设置应持久化");
-        assert!(!persisted.contains("process-only-secret"));
         server.abort();
     }
 }

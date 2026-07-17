@@ -7,9 +7,9 @@ use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 mod completion;
 
 pub use completion::{
-    AnthropicCompletion, Completion, CompletionContext, CompletionError, CompletionFuture,
-    CompletionRequest, CompletionResponse, CompletionTask, CustomCompletion,
-    LocalExtractiveCompletion, OpenAiCompletion,
+    AnthropicCompletion, Completion, CompletionContext, CompletionDelta, CompletionError,
+    CompletionFuture, CompletionRequest, CompletionResponse, CompletionStream, CompletionTask,
+    CustomCompletion, LocalExtractiveCompletion, OllamaCompletion, OpenAiCompletion,
 };
 
 /// 表示嵌入模型加载、推理或并发访问错误。

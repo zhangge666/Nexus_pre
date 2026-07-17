@@ -317,12 +317,16 @@ fn next_recall_stability(
     rating: Rating,
 ) -> f64 {
     let weights = FSRS_45_DEFAULT_WEIGHTS;
-    let hard_penalty = (rating == Rating::Hard)
-        .then_some(weights[15])
-        .unwrap_or(1.0);
-    let easy_bonus = (rating == Rating::Easy)
-        .then_some(weights[16])
-        .unwrap_or(1.0);
+    let hard_penalty = if rating == Rating::Hard {
+        weights[15]
+    } else {
+        1.0
+    };
+    let easy_bonus = if rating == Rating::Easy {
+        weights[16]
+    } else {
+        1.0
+    };
     let growth = 1.0
         + weights[8].exp()
             * (11.0 - difficulty)

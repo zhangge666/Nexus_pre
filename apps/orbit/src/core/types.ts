@@ -139,6 +139,20 @@ export interface AskResponse {
   sendsDataRemote: boolean;
 }
 
+/** 服务端 SSE 经 Tauri 转发后的单帧问答事件。 */
+export type AskStreamEvent =
+  | {
+      requestId: string;
+      type: "meta";
+      provider: string;
+      citations: Citation[];
+      sentContextCount: number;
+      sendsDataRemote: boolean;
+    }
+  | { requestId: string; type: "delta"; text: string }
+  | { requestId: string; type: "done" }
+  | { requestId: string; type: "error"; message: string };
+
 /** 对话消息 */
 export interface ChatMessage {
   id: string;
@@ -212,7 +226,7 @@ export interface OrbitSettings {
     defaultScope: string;
   };
   rag: {
-    provider: "local" | "claude" | "openai" | "custom";
+    provider: "local" | "ollama" | "claude" | "openai" | "custom";
     apiKey: string;
     hasApiKey: boolean;
     model: string;
