@@ -1,6 +1,9 @@
 //! 本文件定义 Memory Protocol v1 的 JSON 请求与响应契约。
 
-use nexus_core::{Block, ContentFormat, LinkCreator, LinkRelation, Memory, MemoryKind};
+use nexus_core::{
+    Block, ContentFormat, GradeResult, LinkCreator, LinkRelation, Memory, MemoryKind, Rating,
+    ReviewPhase, ReviewStats,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -276,6 +279,167 @@ pub struct SearchResponse {
     pub hits: Vec<SearchHitResponse>,
 }
 
+/// 表示 RAG 问答可选的集合或来源收窄范围。
+#[derive(Debug, Default, Deserialize)]
+pub struct AskScopeRequest {
+    /// 集合 UUID 或精确集合名称。
+    pub collection: Option<String>,
+    /// 单一允许来源。
+    pub source: Option<String>,
+}
+
+/// 表示 `POST /v1/ask` 的问题和可选本地检索范围。
+#[derive(Debug, Deserialize)]
+pub struct AskRequest {
+    /// 用户对记忆库提出的问题。
+    pub question: String,
+    /// 可选集合或来源范围。
+    #[serde(default)]
+    pub scope: AskScopeRequest,
+}
+
+/// 表示 RAG 回答中的一条可回跳块级引用。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CitationResponse {
+    /// 来源记忆标识。
+    pub memory_id: Uuid,
+    /// 实际命中的语义块标识。
+    pub block_id: Uuid,
+    /// 发送给 Completion 的截断片段。
+    pub snippet: String,
+    /// 来源记忆标题。
+    pub source_title: Option<String>,
+    /// 来源记忆类别。
+    pub source_kind: MemoryKind,
+    /// 来源记忆创建时间。
+    pub created_at: i64,
+}
+
+/// 表示带引用和数据流向元数据的 RAG 回答。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AskResponse {
+    /// Completion 生成或本地抽取的回答。
+    pub answer: String,
+    /// 回答所依据的本地块级引用。
+    pub citations: Vec<CitationResponse>,
+    /// 实际执行请求的 Provider 标识。
+    pub provider: String,
+    /// 本次发给 Completion 的片段数量。
+    pub sent_context_count: usize,
+    /// 本次 Provider 是否会把片段发送到远程端点。
+    pub sends_data_remote: bool,
+}
+
+/// 表示手动创建知识卡片所需字段。
+#[derive(Debug, Deserialize)]
+pub struct CreateCardRequest {
+    /// 卡片正面。
+    pub card_front: String,
+    /// 卡片背面。
+    pub card_back: String,
+    /// 可选来源记忆。
+    pub source_memory_id: Option<Uuid>,
+    /// 可选复习集。
+    pub deck: Option<String>,
+    /// 卡片标签。
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// 表示从一条来源记忆生成卡片的请求。
+#[derive(Debug, Deserialize)]
+pub struct GenerateCardsRequest {
+    /// 卡片派生来源。
+    pub source_memory_id: Uuid,
+    /// 可选补充生成指令。
+    pub instruction: Option<String>,
+    /// 可选复习集。
+    pub deck: Option<String>,
+    /// 生成卡片标签。
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// 一次最多创建的卡片数，协议上限为 10。
+    #[serde(default = "default_generated_card_limit")]
+    pub max_cards: usize,
+}
+
+/// 表示协议返回的完整复习卡片和溯源摘要。
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ReviewCardResponse {
+    /// 对应卡片 Memory 标识。
+    pub memory_id: Uuid,
+    /// 卡片正面。
+    pub card_front: String,
+    /// 卡片背面。
+    pub card_back: String,
+    /// 当前学习阶段。
+    pub state: ReviewPhase,
+    /// FSRS 稳定度，单位为天。
+    pub stability: f64,
+    /// FSRS 难度。
+    pub difficulty: f64,
+    /// 下次到期 Unix 毫秒时间。
+    pub due_at: i64,
+    /// 最近评分时间。
+    pub last_reviewed_at: Option<i64>,
+    /// 累计评分次数。
+    pub reps: u32,
+    /// 累计遗忘次数。
+    pub lapses: u32,
+    /// 派生来源记忆标识。
+    pub source_memory_id: Option<Uuid>,
+    /// 派生来源标题。
+    pub source_title: Option<String>,
+    /// 可选复习集。
+    pub deck: Option<String>,
+    /// 卡片标签。
+    pub tags: Vec<String>,
+}
+
+/// 表示一次复习评分请求。
+#[derive(Debug, Deserialize)]
+pub struct GradeReviewRequest {
+    /// Again、Hard、Good 或 Easy。
+    pub rating: Rating,
+    /// 可选客户端评分时间；省略时使用服务端当前时间。
+    pub reviewed_at: Option<i64>,
+}
+
+/// 表示协议返回的评分调度结果。
+#[derive(Debug, Serialize)]
+pub struct GradeReviewResponse {
+    /// 下次到期时间。
+    pub next_due_at: i64,
+    /// 新稳定度。
+    pub new_stability: f64,
+    /// 新难度。
+    pub new_difficulty: f64,
+    /// 新学习阶段。
+    pub new_state: ReviewPhase,
+}
+
+impl From<GradeResult> for GradeReviewResponse {
+    /// 将核心评分结果转换为稳定协议响应。
+    fn from(result: GradeResult) -> Self {
+        Self {
+            next_due_at: result.next_due_at,
+            new_stability: result.new_stability,
+            new_difficulty: result.new_difficulty,
+            new_state: result.new_state,
+        }
+    }
+}
+
+/// 表示协议复习统计响应。
+pub type ReviewStatsResponse = ReviewStats;
+
+/// 表示显式扫描到期卡片后的通知数量。
+#[derive(Debug, Serialize)]
+pub struct NotifyDueResponse {
+    /// 本轮首次发布 `review.due` 的卡片数。
+    pub notified: usize,
+}
+
 /// 表示服务端当前支持的协议能力。
 #[derive(Debug, Serialize)]
 pub struct CapabilitiesResponse {
@@ -359,4 +523,9 @@ fn default_search_mode() -> String {
 /// 返回协议规定的默认检索条数。
 const fn default_limit() -> usize {
     10
+}
+
+/// 返回单次 AI 卡片生成的保守默认上限。
+const fn default_generated_card_limit() -> usize {
+    3
 }

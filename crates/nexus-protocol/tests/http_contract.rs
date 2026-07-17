@@ -1,16 +1,240 @@
 //! 本文件验证 Memory Protocol 的鉴权、来源限制及 HTTP 写入检索闭环。
 
+use std::sync::{Arc, Mutex};
+
 use axum::{
     body::Body,
     http::{Method, Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
+use nexus_ai::{Completion, CompletionFuture, CompletionRequest, CompletionResponse};
 use nexus_core::MemoryStore;
 use nexus_protocol::{CapabilityGrant, ProtocolState, Scope, router};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
 const TOKEN: &str = "test-capability-token";
+
+/// 保存测试 Completion 实际收到的最小上下文。
+struct RecordingCompletion {
+    request: Arc<Mutex<Option<CompletionRequest>>>,
+}
+
+impl Completion for RecordingCompletion {
+    /// 记录请求并返回固定回答，避免测试访问网络。
+    fn complete<'a>(&'a self, request: CompletionRequest) -> CompletionFuture<'a> {
+        Box::pin(async move {
+            *self.request.lock().expect("记录锁应可用") = Some(request);
+            Ok(CompletionResponse {
+                text: "仅依据已筛选片段回答 [1]".into(),
+                provider: "recording".into(),
+            })
+        })
+    }
+
+    fn provider_name(&self) -> &str {
+        "recording"
+    }
+
+    fn sends_data_remote(&self) -> bool {
+        true
+    }
+}
+
+/// 验证卡片创建、AI 生成、到期队列、统计、评分和 review.due SSE 协议闭环。
+#[tokio::test]
+async fn manages_cards_and_reviews_over_http() {
+    let app = test_router([Scope::Admin], None);
+    let source = create_protocol_memory(&app, "FSRS 使用 stability 和 difficulty 调度复习。").await;
+    let mut events = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::GET,
+            "/v1/events?types=review.due",
+            None,
+        ))
+        .await
+        .expect("复习事件订阅应返回响应");
+
+    let created = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/cards",
+            Some(json!({
+                "card_front": "FSRS 的核心参数是什么？",
+                "card_back": "stability 与 difficulty",
+                "source_memory_id": source,
+                "deck": "学习",
+                "tags": ["fsrs"]
+            })),
+        ))
+        .await
+        .expect("手动卡片请求应返回响应");
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created = response_json(created).await;
+    let card_id = created["memory_id"].as_str().expect("应返回卡片标识");
+    assert_eq!(created["state"], "new");
+    assert_eq!(created["source_memory_id"], source);
+
+    let notified = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/reviews/notify-due",
+            None,
+        ))
+        .await
+        .expect("到期扫描应返回响应");
+    assert_eq!(response_json(notified).await["notified"], 1);
+    let event_frame = events
+        .body_mut()
+        .frame()
+        .await
+        .expect("应收到复习到期事件")
+        .expect("复习事件帧应有效");
+    let event_payload = std::str::from_utf8(event_frame.data_ref().expect("事件应包含数据"))
+        .expect("事件应为 UTF-8");
+    assert!(event_payload.contains("event: review.due"));
+
+    let due = app
+        .clone()
+        .oneshot(authorized_request(Method::GET, "/v1/reviews/due", None))
+        .await
+        .expect("复习队列应返回响应");
+    assert_eq!(response_json(due).await.as_array().unwrap().len(), 1);
+    let graded = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            &format!("/v1/reviews/{card_id}/grade"),
+            Some(json!({"rating": "good"})),
+        ))
+        .await
+        .expect("评分请求应返回响应");
+    assert_eq!(graded.status(), StatusCode::OK);
+    assert_eq!(response_json(graded).await["new_state"], "review");
+
+    let generated = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/cards/generate",
+            Some(json!({
+                "source_memory_id": source,
+                "max_cards": 2,
+                "deck": "AI 生成"
+            })),
+        ))
+        .await
+        .expect("AI 卡片生成请求应返回响应");
+    assert_eq!(generated.status(), StatusCode::CREATED);
+    let generated = response_json(generated).await;
+    assert_eq!(generated.as_array().unwrap().len(), 1);
+    assert_eq!(generated[0]["source_memory_id"], source);
+
+    let stats = app
+        .oneshot(authorized_request(Method::GET, "/v1/reviews/stats", None))
+        .await
+        .expect("复习统计应返回响应");
+    assert_eq!(response_json(stats).await["total_cards"], 2);
+}
+
+/// 验证 RAG 返回块级引用、Provider 元数据，并只向 Completion 发送截断后的命中片段。
+#[tokio::test]
+async fn asks_with_citations_and_minimized_context() {
+    let store = MemoryStore::open_in_memory().expect("应能创建内存工作库");
+    let state = ProtocolState::new(store, CapabilityGrant::new(TOKEN, [Scope::Admin], None));
+    let recorded = Arc::new(Mutex::new(None));
+    state
+        .set_completion(Arc::new(RecordingCompletion {
+            request: Arc::clone(&recorded),
+        }))
+        .expect("测试 Provider 应设置成功");
+    let app = router(state);
+    let long_content = format!(
+        "数据最小化护栏要求只发送检索片段。{}",
+        "隐私上下文".repeat(400)
+    );
+    let source = create_protocol_memory(&app, &long_content).await;
+
+    let asked = app
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/ask",
+            Some(json!({"question": "数据最小化护栏要求什么？"})),
+        ))
+        .await
+        .expect("问答请求应返回响应");
+    assert_eq!(asked.status(), StatusCode::OK);
+    let asked = response_json(asked).await;
+    assert_eq!(asked["answer"], "仅依据已筛选片段回答 [1]");
+    assert_eq!(asked["provider"], "recording");
+    assert_eq!(asked["sends_data_remote"], true);
+    assert_eq!(asked["citations"][0]["memory_id"], source);
+    assert!(asked["citations"][0]["block_id"].is_string());
+    assert!(asked["citations"][0]["source_kind"].is_string());
+
+    let request = recorded
+        .lock()
+        .expect("记录锁应可用")
+        .clone()
+        .expect("Completion 应收到请求");
+    assert!(!request.context.is_empty());
+    assert!(request.context.len() <= 6);
+    assert!(
+        request
+            .context
+            .iter()
+            .all(|item| item.text.chars().count() <= 1_201)
+    );
+    assert!(request.context[0].text.len() < long_content.len());
+}
+
+/// 验证问答集合范围在 Completion 调用前完成过滤，空范围不会向远程 Provider 发送数据。
+#[tokio::test]
+async fn narrows_ask_to_collection_before_completion() {
+    let store = MemoryStore::open_in_memory().expect("应能创建内存工作库");
+    let state = ProtocolState::new(store, CapabilityGrant::new(TOKEN, [Scope::Admin], None));
+    let recorded = Arc::new(Mutex::new(None));
+    state
+        .set_completion(Arc::new(RecordingCompletion {
+            request: Arc::clone(&recorded),
+        }))
+        .expect("测试 Provider 应设置成功");
+    let app = router(state);
+    create_protocol_memory(&app, "集合外部的量子定价备忘").await;
+    let collection = app
+        .clone()
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/collections",
+            Some(json!({"name": "空范围"})),
+        ))
+        .await
+        .expect("集合创建应返回响应");
+    let collection_id = response_json(collection).await["id"]
+        .as_str()
+        .expect("应返回集合标识")
+        .to_owned();
+
+    let asked = app
+        .oneshot(authorized_request(
+            Method::POST,
+            "/v1/ask",
+            Some(json!({
+                "question": "量子定价是什么？",
+                "scope": {"collection": collection_id}
+            })),
+        ))
+        .await
+        .expect("范围问答应返回响应");
+    let asked = response_json(asked).await;
+    assert_eq!(asked["citations"], json!([]));
+    assert_eq!(asked["sent_context_count"], 0);
+    assert_eq!(asked["sends_data_remote"], false);
+    assert!(recorded.lock().expect("记录锁应可用").is_none());
+}
 
 /// 验证管理员可以通过协议管理记忆关联、集合和集合成员。
 #[tokio::test]

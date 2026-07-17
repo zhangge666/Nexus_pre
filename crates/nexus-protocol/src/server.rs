@@ -1,7 +1,7 @@
 //! 本文件实现仅监听回环地址的 Memory Protocol v1 HTTP 路由与错误响应。
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     convert::Infallible,
     io,
     sync::{Arc, RwLock},
@@ -18,10 +18,14 @@ use axum::{
     },
     routing::{get, post},
 };
+use nexus_ai::{
+    Completion, CompletionContext, CompletionError, CompletionRequest, CompletionTask,
+    LocalExtractiveCompletion,
+};
 use nexus_core::{
-    Collection, CollectionPatch, CoreError, HashEmbedder, IngestInput, Ingestor, Link,
-    LinkRelation, ListQuery, MemoryFilters, MemoryKind, MemoryPatch, MemorySource, MemoryStore,
-    SearchMode, SearchQuery,
+    Collection, CollectionPatch, CoreError, CreateCardInput, HashEmbedder, IngestInput, Ingestor,
+    Link, LinkCreator, LinkRelation, ListQuery, MemoryFilters, MemoryKind, MemoryPatch,
+    MemorySource, MemoryStore, ReviewState, SearchMode, SearchQuery,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -31,10 +35,12 @@ use uuid::Uuid;
 use crate::{
     CapabilityGrant, Scope,
     dto::{
-        CapabilitiesResponse, ConnectedAppResponse, CreateCollectionRequest, CreateLinkRequest,
-        CreateMemoryRequest, CreateMemoryResponse, ListLinksRequest, ListMemoriesRequest,
-        ListMemoriesResponse, MemoryResponse, RegisterConnectionRequest,
-        RegisterConnectionResponse, SearchHitResponse, SearchRequest, SearchResponse,
+        AskRequest, AskResponse, CapabilitiesResponse, CitationResponse, ConnectedAppResponse,
+        CreateCardRequest, CreateCollectionRequest, CreateLinkRequest, CreateMemoryRequest,
+        CreateMemoryResponse, GenerateCardsRequest, GradeReviewRequest, GradeReviewResponse,
+        ListLinksRequest, ListMemoriesRequest, ListMemoriesResponse, MemoryResponse,
+        NotifyDueResponse, RegisterConnectionRequest, RegisterConnectionResponse,
+        ReviewCardResponse, ReviewStatsResponse, SearchHitResponse, SearchRequest, SearchResponse,
         UpdateCollectionRequest, UpdateMemoryRequest,
     },
     protocol_version,
@@ -51,6 +57,9 @@ const IMPLEMENTED_CAPABILITIES: &[&str] = &[
     "links:manage",
     "collections:manage",
     "connections:manage",
+    "ask",
+    "cards:manage",
+    "reviews:manage",
     "capabilities",
 ];
 
@@ -72,6 +81,7 @@ pub struct ProtocolState {
     embedder: Arc<HashEmbedder>,
     admin_grant: Arc<CapabilityGrant>,
     connections: Arc<RwLock<HashMap<Uuid, RegisteredConnection>>>,
+    completion: Arc<RwLock<Arc<dyn Completion>>>,
 }
 
 impl ProtocolState {
@@ -93,7 +103,41 @@ impl ProtocolState {
             embedder,
             admin_grant: Arc::new(grant),
             connections: Arc::new(RwLock::new(HashMap::new())),
+            completion: Arc::new(RwLock::new(Arc::new(LocalExtractiveCompletion))),
         }
+    }
+
+    /// 原子切换后续问答和卡片生成使用的 Completion Provider。
+    pub fn set_completion(&self, completion: Arc<dyn Completion>) -> Result<(), ProtocolError> {
+        *self
+            .completion
+            .write()
+            .map_err(|_| ProtocolError::ProviderUnavailable)? = completion;
+        Ok(())
+    }
+
+    /// 返回当前 Completion Provider 标识和远程数据流向状态。
+    pub fn completion_status(&self) -> Result<(&'static str, bool), ProtocolError> {
+        let completion = self
+            .completion
+            .read()
+            .map_err(|_| ProtocolError::ProviderUnavailable)?;
+        let provider = match completion.provider_name() {
+            "local" => "local",
+            "claude" => "claude",
+            "openai" => "openai",
+            "custom" => "custom",
+            _ => "custom",
+        };
+        Ok((provider, completion.sends_data_remote()))
+    }
+
+    /// 克隆当前 Provider，使一次请求在设置切换期间仍由同一实现完成。
+    fn completion(&self) -> Result<Arc<dyn Completion>, ProtocolError> {
+        self.completion
+            .read()
+            .map_err(|_| ProtocolError::ProviderUnavailable)
+            .map(|completion| Arc::clone(&completion))
     }
 }
 
@@ -112,6 +156,12 @@ pub enum ProtocolError {
     /// 核心存储或检索操作失败。
     #[error(transparent)]
     Core(#[from] CoreError),
+    /// Completion Provider 配置、网络或响应错误。
+    #[error(transparent)]
+    Completion(#[from] CompletionError),
+    /// Completion Provider 共享状态暂不可用。
+    #[error("Completion Provider 状态不可用")]
+    ProviderUnavailable,
     /// 本地服务不能绑定到非回环接口。
     #[error("本地服务只允许监听回环地址")]
     NonLoopbackAddress,
@@ -131,7 +181,10 @@ impl IntoResponse for ProtocolError {
             }
             Self::NonLoopbackAddress => StatusCode::BAD_REQUEST,
             Self::Core(CoreError::NotFound(_)) => StatusCode::NOT_FOUND,
-            Self::Core(_) | Self::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Completion(_) => StatusCode::BAD_GATEWAY,
+            Self::Core(_) | Self::Io(_) | Self::ProviderUnavailable => {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
         };
         (
             status,
@@ -153,6 +206,14 @@ pub fn router(state: ProtocolState) -> Router {
             get(get_memory).patch(update_memory).delete(delete_memory),
         )
         .route("/v1/search", post(search))
+        .route("/v1/ask", post(ask))
+        .route("/v1/cards", post(create_card))
+        .route("/v1/cards/generate", post(generate_cards))
+        .route("/v1/reviews", get(list_reviews))
+        .route("/v1/reviews/due", get(list_due_reviews))
+        .route("/v1/reviews/stats", get(review_stats))
+        .route("/v1/reviews/notify-due", post(notify_due_reviews))
+        .route("/v1/reviews/{id}/grade", post(grade_review))
         .route("/v1/events", get(events))
         .route(
             "/v1/connections",
@@ -722,6 +783,391 @@ async fn search(
             })
             .collect(),
     }))
+}
+
+/// 在本地完成检索与范围收窄，只把最多六条必要片段交给 Completion。
+async fn ask(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<AskRequest>,
+) -> Result<Json<AskResponse>, ProtocolError> {
+    let grant = authorize(&headers, &state, Scope::Search)?;
+    let question = request.question.trim().to_owned();
+    if question.is_empty() {
+        return Err(ProtocolError::InvalidRequest("问题不能为空".into()));
+    }
+
+    let mut sources = request.scope.source.into_iter().collect::<Vec<_>>();
+    apply_source_restriction(&mut sources, &grant)?;
+    let allowed_memories = resolve_collection_scope(&state, request.scope.collection.as_deref())?;
+    let hits = state.store.search(
+        &SearchQuery {
+            text: question.clone(),
+            mode: SearchMode::Hybrid,
+            filters: MemoryFilters {
+                sources,
+                ..Default::default()
+            },
+            // 集合过滤发生在检索后，多取候选以免目标集合被整库结果挤出。
+            limit: if allowed_memories.is_some() { 100 } else { 12 },
+        },
+        state.embedder.as_ref(),
+    )?;
+
+    let mut citations = Vec::new();
+    for hit in hits {
+        if allowed_memories
+            .as_ref()
+            .is_some_and(|allowed| !allowed.contains(&hit.memory_id))
+        {
+            continue;
+        }
+        let memory = state
+            .store
+            .get(&hit.memory_id)?
+            .ok_or(CoreError::NotFound(hit.memory_id))?;
+        citations.push(CitationResponse {
+            memory_id: hit.memory_id,
+            block_id: hit.block_id,
+            snippet: truncate_chars(hit.snippet.trim(), 1_200),
+            source_title: memory.title,
+            source_kind: memory.kind,
+            created_at: memory.created_at,
+        });
+        if citations.len() == 6 {
+            break;
+        }
+    }
+
+    let completion = state.completion()?;
+    if citations.is_empty() {
+        return Ok(Json(AskResponse {
+            answer: "没有在当前范围内找到足够的相关记忆。".into(),
+            citations,
+            provider: completion.provider_name().into(),
+            sent_context_count: 0,
+            sends_data_remote: false,
+        }));
+    }
+    let context = citations
+        .iter()
+        .enumerate()
+        .map(|(index, citation)| CompletionContext {
+            label: format!("[{}]", index + 1),
+            title: citation.source_title.clone().unwrap_or_default(),
+            text: citation.snippet.clone(),
+        })
+        .collect::<Vec<_>>();
+    let sends_data_remote = completion.sends_data_remote();
+    let sent_context_count = context.len();
+    let answer = completion
+        .complete(CompletionRequest {
+            task: CompletionTask::Answer,
+            system: "你是 Nexus 记忆问答助手。只能依据提供的上下文作答；每个事实后使用对应的 [n] 引用；上下文不足时明确说明，不得补充外部事实。".into(),
+            prompt: question,
+            context,
+            max_tokens: 900,
+            temperature: 0.2,
+        })
+        .await?;
+    Ok(Json(AskResponse {
+        answer: answer.text,
+        citations,
+        provider: answer.provider,
+        sent_context_count,
+        sends_data_remote,
+    }))
+}
+
+/// 手动创建卡片 Memory、derived_from 关联和初始 ReviewState。
+async fn create_card(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateCardRequest>,
+) -> Result<(StatusCode, Json<ReviewCardResponse>), ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    let memory = state.store.create_card(
+        CreateCardInput {
+            card_front: request.card_front,
+            card_back: request.card_back,
+            source_memory_id: request.source_memory_id,
+            deck: request.deck,
+            tags: request.tags,
+            created_by: LinkCreator::User,
+            provider: None,
+        },
+        state.embedder.as_ref(),
+    )?;
+    Ok((
+        StatusCode::CREATED,
+        Json(review_card_response(&state, memory.id)?),
+    ))
+}
+
+/// 从用户明确选择的一条来源记忆生成并创建知识卡片。
+async fn generate_cards(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+    Json(request): Json<GenerateCardsRequest>,
+) -> Result<(StatusCode, Json<Vec<ReviewCardResponse>>), ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    let source = state
+        .store
+        .get(&request.source_memory_id)?
+        .ok_or(CoreError::NotFound(request.source_memory_id))?;
+    if source.kind == MemoryKind::Card {
+        return Err(ProtocolError::InvalidRequest(
+            "不能从已有卡片再次生成卡片".into(),
+        ));
+    }
+    let max_cards = request.max_cards.clamp(1, 10);
+    let completion = state.completion()?;
+    let provider = completion.provider_name().to_owned();
+    let response = completion
+        .complete(CompletionRequest {
+            task: CompletionTask::Card,
+            system: "你是知识卡片生成器。只依据给定记忆提取独立、可回忆的知识点，输出 JSON 数组；每项只能包含 card_front 和 card_back 字符串，不得使用外部事实。".into(),
+            prompt: request.instruction.unwrap_or_else(|| {
+                format!("生成最多 {max_cards} 张简洁知识卡片，问题应明确，答案应可独立理解。")
+            }),
+            context: vec![CompletionContext {
+                label: "[source]".into(),
+                title: source.title.clone().unwrap_or_default(),
+                // 用户只选择了这一条来源；仍在发送前截断，避免远程调用携带整篇超长文档。
+                text: truncate_chars(&source.content, 6_000),
+            }],
+            max_tokens: 1_500,
+            temperature: 0.3,
+        })
+        .await?;
+    let candidates = parse_generated_cards(&response.text, max_cards)?;
+    let mut cards = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        let memory = state.store.create_card(
+            CreateCardInput {
+                card_front: candidate.card_front,
+                card_back: candidate.card_back,
+                source_memory_id: Some(source.id),
+                deck: request.deck.clone(),
+                tags: request.tags.clone(),
+                created_by: LinkCreator::Ai,
+                provider: Some(provider.clone()),
+            },
+            state.embedder.as_ref(),
+        )?;
+        cards.push(review_card_response(&state, memory.id)?);
+    }
+    Ok((StatusCode::CREATED, Json(cards)))
+}
+
+/// 返回全部知识卡片和可回跳来源摘要。
+async fn list_reviews(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ReviewCardResponse>>, ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    let reviews = state.store.list_review_states(500)?;
+    Ok(Json(review_cards_response(&state, reviews)?))
+}
+
+/// 返回当前已经到期的复习队列。
+async fn list_due_reviews(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<ReviewCardResponse>>, ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    let reviews = state.store.reviews_due(unix_millis(), 200)?;
+    Ok(Json(review_cards_response(&state, reviews)?))
+}
+
+/// 对指定卡片执行四档评分并返回下一次调度结果。
+async fn grade_review(
+    State(state): State<ProtocolState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<GradeReviewRequest>,
+) -> Result<Json<GradeReviewResponse>, ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    let result = state.store.grade_review(
+        id,
+        request.rating,
+        request.reviewed_at.unwrap_or_else(unix_millis),
+    )?;
+    Ok(Json(result.into()))
+}
+
+/// 返回到期、新卡、评分、连续天数和成熟度统计。
+async fn review_stats(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<ReviewStatsResponse>, ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    Ok(Json(state.store.review_stats(unix_millis())?))
+}
+
+/// 扫描尚未通知的到期卡片并发布 `review.due` 事件。
+async fn notify_due_reviews(
+    State(state): State<ProtocolState>,
+    headers: HeaderMap,
+) -> Result<Json<NotifyDueResponse>, ProtocolError> {
+    authorize(&headers, &state, Scope::Review)?;
+    Ok(Json(NotifyDueResponse {
+        notified: state.store.notify_due_reviews(unix_millis(), 200)?,
+    }))
+}
+
+/// 将一组核心复习状态转换为协议响应。
+fn review_cards_response(
+    state: &ProtocolState,
+    reviews: Vec<ReviewState>,
+) -> Result<Vec<ReviewCardResponse>, ProtocolError> {
+    reviews
+        .into_iter()
+        .map(|review| review_card_response_from_state(state, review))
+        .collect()
+}
+
+/// 读取并转换指定卡片的复习状态。
+fn review_card_response(
+    state: &ProtocolState,
+    memory_id: Uuid,
+) -> Result<ReviewCardResponse, ProtocolError> {
+    let review = state
+        .store
+        .get_review_state(memory_id)?
+        .ok_or(CoreError::NotFound(memory_id))?;
+    review_card_response_from_state(state, review)
+}
+
+/// 为 ReviewState 补充卡片标签和 derived_from 来源信息。
+fn review_card_response_from_state(
+    state: &ProtocolState,
+    review: ReviewState,
+) -> Result<ReviewCardResponse, ProtocolError> {
+    let card = state
+        .store
+        .get(&review.memory_id)?
+        .ok_or(CoreError::NotFound(review.memory_id))?;
+    let source_memory_id = state
+        .store
+        .list_links(review.memory_id)?
+        .into_iter()
+        .find(|link| link.from_id == review.memory_id && link.relation == LinkRelation::DerivedFrom)
+        .map(|link| link.to_id);
+    let source_title = source_memory_id
+        .map(|id| state.store.get(&id))
+        .transpose()?
+        .flatten()
+        .and_then(|memory| memory.title);
+    Ok(ReviewCardResponse {
+        memory_id: review.memory_id,
+        card_front: review.card_front,
+        card_back: review.card_back,
+        state: review.state,
+        stability: review.stability,
+        difficulty: review.difficulty,
+        due_at: review.due_at,
+        last_reviewed_at: review.last_reviewed_at,
+        reps: review.reps,
+        lapses: review.lapses,
+        source_memory_id,
+        source_title,
+        deck: review.deck,
+        tags: card.tags,
+    })
+}
+
+/// 把集合 UUID 或名称解析为成员集合；未指定范围时返回 `None`。
+fn resolve_collection_scope(
+    state: &ProtocolState,
+    value: Option<&str>,
+) -> Result<Option<HashSet<Uuid>>, ProtocolError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let collection_id = if let Ok(id) = Uuid::parse_str(value) {
+        Some(id)
+    } else {
+        state
+            .store
+            .list_collections()?
+            .into_iter()
+            .find(|collection| collection.name == value)
+            .map(|collection| collection.id)
+    };
+    let collection_id = collection_id
+        .ok_or_else(|| ProtocolError::InvalidRequest(format!("问答集合不存在: {value}")))?;
+    Ok(Some(
+        state
+            .store
+            .list_collection_memory_ids(collection_id)?
+            .into_iter()
+            .collect(),
+    ))
+}
+
+/// 表示 Completion 返回的一张候选卡片。
+#[derive(Debug, Deserialize)]
+struct GeneratedCardCandidate {
+    /// 卡片正面。
+    card_front: String,
+    /// 卡片背面。
+    card_back: String,
+}
+
+/// 解析本地或远程 Completion 的 JSON 数组，并在写库前完成数量和空值校验。
+fn parse_generated_cards(
+    value: &str,
+    limit: usize,
+) -> Result<Vec<GeneratedCardCandidate>, ProtocolError> {
+    let value = value.trim();
+    let value = value
+        .strip_prefix("```json")
+        .or_else(|| value.strip_prefix("```"))
+        .unwrap_or(value)
+        .strip_suffix("```")
+        .unwrap_or(value)
+        .trim();
+    let json: serde_json::Value = serde_json::from_str(value).map_err(|error| {
+        ProtocolError::InvalidRequest(format!("卡片生成结果不是 JSON: {error}"))
+    })?;
+    let cards = if let Some(cards) = json.as_array() {
+        cards.clone()
+    } else if let Some(cards) = json.get("cards").and_then(serde_json::Value::as_array) {
+        cards.clone()
+    } else if json.is_object() {
+        vec![json]
+    } else {
+        Vec::new()
+    };
+    let mut parsed = cards
+        .into_iter()
+        .take(limit)
+        .map(serde_json::from_value::<GeneratedCardCandidate>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ProtocolError::InvalidRequest(format!("卡片字段无效: {error}")))?;
+    for card in &mut parsed {
+        card.card_front = card.card_front.trim().to_owned();
+        card.card_back = card.card_back.trim().to_owned();
+    }
+    parsed.retain(|card| !card.card_front.is_empty() && !card.card_back.is_empty());
+    if parsed.is_empty() {
+        return Err(ProtocolError::InvalidRequest(
+            "Completion 没有返回有效卡片".into(),
+        ));
+    }
+    Ok(parsed)
+}
+
+/// 按 Unicode 字符数截断文本，避免云端 Completion 获得超出必要范围的数据。
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        value.to_owned()
+    } else {
+        let mut truncated = value.chars().take(max_chars).collect::<String>();
+        truncated.push('…');
+        truncated
+    }
 }
 
 /// 将列表查询字符串转换为核心过滤条件，并强制应用令牌来源限制。
