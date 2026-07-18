@@ -82,55 +82,115 @@ function ResizeHandle({ side, label, onResizeStart, onResize, onResizeEnd, onKey
 
 /** 将侧栏状态、检查器状态与可调宽度组合为统一的桌面工作区。 */
 function WorkspaceShell(): React.JSX.Element {
-  const { collapsed, toggle: toggleSidebar } = useSidebar();
-  const { open: inspectorOpen, close: closeInspector } = useInspector();
+  const { collapsed, hidden: sidebarHidden, setCollapsed, setHidden } = useSidebar();
+  const { open: inspectorOpen, close: closeInspector, toggle: toggleInspector } = useInspector();
   const shellRef = useRef<HTMLDivElement>(null);
   const sidebarDragWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const inspectorDragWidthRef = useRef(INSPECTOR_DEFAULT_WIDTH);
+  const sidebarReopenedFromEdgeRef = useRef(false);
+  const inspectorReopenedFromEdgeRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
   const [resizing, setResizing] = useState(false);
 
-  /** 基于工作区左边界更新左侧栏宽度，并记录是否已越过自动收起阈值。 */
+  /** 基于工作区左边界实时调整左栏；越过阈值后隐藏，反向拖回最小宽度才重新出现。 */
   const resizeSidebar = useCallback((clientX: number): void => {
     const shell = shellRef.current;
     if (!shell) return;
-    const width = clampWidth(clientX - shell.getBoundingClientRect().left, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+    const rawWidth = clientX - shell.getBoundingClientRect().left;
+    if (sidebarHidden) {
+      if (rawWidth < SIDEBAR_MIN_WIDTH) return;
+      sidebarReopenedFromEdgeRef.current = true;
+      setHidden(false);
+      setCollapsed(false);
+      sidebarDragWidthRef.current = SIDEBAR_MIN_WIDTH;
+      setSidebarWidth(SIDEBAR_MIN_WIDTH);
+      return;
+    }
+
+    if (sidebarReopenedFromEdgeRef.current) {
+      if (rawWidth < SIDEBAR_MIN_WIDTH) {
+        sidebarReopenedFromEdgeRef.current = false;
+        setHidden(true);
+        return;
+      }
+      if (rawWidth >= SIDEBAR_COLLAPSE_THRESHOLD) sidebarReopenedFromEdgeRef.current = false;
+    } else if (rawWidth < SIDEBAR_COLLAPSE_THRESHOLD) {
+      setHidden(true);
+      return;
+    }
+
+    const width = clampWidth(rawWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
     sidebarDragWidthRef.current = width;
     setSidebarWidth(width);
-  }, []);
+  }, [setCollapsed, setHidden, sidebarHidden]);
 
-  /** 基于工作区右边界更新检查器宽度，并记录是否已越过自动关闭阈值。 */
+  /** 基于工作区右边界实时调整检查器；越过阈值后贴到右缘，反向拖回最小宽度才重新出现。 */
   const resizeInspector = useCallback((clientX: number): void => {
     const shell = shellRef.current;
     if (!shell) return;
-    const width = clampWidth(shell.getBoundingClientRect().right - clientX, INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH);
+    const rawWidth = shell.getBoundingClientRect().right - clientX;
+    if (!inspectorOpen) {
+      if (rawWidth < INSPECTOR_MIN_WIDTH) return;
+      inspectorReopenedFromEdgeRef.current = true;
+      inspectorDragWidthRef.current = INSPECTOR_MIN_WIDTH;
+      setInspectorWidth(INSPECTOR_MIN_WIDTH);
+      toggleInspector();
+      return;
+    }
+
+    if (inspectorReopenedFromEdgeRef.current) {
+      if (rawWidth < INSPECTOR_MIN_WIDTH) {
+        inspectorReopenedFromEdgeRef.current = false;
+        closeInspector();
+        return;
+      }
+      if (rawWidth >= INSPECTOR_COLLAPSE_THRESHOLD) inspectorReopenedFromEdgeRef.current = false;
+    } else if (rawWidth < INSPECTOR_COLLAPSE_THRESHOLD) {
+      closeInspector();
+      return;
+    }
+
+    const width = clampWidth(rawWidth, INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH);
     inspectorDragWidthRef.current = width;
     setInspectorWidth(width);
-  }, []);
+  }, [closeInspector, inspectorOpen, toggleInspector]);
 
-  /** 左栏拖拽结束时，低于阈值则自动收起；否则保留本次设定的宽度。 */
+  /** 结束左栏拖拽；收起与恢复已在移动过程中完成，无需延迟切换。 */
   function finishSidebarResize(): void {
     setResizing(false);
-    if (sidebarDragWidthRef.current < SIDEBAR_COLLAPSE_THRESHOLD && !collapsed) toggleSidebar();
   }
 
-  /** 右栏拖拽结束时，低于阈值则自动关闭；否则保留本次设定的宽度。 */
+  /** 结束右栏拖拽；收起与恢复已在移动过程中完成，无需延迟切换。 */
   function finishInspectorResize(): void {
     setResizing(false);
-    if (inspectorDragWidthRef.current < INSPECTOR_COLLAPSE_THRESHOLD) closeInspector();
   }
 
   /** 处理左栏分隔条键盘调整，并在越过阈值时保持与拖拽一致的自动收起行为。 */
   function resizeSidebarByKeyboard(key: "ArrowLeft" | "ArrowRight" | "Home"): void {
+    if (sidebarHidden) {
+      if (key === "ArrowLeft") return;
+      setHidden(false);
+      setCollapsed(false);
+      sidebarDragWidthRef.current = SIDEBAR_MIN_WIDTH;
+      setSidebarWidth(SIDEBAR_MIN_WIDTH);
+      return;
+    }
     const next = key === "Home" ? SIDEBAR_DEFAULT_WIDTH : clampWidth(sidebarWidth + (key === "ArrowLeft" ? -16 : 16), SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
     sidebarDragWidthRef.current = next;
     setSidebarWidth(next);
-    if (next < SIDEBAR_COLLAPSE_THRESHOLD && !collapsed) toggleSidebar();
+    if (next < SIDEBAR_COLLAPSE_THRESHOLD) setHidden(true);
   }
 
   /** 处理右栏分隔条键盘调整，并在越过阈值时保持与拖拽一致的自动关闭行为。 */
   function resizeInspectorByKeyboard(key: "ArrowLeft" | "ArrowRight" | "Home"): void {
+    if (!inspectorOpen) {
+      if (key === "ArrowRight") return;
+      inspectorDragWidthRef.current = INSPECTOR_MIN_WIDTH;
+      setInspectorWidth(INSPECTOR_MIN_WIDTH);
+      toggleInspector();
+      return;
+    }
     const next = key === "Home" ? INSPECTOR_DEFAULT_WIDTH : clampWidth(inspectorWidth + (key === "ArrowLeft" ? 16 : -16), INSPECTOR_MIN_WIDTH, INSPECTOR_MAX_WIDTH);
     inspectorDragWidthRef.current = next;
     setInspectorWidth(next);
@@ -145,7 +205,7 @@ function WorkspaceShell(): React.JSX.Element {
   return (
     <div className="orbit-root">
       <Titlebar />
-      <div ref={shellRef} className={`app-shell${collapsed ? " sidebar-collapsed" : ""}${inspectorOpen ? "" : " inspector-collapsed"}${resizing ? " is-resizing" : ""}`} style={shellStyle}>
+      <div ref={shellRef} className={`app-shell${collapsed ? " sidebar-collapsed" : ""}${sidebarHidden ? " sidebar-hidden" : ""}${inspectorOpen ? "" : " inspector-collapsed"}${resizing ? " is-resizing" : ""}`} style={shellStyle}>
         <Sidebar />
         <ResizeHandle side="left" label="调整左侧栏宽度" onResizeStart={() => setResizing(true)} onResize={resizeSidebar} onResizeEnd={finishSidebarResize} onKeyboardResize={resizeSidebarByKeyboard} />
         <main className="workspace">

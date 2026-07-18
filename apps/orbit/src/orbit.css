@@ -17,6 +17,8 @@ svg { stroke-width: 1.5px !important; }
 .app-shell.sidebar-collapsed { grid-template-columns: 56px 0 minmax(0, 1fr) 6px var(--inspector-width, 340px); }
 .app-shell.inspector-collapsed { grid-template-columns: var(--sidebar-width, 232px) 6px minmax(0, 1fr) 0 0; }
 .app-shell.sidebar-collapsed.inspector-collapsed { grid-template-columns: 56px 0 minmax(0, 1fr) 0 0; }
+.app-shell.sidebar-hidden { grid-template-columns: 0 6px minmax(0, 1fr) 6px var(--inspector-width, 340px); }
+.app-shell.sidebar-hidden.inspector-collapsed { grid-template-columns: 0 6px minmax(0, 1fr) 0 0; }
 .app-shell.is-resizing { cursor: col-resize; transition: none; user-select: none; }
 
 .resize-handle { position: relative; z-index: 20; min-width: 0; cursor: col-resize; touch-action: none; outline: none; }
@@ -24,6 +26,13 @@ svg { stroke-width: 1.5px !important; }
 .resize-handle:hover::after, .resize-handle.is-dragging::after { background: hsl(var(--ring) / 0.65); }
 .resize-handle:focus-visible::after { background: hsl(var(--ring)); }
 .app-shell.sidebar-collapsed .resize-handle.left, .app-shell.inspector-collapsed .resize-handle.right { display: none; }
+/* 侧栏完全隐藏后保留边缘分隔条，拖回最小宽度即可重新显示面板。 */
+.app-shell.sidebar-hidden .resize-handle.left { display: block; }
+.app-shell.sidebar-hidden .sidebar { padding-right: 0; padding-left: 0; border-right-width: 0; visibility: hidden; pointer-events: none; }
+
+@media (min-width: 1081px) {
+  .app-shell.inspector-collapsed .resize-handle.right { display: block; width: 6px; transform: translateX(-6px); }
+}
 
 /* 桌面工作区显式定位每个栅格项，收起时隐藏分隔条也不会让主内容自动补到零宽列。 */
 @media (min-width: 720px) {
@@ -654,6 +663,7 @@ nav { display: grid; gap: 2px; }
 @media (max-width: 1080px) {
   .app-shell, .app-shell.inspector-collapsed { grid-template-columns: var(--sidebar-width, 232px) 6px minmax(0, 1fr); }
   .app-shell.sidebar-collapsed, .app-shell.sidebar-collapsed.inspector-collapsed { grid-template-columns: 56px 0 minmax(0, 1fr); }
+  .app-shell.sidebar-hidden, .app-shell.sidebar-hidden.inspector-collapsed { grid-template-columns: 0 6px minmax(0, 1fr); }
   .resize-handle.right { display: none; }
   .search-workbench.inspector-open .search-layout { grid-template-columns: minmax(0, 1fr); }
   .detail-inspector { display: none; }

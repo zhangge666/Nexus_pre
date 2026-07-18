@@ -4,7 +4,10 @@ import { createContext, useContext, useMemo, useState } from "react";
 
 interface SidebarState {
   collapsed: boolean;
+  hidden: boolean;
   toggle: () => void;
+  setCollapsed: (collapsed: boolean) => void;
+  setHidden: (hidden: boolean) => void;
 }
 
 const SidebarContext = createContext<SidebarState | null>(null);
@@ -12,9 +15,32 @@ const SidebarContext = createContext<SidebarState | null>(null);
 /** 为应用壳提供唯一的侧边栏状态源，避免各页面标题栏出现不同步的伸缩按钮。 */
 export function SidebarProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const value = useMemo(
-    () => ({ collapsed, toggle: () => setCollapsed((current) => !current) }),
-    [collapsed],
+    () => ({
+      collapsed,
+      hidden,
+      /** 完全隐藏时优先恢复完整侧栏，避免标题栏按钮切换到不可见的图标栏状态。 */
+      toggle: () => {
+        if (hidden) {
+          setHidden(false);
+          setCollapsed(false);
+          return;
+        }
+        setCollapsed((current) => !current);
+      },
+      /** 拖拽重新展开侧栏时同步退出完全隐藏状态。 */
+      setCollapsed: (nextCollapsed: boolean) => {
+        if (!nextCollapsed) setHidden(false);
+        setCollapsed(nextCollapsed);
+      },
+      /** 完全隐藏使用独立状态，保留原有的图标栏收缩行为。 */
+      setHidden: (nextHidden: boolean) => {
+        setHidden(nextHidden);
+        if (nextHidden) setCollapsed(true);
+      },
+    }),
+    [collapsed, hidden],
   );
   return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>;
 }
