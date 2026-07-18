@@ -1,7 +1,8 @@
 /** 本文件实现记忆行项组件，用于检索结果和时间线列表。 */
 import type React from "react";
-import { Monitor, Lightbulb, Feather, Orbit, Mic, FileText, Paperclip } from "lucide-react";
+import { Monitor, Lightbulb, Feather, Mic, FileText, Paperclip } from "lucide-react";
 import type { MemorySummary, MemorySource, MemoryKind } from "../core";
+import { OrbitMark } from "./OrbitMark";
 
 /** 根据记忆来源和内容类型显示低干扰的来源图标。 */
 function SourceIcon({ source, kind }: { source: MemorySource; kind: MemoryKind }): React.JSX.Element {
@@ -11,7 +12,7 @@ function SourceIcon({ source, kind }: { source: MemorySource; kind: MemoryKind }
   if (source === "echo") return <Monitor size={13} />;
   if (source === "muse") return <Lightbulb size={13} />;
   if (source === "quill") return <Feather size={13} />;
-  if (source === "orbit") return <Orbit size={13} />;
+  if (source === "orbit") return <OrbitMark size={16} className="source-orbit-mark" />;
   return <FileText size={13} />;
 }
 

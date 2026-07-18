@@ -3,7 +3,6 @@ import type React from "react";
 import { useEffect, useState, FormEvent } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
-  Orbit as OrbitIcon,
   Search,
   BookOpenText,
   Inbox,
@@ -24,6 +23,7 @@ import type { MemoryCollection } from "../core";
 import { useMemoryChanges } from "../core/events";
 import { ServiceStatus } from "./ServiceStatus";
 import { useSidebar } from "./SidebarState";
+import { OrbitMark } from "./OrbitMark";
 
 /** 将路由激活状态映射为设计系统定义的导航样式。 */
 function navCls({ isActive }: { isActive: boolean }): string {
@@ -71,7 +71,7 @@ export function Sidebar(): React.JSX.Element {
     <aside className={`sidebar${collapsed ? " collapsed" : ""}`}>
       {/* 品牌 */}
       <div className="brand" data-tauri-drag-region>
-        <OrbitIcon size={18} aria-hidden="true" data-tauri-drag-region />
+        <OrbitMark size={18} className="brand-mark" />
         <strong data-tauri-drag-region>Orbit</strong>
       </div>
 
