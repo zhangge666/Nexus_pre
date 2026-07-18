@@ -144,7 +144,7 @@ export default function AskPage(): React.JSX.Element {
   }
 
   return (
-    <div className="page-enter ask-page">
+    <div className="ask-page">
       <Topbar title="记忆问答" subtitle="基于你的本地记忆库回答问题" />
 
       <div className="chat-container">

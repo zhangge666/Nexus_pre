@@ -7,6 +7,7 @@ import { Sidebar } from "./components/Sidebar";
 import { SidebarProvider, useSidebar } from "./components/SidebarState";
 import { Titlebar } from "./components/Titlebar";
 import { InspectorPanel, InspectorProvider, useInspector } from "./components/Inspector";
+import AskPage from "./pages/AskPage";
 
 const TodayPage       = lazy(() => import("./pages/TodayPage"));
 const SearchPage      = lazy(() => import("./pages/SearchPage"));
@@ -14,7 +15,6 @@ const TimelinePage    = lazy(() => import("./pages/TimelinePage"));
 const InboxPage       = lazy(() => import("./pages/InboxPage"));
 const ReviewPage      = lazy(() => import("./pages/ReviewPage"));
 const CardsPage       = lazy(() => import("./pages/CardsPage"));
-const AskPage         = lazy(() => import("./pages/AskPage"));
 const GraphPage       = lazy(() => import("./pages/GraphPage"));
 const ConnectionsPage = lazy(() => import("./pages/ConnectionsPage"));
 const SettingsPage    = lazy(() => import("./pages/SettingsPage"));
