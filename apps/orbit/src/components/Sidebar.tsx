@@ -78,34 +78,34 @@ export function Sidebar(): React.JSX.Element {
       {/* 主导航 */}
       <nav aria-label="主导航">
         <NavLink className={navCls} to="/today" end title="今日" aria-label="今日">
-          <Sun size={15} />今日
+          <Sun size={15} /><span className="nav-label">今日</span>
         </NavLink>
         <NavLink className={navCls} to="/search" title="记忆" aria-label="记忆">
-          <Search size={15} />记忆
+          <Search size={15} /><span className="nav-label">记忆</span>
         </NavLink>
         <NavLink className={navCls} to="/timeline" title="时间线" aria-label="时间线">
-          <BookOpenText size={15} />时间线
+          <BookOpenText size={15} /><span className="nav-label">时间线</span>
         </NavLink>
         <NavLink className={navCls} to="/inbox" title="收件箱" aria-label="收件箱">
-          <Inbox size={15} />收件箱
+          <Inbox size={15} /><span className="nav-label">收件箱</span>
         </NavLink>
         <NavLink className={navCls} to="/review" title="复习" aria-label="复习">
-          <BrainCircuit size={15} />复习
+          <BrainCircuit size={15} /><span className="nav-label">复习</span>
         </NavLink>
         <NavLink className={navCls} to="/cards" title="卡片" aria-label="卡片">
-          <Layers size={15} />卡片
+          <Layers size={15} /><span className="nav-label">卡片</span>
         </NavLink>
         <NavLink className={navCls} to="/ask" title="问答" aria-label="问答">
-          <MessageCircle size={15} />问答
+          <MessageCircle size={15} /><span className="nav-label">问答</span>
         </NavLink>
         <NavLink className={navCls} to="/graph" title="知识图谱" aria-label="知识图谱">
-          <Network size={15} />图谱
+          <Network size={15} /><span className="nav-label">图谱</span>
         </NavLink>
         <NavLink className={navCls} to="/connections" title="连接" aria-label="连接">
-          <Link2 size={15} />连接
+          <Link2 size={15} /><span className="nav-label">连接</span>
         </NavLink>
         <NavLink className={navCls} to="/settings" title="设置" aria-label="设置">
-          <Settings size={15} />设置
+          <Settings size={15} /><span className="nav-label">设置</span>
         </NavLink>
       </nav>
 
@@ -149,7 +149,7 @@ export function Sidebar(): React.JSX.Element {
             </div>
           ))}
           <NavLink className={navCls} to="/timeline">
-            <Database size={15} />全部记忆
+            <Database size={15} /><span className="nav-label">全部记忆</span>
           </NavLink>
 
           {/* 新建集合 */}

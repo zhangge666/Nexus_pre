@@ -13,17 +13,21 @@ button:disabled { cursor: not-allowed; color: hsl(var(--foreground-disabled)); }
 svg { stroke-width: 1.5px !important; }
 
 .orbit-root { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
-.app-shell { display: grid; grid-template-columns: 232px minmax(0, 1fr) auto; flex: 1; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: hsl(var(--background)); color: hsl(var(--foreground)); }
+.app-shell { display: grid; grid-template-columns: 232px minmax(0, 1fr) auto; flex: 1; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: hsl(var(--background)); color: hsl(var(--foreground)); transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1); will-change: grid-template-columns; }
 .app-shell.sidebar-collapsed { grid-template-columns: 56px minmax(0, 1fr) auto; }
 
 /* ============================================================
    侧边栏
    ============================================================ */
-.sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; padding: 16px 10px 8px; border-right: 1px solid hsl(var(--border)); background: hsl(var(--surface)); overflow-y: auto; }
-.brand { display: flex; align-items: center; gap: 8px; height: 32px; padding: 12px 8px 12px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-.brand-mark { display: block; flex: 0 0 auto; border-radius: var(--radius-sm); }
+.sidebar { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; padding: 16px 10px 8px; border-right: 1px solid hsl(var(--border)); background: hsl(var(--surface)); overflow-x: hidden; overflow-y: auto; transition: padding 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease-out; }
+.brand { display: flex; align-items: center; gap: 8px; height: 32px; padding: 12px 8px 12px; font-size: 14px; font-weight: 600; letter-spacing: -0.01em; transition: gap 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.brand-mark { display: block; flex: 0 0 auto; border-radius: var(--radius-sm); transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.brand strong { max-width: 120px; overflow: hidden; opacity: 1; transform: translateX(0); transition: max-width 180ms cubic-bezier(0.16, 1, 0.3, 1), opacity 100ms ease-out, transform 180ms cubic-bezier(0.16, 1, 0.3, 1); white-space: nowrap; }
 nav { display: grid; gap: 2px; }
-.nav-item { position: relative; display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 0 8px; border-radius: var(--radius); color: hsl(var(--foreground-secondary)); font-size: 12px; text-decoration: none; background: transparent; width: 100%; text-align: left; border: none; font-weight: 500; }
+.sidebar > nav:first-of-type { transition: gap 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.nav-item { position: relative; display: flex; align-items: center; gap: 9px; min-height: 30px; padding: 0 8px; border-radius: var(--radius); color: hsl(var(--foreground-secondary)); font-size: 12px; text-decoration: none; background: transparent; width: 100%; text-align: left; border: none; font-weight: 500; overflow: hidden; white-space: nowrap; transition: color 120ms ease-out, background 120ms ease-out, gap 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.nav-item > svg { flex: 0 0 auto; transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.nav-label { display: block; min-width: 0; max-width: 144px; overflow: hidden; opacity: 1; transform: translateX(0); transition: max-width 180ms cubic-bezier(0.16, 1, 0.3, 1), opacity 100ms ease-out, transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
 .nav-item:hover { color: hsl(var(--foreground)); background: hsl(var(--surface-hover)); }
 .nav-item.active { color: hsl(var(--foreground)); background: hsl(var(--surface-active)); box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.015); }
 .nav-item.active::before { position: absolute; left: 0; width: 2px; height: 16px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: hsl(var(--primary)); content: ""; }
@@ -50,15 +54,39 @@ nav { display: grid; gap: 2px; }
 .collection-form button { display: grid; place-items: center; border-radius: var(--radius); color: hsl(var(--foreground-secondary)); background: transparent; }
 .collection-form button:hover { background: hsl(var(--surface-hover)); }
 .collection-notice { margin: 6px 8px 0; color: hsl(var(--foreground-muted)); font-size: 11px; line-height: 1.4; }
-.sidebar.collapsed { padding-right: 6px; padding-left: 6px; overflow-x: hidden; }
-.sidebar.collapsed .brand { justify-content: center; padding-right: 0; padding-left: 0; }
-.sidebar.collapsed .brand strong,
-.sidebar.collapsed > .nav-section-label,
-.sidebar.collapsed > nav:not(:first-of-type),
-.sidebar.collapsed .sidebar-footer { display: none; }
+.sidebar > .nav-section-label,
+.sidebar > nav:not(:first-of-type),
+.sidebar-footer { overflow: hidden; opacity: 1; transform: translateX(0); transition: max-height 180ms cubic-bezier(0.16, 1, 0.3, 1), margin 180ms cubic-bezier(0.16, 1, 0.3, 1), padding 180ms cubic-bezier(0.16, 1, 0.3, 1), opacity 100ms ease-out, transform 180ms cubic-bezier(0.16, 1, 0.3, 1); }
+.sidebar > .nav-section-label { max-height: 32px; }
+.sidebar > nav:not(:first-of-type) { max-height: 100vh; }
+.sidebar-footer { max-height: 180px; }
+.sidebar.collapsed { padding-right: 6px; padding-left: 6px; }
+.sidebar.collapsed .brand { gap: 0; }
+.sidebar.collapsed .brand-mark { transform: translateX(5px); }
+.sidebar.collapsed .brand strong { max-width: 0; opacity: 0; transform: translateX(-6px); }
+.sidebar.collapsed > .nav-section-label { max-height: 0; margin-top: 0; margin-bottom: 0; opacity: 0; pointer-events: none; transform: translateX(-6px); }
+.sidebar.collapsed > nav:not(:first-of-type) { max-height: 0; opacity: 0; pointer-events: none; transform: translateX(-6px); }
+.sidebar.collapsed .sidebar-footer { max-height: 0; opacity: 0; pointer-events: none; transform: translateX(-6px); }
 .sidebar.collapsed > nav:first-of-type { gap: 4px; }
-.sidebar.collapsed .nav-item { justify-content: center; gap: 0; padding: 0; font-size: 0; }
-.sidebar.collapsed .nav-item svg { flex: 0 0 auto; }
+.sidebar.collapsed .nav-item { gap: 0; }
+.sidebar.collapsed .nav-item > svg { transform: translateX(12px); }
+.sidebar.collapsed .nav-label { max-width: 0; opacity: 0; transform: translateX(-6px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .sidebar,
+  .brand,
+  .brand-mark,
+  .brand strong,
+  .sidebar > nav:first-of-type,
+  .nav-item,
+  .nav-item > svg,
+  .nav-label,
+  .sidebar > .nav-section-label,
+  .sidebar > nav:not(:first-of-type),
+  .sidebar-footer { transition: none; }
+  .app-shell { will-change: auto; }
+}
 
 /* ============================================================
    共用控件
@@ -609,12 +637,15 @@ nav { display: grid; gap: 2px; }
   .sidebar > nav:first-of-type { display: flex; flex: 1; min-width: 0; margin-left: 8px; overflow-x: auto; scrollbar-width: none; }
   .sidebar > nav:first-of-type::-webkit-scrollbar { display: none; }
   .sidebar.collapsed { padding: 6px 8px; overflow: hidden; }
-  .sidebar.collapsed .brand { justify-content: flex-start; padding: 0 6px; }
-  .sidebar.collapsed .brand strong { display: inline; }
+  .sidebar.collapsed .brand { justify-content: flex-start; gap: 8px; padding: 0 6px; }
+  .sidebar.collapsed .brand-mark { transform: none; }
+  .sidebar.collapsed .brand strong { display: inline; max-width: 120px; opacity: 1; transform: none; }
   .sidebar.collapsed > nav:not(:first-of-type),
   .sidebar.collapsed .sidebar-footer { display: none; }
   .sidebar.collapsed > nav:first-of-type { gap: 2px; }
   .sidebar.collapsed .nav-item { justify-content: flex-start; gap: 9px; padding: 0 8px; font-size: 12px; }
+  .sidebar.collapsed .nav-item > svg { transform: none; }
+  .sidebar.collapsed .nav-label { max-width: 144px; opacity: 1; transform: none; }
   .sidebar-toggle-button { display: none; }
   .titlebar-sidebar-toggle { visibility: hidden; pointer-events: none; }
   .sidebar > nav:first-of-type .nav-item { flex: 0 0 auto; width: auto; padding: 0 8px; white-space: nowrap; }
