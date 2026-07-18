@@ -723,6 +723,12 @@ nav { display: grid; gap: 2px; }
 .page-toolbar, .results-toolbar { display: flex; align-items: center; min-height: 48px; padding: 8px var(--page-inline, 32px); border-bottom: 1px solid hsl(var(--border-subtle)); box-sizing: border-box; }
 .page-list-content, .cards-content, .timeline-list { width: 100%; max-width: none; padding: var(--page-content-block, 20px) var(--page-inline, 32px) 40px; box-sizing: border-box; }
 .timeline-list { flex: 1; min-height: 0; }
+/* 空列表占满可用工作区后再居中，避免影响有内容时的列表起始位置。 */
+.cards-content:has(> .empty-state),
+.timeline-list:has(> .empty-state) { display: grid; place-items: center; }
+.search-page-workspace .results:has(.empty-state) { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.search-page-workspace .results:has(.empty-state) .page-list-content { display: flex; flex: 1; min-height: 0; }
+.search-page-workspace .results:has(.empty-state) .result-list { display: grid; flex: 1; place-items: center; }
 .timeline-group { margin-bottom: 24px; }
 .timeline-date { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; padding: 0 4px; color: hsl(var(--foreground-secondary)); font-size: 13px; font-weight: 600; }
 .timeline-count { color: hsl(var(--foreground-muted)); font-size: 11px; font-weight: 400; }
@@ -1292,6 +1298,10 @@ nav { display: grid; gap: 2px; }
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.connections-content:has(> .empty-state) { display: grid; place-items: center; }
+.review-page .page-layout-content > .empty-state { flex: 1; min-height: 0; }
+.chat-container:has(> .empty-state) { display: flex; flex-direction: column; }
+.chat-container:has(> .empty-state) > .empty-state { flex: 1; min-height: 0; }
 .connections-loading { padding: 24px 0; color: hsl(var(--foreground-muted)); font-size: 13px; }
 .connection-list { width: min(960px, 100%); border-top: 1px solid hsl(var(--border-subtle)); }
 .connection-list-heading,
