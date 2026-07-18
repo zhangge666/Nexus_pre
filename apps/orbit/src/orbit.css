@@ -418,6 +418,7 @@ nav { display: grid; gap: 2px; }
    ============================================================ */
 .inbox-page { display: flex; flex-direction: column; }
 .inbox-content { flex: 1; min-height: 0; padding: 16px 24px 32px; max-width: 720px; overflow-y: auto; overscroll-behavior: contain; }
+.inbox-content.is-empty { display: grid; width: 100%; max-width: none; padding: 32px; place-items: center; }
 .inbox-group { margin-bottom: 24px; }
 .inbox-group-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: hsl(var(--foreground-muted)); margin-bottom: 8px; }
 .inbox-cards { display: grid; gap: 8px; }

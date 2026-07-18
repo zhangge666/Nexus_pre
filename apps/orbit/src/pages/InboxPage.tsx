@@ -114,6 +114,7 @@ export default function InboxPage(): React.JSX.Element {
 
   const unreadCount = items.filter((i) => !i.read).length;
   const groups = groupByDate(items);
+  const hasEmptyInbox = !loading && !loadError && items.length === 0;
 
   return (
     <div className="page-enter inbox-page">
@@ -129,10 +130,10 @@ export default function InboxPage(): React.JSX.Element {
         }
       />
 
-      <div className="inbox-content">
+      <div className={`inbox-content${hasEmptyInbox ? " is-empty" : ""}`}>
         {loading && <p className="loading-hint">加载中…</p>}
         {loadError && <p className="inline-notice" role="alert">{loadError}</p>}
-        {!loading && items.length === 0 && (
+        {hasEmptyInbox && (
           <EmptyState
             icon={<Inbox size={40} />}
             title="收件箱暂无待处理内容"
