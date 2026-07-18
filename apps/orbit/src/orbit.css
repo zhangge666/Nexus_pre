@@ -25,6 +25,15 @@ svg { stroke-width: 1.5px !important; }
 .resize-handle:focus-visible::after { background: hsl(var(--ring)); }
 .app-shell.sidebar-collapsed .resize-handle.left, .app-shell.inspector-collapsed .resize-handle.right { display: none; }
 
+/* 桌面工作区显式定位每个栅格项，收起时隐藏分隔条也不会让主内容自动补到零宽列。 */
+@media (min-width: 720px) {
+  .sidebar { grid-column: 1; }
+  .resize-handle.left { grid-column: 2; }
+  .workspace { grid-column: 3; }
+  .resize-handle.right { grid-column: 4; }
+  .global-inspector { grid-column: 5; }
+}
+
 /* ============================================================
    侧边栏
    ============================================================ */
