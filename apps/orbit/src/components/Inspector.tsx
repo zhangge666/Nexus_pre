@@ -68,12 +68,11 @@ export function useInspector(): InspectorState {
   return context;
 }
 
-/** 渲染固定于应用布局右侧的可收起检查器容器，并允许布局层控制滑入时机。 */
-export function InspectorPanel({ visible }: { visible?: boolean }): React.JSX.Element {
+/** 渲染固定于应用布局右侧的可收起检查器容器。 */
+export function InspectorPanel(): React.JSX.Element {
   const { open, title, content, close } = useInspector();
-  const isVisible = visible ?? open;
   return (
-    <aside className={`global-inspector${isVisible ? "" : " is-collapsed"}`} aria-label="全局检查器" aria-hidden={!isVisible}>
+    <aside className={`global-inspector${open ? "" : " is-collapsed"}`} aria-label="全局检查器" aria-hidden={!open}>
       <div className="global-inspector-header">
         <h2>{title}</h2>
         <button className="icon-button" onClick={close} aria-label="收起右侧检查器" title="收起检查器">

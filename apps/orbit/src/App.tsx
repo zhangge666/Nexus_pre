@@ -1,7 +1,7 @@
 /** 本文件实现 Orbit 根布局、可调整工作区侧栏与懒加载路由。 */
 
 import type React from "react";
-import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useRef, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Sidebar } from "./components/Sidebar";
 import { SidebarProvider, useSidebar } from "./components/SidebarState";
@@ -90,34 +90,6 @@ function WorkspaceShell(): React.JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
   const [resizing, setResizing] = useState(false);
-  const [inspectorSpaceReserved, setInspectorSpaceReserved] = useState(inspectorOpen);
-  const [inspectorVisible, setInspectorVisible] = useState(inspectorOpen);
-  const [inspectorSpaceChanging, setInspectorSpaceChanging] = useState(false);
-
-  /** 将检查器的栏位变化与面板位移动画分离，避免主内容在滑入期间持续变窄。 */
-  useLayoutEffect(() => {
-    if (inspectorOpen) {
-      setInspectorSpaceChanging(true);
-      setInspectorSpaceReserved(true);
-      const openFrame = window.requestAnimationFrame(() => {
-        setInspectorVisible(true);
-        setInspectorSpaceChanging(false);
-      });
-      return () => window.cancelAnimationFrame(openFrame);
-    }
-
-    setInspectorVisible(false);
-    let releaseFrame: number | undefined;
-    const closeTimer = window.setTimeout(() => {
-      setInspectorSpaceChanging(true);
-      setInspectorSpaceReserved(false);
-      releaseFrame = window.requestAnimationFrame(() => setInspectorSpaceChanging(false));
-    }, 180);
-    return () => {
-      window.clearTimeout(closeTimer);
-      if (releaseFrame !== undefined) window.cancelAnimationFrame(releaseFrame);
-    };
-  }, [inspectorOpen]);
 
   /** 基于工作区左边界更新左侧栏宽度，并记录是否已越过自动收起阈值。 */
   const resizeSidebar = useCallback((clientX: number): void => {
@@ -173,7 +145,7 @@ function WorkspaceShell(): React.JSX.Element {
   return (
     <div className="orbit-root">
       <Titlebar />
-      <div ref={shellRef} className={`app-shell${collapsed ? " sidebar-collapsed" : ""}${inspectorSpaceReserved ? "" : " inspector-collapsed"}${inspectorSpaceChanging ? " inspector-space-changing" : ""}${resizing ? " is-resizing" : ""}`} style={shellStyle}>
+      <div ref={shellRef} className={`app-shell${collapsed ? " sidebar-collapsed" : ""}${inspectorOpen ? "" : " inspector-collapsed"}${resizing ? " is-resizing" : ""}`} style={shellStyle}>
         <Sidebar />
         <ResizeHandle side="left" label="调整左侧栏宽度" onResizeStart={() => setResizing(true)} onResize={resizeSidebar} onResizeEnd={finishSidebarResize} onKeyboardResize={resizeSidebarByKeyboard} />
         <main className="workspace">
@@ -197,7 +169,7 @@ function WorkspaceShell(): React.JSX.Element {
           </Suspense>
         </main>
         <ResizeHandle side="right" label="调整右侧检查器宽度" onResizeStart={() => setResizing(true)} onResize={resizeInspector} onResizeEnd={finishInspectorResize} onKeyboardResize={resizeInspectorByKeyboard} />
-        <InspectorPanel visible={inspectorVisible} />
+        <InspectorPanel />
       </div>
     </div>
   );
