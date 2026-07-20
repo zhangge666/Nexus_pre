@@ -28,9 +28,14 @@ tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["sync", "time"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSColor", "NSWindow"] }
+
 [dev-dependencies]
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 
-[lints]
-workspace = true
+[lints.rust]
+missing_docs = "warn"
+# macOS 仅通过 Tauri 暴露的原生窗口指针配置透明底板；其余工作区仍保持禁止 unsafe。
+unsafe_code = "allow"

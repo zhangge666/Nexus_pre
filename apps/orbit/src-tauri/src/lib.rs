@@ -1258,12 +1258,31 @@ async fn save_settings(
     state.save_settings(settings).await
 }
 
+/// 在 macOS 中清除 NSWindow 的默认矩形底板，使页面根容器的圆角成为真实窗口轮廓。
+#[cfg(target_os = "macos")]
+fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use objc2_app_kit::{NSColor, NSWindow};
+
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "未找到 Orbit 主窗口"))?;
+    // Tauri 只负责开启透明能力；此处必须同步清除 AppKit 窗口底色，否则圆角外仍会显示矩形背景。
+    // SAFETY: 指针由当前 Tauri 主窗口返回，setup 在主线程且窗口生命周期内完成配置。
+    let native_window: &NSWindow = unsafe { &*window.ns_window()?.cast() };
+    native_window.setOpaque(false);
+    let clear_color = NSColor::clearColor();
+    native_window.setBackgroundColor(Some(&clear_color));
+    Ok(())
+}
+
 /// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            configure_macos_window_surface(app)?;
             let app_data_dir = app.path().app_data_dir()?;
             let data_dir = prepare_shared_data_dir(&app_data_dir)?;
             let settings_path = data_dir.join("orbit-settings.json");
