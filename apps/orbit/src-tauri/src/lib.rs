@@ -1258,7 +1258,7 @@ async fn save_settings(
     state.save_settings(settings).await
 }
 
-/// 在 macOS 中清除 NSWindow 的默认矩形底板，使页面根容器的圆角成为真实窗口轮廓。
+/// 在 macOS 中让原生内容层按圆角裁切，使透明窗口不再露出矩形 WebView 边缘。
 #[cfg(target_os = "macos")]
 fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use objc2_app_kit::{NSColor, NSWindow};
@@ -1266,12 +1266,24 @@ fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn st
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "未找到 Orbit 主窗口"))?;
-    // Tauri 只负责开启透明能力；此处必须同步清除 AppKit 窗口底色，否则圆角外仍会显示矩形背景。
+    // Tauri 的 transparent 只会清除窗口底板，不会为 WebView 内容建立裁切蒙版。
+    // 因此同时在原生内容层启用圆角和裁切，保证窗口边缘与前端 --radius-xl 一致。
     // SAFETY: 指针由当前 Tauri 主窗口返回，setup 在主线程且窗口生命周期内完成配置。
     let native_window: &NSWindow = unsafe { &*window.ns_window()?.cast() };
     native_window.setOpaque(false);
     let clear_color = NSColor::clearColor();
     native_window.setBackgroundColor(Some(&clear_color));
+    native_window.setHasShadow(true);
+
+    let content_view = native_window
+        .contentView()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "未找到 Orbit 主窗口内容视图"))?;
+    content_view.setWantsLayer(true);
+    let content_layer = content_view
+        .layer()
+        .ok_or_else(|| io::Error::other("无法为 Orbit 主窗口创建内容图层"))?;
+    content_layer.setCornerRadius(16.0);
+    content_layer.setMasksToBounds(true);
     Ok(())
 }
 
