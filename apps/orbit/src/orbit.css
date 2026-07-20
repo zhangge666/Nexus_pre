@@ -12,8 +12,8 @@ button:disabled { cursor: not-allowed; color: hsl(var(--foreground-disabled)); }
 /* 全局 Lucide 图标精致化限制 */
 svg { stroke-width: 1.5px !important; }
 
-/* 透明原生窗口由根容器提供可见背景和统一圆角，避免无边框模式露出矩形 WebView 边缘。 */
-.orbit-root { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--radius-lg); background: hsl(var(--background)); }
+/* 透明原生窗口由根容器提供可见背景和清晰的窗体轮廓，避免无边框模式露出矩形 WebView 边缘。 */
+.orbit-root { display: flex; flex-direction: column; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid hsl(var(--border-strong)); border-radius: var(--radius-xl); background: hsl(var(--background)); box-shadow: var(--shadow-md); }
 .app-shell { display: grid; grid-template-columns: var(--sidebar-width, 232px) 6px minmax(0, 1fr) 6px var(--inspector-width, 340px); flex: 1; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: hsl(var(--background)); color: hsl(var(--foreground)); transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1); will-change: grid-template-columns; }
 .app-shell.sidebar-collapsed { grid-template-columns: 56px 0 minmax(0, 1fr) 6px var(--inspector-width, 340px); }
 .app-shell.inspector-collapsed { grid-template-columns: var(--sidebar-width, 232px) 6px minmax(0, 1fr) 0 0; }
@@ -726,7 +726,7 @@ nav { display: grid; gap: 2px; }
 /* ============================================================
    自定义窗口控制钮悬浮 (Window Controls Float)
    ============================================================ */
-.window-titlebar { position: relative; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) auto; flex: 0 0 32px; width: 100%; height: 32px; min-width: 0; min-height: 32px; border-bottom: 1px solid hsl(var(--border-subtle)); border-radius: var(--radius-lg) var(--radius-lg) 0 0; background: hsl(var(--surface)); }
+.window-titlebar { position: relative; z-index: 20; display: grid; grid-template-columns: minmax(0, 1fr) auto; flex: 0 0 32px; width: 100%; height: 32px; min-width: 0; min-height: 32px; border-bottom: 1px solid hsl(var(--border-subtle)); border-radius: var(--radius-xl) var(--radius-xl) 0 0; background: hsl(var(--surface)); }
 .window-titlebar.is-mac { grid-template-columns: auto minmax(0, 1fr); }
 .titlebar-workspace { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px; min-width: 0; height: 31px; align-items: center; }
 .window-drag-region { display: flex; height: 100%; align-items: center; min-width: 0; padding-left: 8px; color: hsl(var(--foreground-muted)); font-size: 11px; user-select: none; }
