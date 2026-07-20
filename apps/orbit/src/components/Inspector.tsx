@@ -1,7 +1,7 @@
 /** 本文件提供 Orbit 全局右侧检查器：页面在此展示详情，布局不再由页面各自分栏。 */
 import type React from "react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { PanelRightClose, X } from "lucide-react";
+import { X } from "lucide-react";
 
 interface InspectorState {
   open: boolean;
@@ -70,14 +70,11 @@ export function useInspector(): InspectorState {
 
 /** 渲染固定于应用布局右侧的可收起检查器容器。 */
 export function InspectorPanel(): React.JSX.Element {
-  const { open, title, content, close } = useInspector();
+  const { open, title, content } = useInspector();
   return (
     <aside className={`global-inspector${open ? "" : " is-collapsed"}`} aria-label="全局检查器" aria-hidden={!open}>
       <div className="global-inspector-header">
         <h2>{title}</h2>
-        <button className="icon-button" onClick={close} aria-label="收起右侧检查器" title="收起检查器">
-          <PanelRightClose size={16} />
-        </button>
       </div>
       <div className="global-inspector-body">
         {content ?? (
