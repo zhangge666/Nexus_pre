@@ -54,9 +54,23 @@ M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**
 3. 动画走 CSS 合成器动画；长列表虚拟化；冷启动用骨架屏遮盖。
 4. 个别页面 WebView 手感不够时，按架构预案单独下沉到 Jetpack Compose，不影响其余。
 
+### 4.1 Android 开发环境与命令
+
+Android 工程首次初始化前，开发机须按 Tauri 官方前置条件安装 Android Studio、Android SDK Platform、
+Platform-Tools、NDK、Build-Tools 与 Command-line Tools，并设置 `ANDROID_HOME`、`NDK_HOME` 和指向
+Android Studio JBR 的 `JAVA_HOME`。随后在仓库根目录执行：
+
+```bash
+pnpm --filter @nexus/orbit android:init
+pnpm --filter @nexus/orbit android:dev
+```
+
+初始化生成的 `apps/orbit/src-tauri/gen/android/` 是 Orbit Android 壳的一部分，必须提交；禁止手工修改其
+构建工具生成的内容，平台配置应优先放在 Tauri 配置、移动插件或独立原生模块中。移动真机调试时，
+`vite.config.mjs` 会使用 Tauri 注入的 `TAURI_DEV_HOST` 配置开发服务器与 HMR；桌面调试仍只监听回环地址。
+
 ## 5. 桌面端回归护栏
 
 - 移动端合入后，桌面端 `verify:orbit-m4`（含前端类型检查、构建、Rust 测试与 Clippy）必须保持全绿。
 - 任何对 `@nexus/ui` 共享组件的改动，需同时在桌面与移动两套外壳下自测。
 - 严禁为移动端在共享组件内引入平台条件分支；平台差异一律走外壳层或 `platform-mobile`。
-
