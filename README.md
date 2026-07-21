@@ -94,6 +94,7 @@ docs/
 ├── memory-protocol.md       外联 API 协议（本地+远程、鉴权、SDK、MCP）
 ├── design-system.md         设计系统 · 暗色高级简约（Linear 风）token 与规范
 ├── roadmap.md               开发路线图与里程碑
+├── m5-mobile.md             M5 多端（移动端）技术选型、适配策略与开发注意
 └── apps/
     ├── echo.md              屏幕记忆 · 功能说明 + 开发文档
     ├── muse.md              灵感捕捉 · 功能说明 + 开发文档
@@ -109,3 +110,4 @@ docs/
 - 想看**每款软件的具体功能** → `docs/apps/`
 - 想知道**界面长什么样、如何统一风格** → [design-system.md](docs/design-system.md)
 - 想知道**先做什么后做什么** → [roadmap.md](docs/roadmap.md)
+- 想了解**移动端怎么做、界面如何适配** → [m5-mobile.md](docs/m5-mobile.md)
