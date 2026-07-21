@@ -7,5 +7,8 @@ node_modules/
 dist/
 *.tsbuildinfo
 *.log
-apps/*/src-tauri/gen/
+# Tauri Android 工程是 M5 可复现构建所需的平台壳，纳入版本控制；其余生成目录仍忽略。
+apps/*/src-tauri/gen/*
+!apps/*/src-tauri/gen/android/
+!apps/*/src-tauri/gen/android/**
 .DS_Store
