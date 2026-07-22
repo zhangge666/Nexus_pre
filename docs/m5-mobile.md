@@ -6,7 +6,7 @@
 
 ## 0. 一句话结论
 
-M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**复用页面与 `@nexus/ui`、只分叉布局外壳**。Tauri 能交付"视觉精美 + 过渡丝滑"的效果，但受 WebView 天花板约束；真遇到原生手感瓶颈时，按架构预案把**个别页面**下沉到原生视图，不推翻整体。
+M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**复用页面与 `@nexus/ui`、只分叉布局外壳**。移动端是随身客户端：本地负责加密缓存、离线查看和解密展示；写入、编辑、AI 问答均调用远程 HTTPS API，不监听本地端口，也不作为其他 Nexus 软件的服务端。Tauri 能交付"视觉精美 + 过渡丝滑"的效果，但受 WebView 天花板约束；真遇到原生手感瓶颈时，按架构预案把**个别页面**下沉到原生视图，不推翻整体。
 
 ## 1. 技术选型（已锁定，非开放选择）
 
@@ -14,6 +14,8 @@ M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**
 - **界面：React + TypeScript + Vite**，复用现有 `@nexus/ui` 设计系统与 `core/*`（api、events、types）。
 - **渲染**：Android 走系统 WebView（基于 Chromium），iOS 走 WKWebView。**不是原生渲染**——这是后续所有性能判断的前提。
 - **已有脚手架**：`apps/orbit/src-tauri/icons/android/` 的 mipmap 资源、`crates/platform/platform-mobile` 空壳已建好，等 M5 填充。
+- **本地边界**：移动端不启动 `nexus-protocol`、不监听回环 HTTP/TCP 端口、不参与桌面应用间仲裁；Tauri IPC 仅供同一 App 的 WebView 与 Rust 侧通信。
+- **AI 与编辑**：移动端不链接 ONNX Runtime 或执行本地嵌入。记忆写入、编辑、AI 问答通过携带用户授权的远程 HTTPS API 完成；接口失败时保留输入并给出重试入口。
 
 ## 2. Tauri 能否做出"精美 + 丝滑"
 
@@ -39,7 +41,8 @@ M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**
 把移动逻辑混进 `WorkspaceShell`/`Sidebar`/`Inspector`，会让桌面每次改动都可能误伤移动端，反之亦然——这正是"改移动端搞坏桌面端"的根源。
 
 **✅ 采用：外壳分叉 + 页面/核心复用。**
-- **共享**（不动）：`pages/*`（TodayPage、ReviewPage、CardsPage、AskPage 等内容页）、`@nexus/ui`、`core/*`、全部业务逻辑。
+- **共享**（不动）：`pages/*`（TodayPage、ReviewPage、CardsPage、AskPage 等内容页）、`@nexus/ui`、领域类型与缓存展示逻辑。
+- **传输层分叉**：桌面继续使用本地 Memory Protocol；移动端使用远程 HTTPS 客户端。写入、编辑和 AI 页只调用远程接口，不能复用桌面本地端口发现或服务持有者逻辑。
 - **分叉**（新增）：只有布局外壳分两套。桌面保留现有 `WorkspaceShell`（三栏 + 拖拽）；移动端新写 `MobileShell`（底部 Tab 栏 + 全屏页面 + 手势返回），检查器从"右侧常驻抽屉"改为"底部弹出 sheet"。
 - 在入口 `main.tsx` 按 `platform` 判断挂载哪个外壳。**桌面代码路径完全不变，移动端是新增文件而非修改现有文件**，改坏桌面的概率趋近于零。呼应架构 §5：差异隔离在边界层，共享内核不动。
 
@@ -49,7 +52,7 @@ M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**
 
 ## 4. 建议路径（进入 M5 的顺序）
 
-1. **先做可行性 spike，别碰界面**：验证 SQLite + sqlite-vec + 本地服务持有者在 Android 上能否跑通。移动端不能像桌面那样常驻本地 HTTP 服务，这是 roadmap §6 标红的真风险，比 UI 难。
+1. **先做可行性 spike，别碰界面**：验证 Android 能以不链接 ONNX Runtime 的方式启动受保护的本地缓存，并能经 HTTPS 拉取、解密和展示同步数据；移动端不启动本地 HTTP 服务，也不参加桌面服务持有者仲裁。
 2. 界面层采用"外壳分叉 + 页面/核心复用"，**桌面外壳只读不改**。
 3. 动画走 CSS 合成器动画；长列表虚拟化；冷启动用骨架屏遮盖。
 4. 个别页面 WebView 手感不够时，按架构预案单独下沉到 Jetpack Compose，不影响其余。
@@ -68,6 +71,16 @@ pnpm --filter @nexus/orbit android:dev
 初始化生成的 `apps/orbit/src-tauri/gen/android/` 是 Orbit Android 壳的一部分，必须提交；禁止手工修改其
 构建工具生成的内容，平台配置应优先放在 Tauri 配置、移动插件或独立原生模块中。移动真机调试时，
 `vite.config.mjs` 会使用 Tauri 注入的 `TAURI_DEV_HOST` 配置开发服务器与 HMR；桌面调试仍只监听回环地址。
+
+### 4.2 移动端能力边界
+
+| 能力 | M5 移动端处理方式 |
+|---|---|
+| 浏览、集合、详情、离线查看 | 从受系统安全区保护的本地加密缓存读取并解密展示 |
+| 写入、编辑 | 调用已授权的远程 HTTPS API；失败时保留草稿并可重试 |
+| AI 问答 | 调用远程 HTTPS API，沿用桌面端的数据最小化与 Provider 提示规则 |
+| 同步与配对 | 经 E2E 加密中继与远程 API 完成，不暴露本机监听端口 |
+| 本地协议服务、第三方接入、ONNX 嵌入 | 明确不做；仅桌面 Orbit 持有这些能力 |
 
 ## 5. 桌面端回归护栏
 

@@ -1,7 +1,9 @@
 //! 本文件定义嵌入、OCR、转写与生成能力的 Provider 分类。
 
+#[cfg(feature = "local-onnx")]
 use std::{path::PathBuf, sync::Mutex};
 
+#[cfg(feature = "local-onnx")]
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 
 mod completion;
@@ -39,10 +41,12 @@ pub trait Embedder: Send + Sync {
 }
 
 /// 使用 ONNX Runtime 执行 BGE-small-en-v1.5 本地文本嵌入。
+#[cfg(feature = "local-onnx")]
 pub struct LocalOnnxEmbedder {
     model: Mutex<TextEmbedding>,
 }
 
+#[cfg(feature = "local-onnx")]
 impl LocalOnnxEmbedder {
     /// 从指定缓存目录加载模型；首次调用会按 fastembed 官方流程下载模型资产。
     pub fn open(cache_dir: impl Into<PathBuf>) -> Result<Self, EmbeddingError> {
@@ -57,6 +61,7 @@ impl LocalOnnxEmbedder {
     }
 }
 
+#[cfg(feature = "local-onnx")]
 impl Embedder for LocalOnnxEmbedder {
     /// 返回 BGE-small-en-v1.5 的实际 384 维输出。
     fn dimension(&self) -> usize {

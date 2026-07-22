@@ -12,8 +12,9 @@ version.workspace = true
 axum = "0.8"
 fs2 = "0.4"
 futures-util = "0.3"
-nexus-ai = { path = "../nexus-ai" }
-nexus-core = { path = "../nexus-core" }
+# Protocol 仅依赖 Completion 与 HashEmbedder，不需要在服务入口链接本地 ONNX Runtime。
+nexus-ai = { path = "../nexus-ai", default-features = false }
+nexus-core = { path = "../nexus-core", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

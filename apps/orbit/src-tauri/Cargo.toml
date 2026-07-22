@@ -19,8 +19,9 @@ tauri-build = { version = "2", features = [] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 futures-util = "0.3"
 keyring = "3"
-nexus-core = { path = "../../../crates/nexus-core" }
-nexus-protocol = { path = "../../../crates/nexus-protocol" }
+# Orbit 当前通过 HashEmbedder 提供入库/检索；移动构建不应拉入不支持 armv7 的 ONNX Runtime。
+nexus-core = { path = "../../../crates/nexus-core", default-features = false }
+nexus-protocol = { path = "../../../crates/nexus-protocol", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

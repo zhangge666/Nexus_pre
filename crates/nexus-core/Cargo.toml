@@ -8,12 +8,17 @@ license.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+# 保持桌面与既有核心使用者默认拥有本地嵌入；移动入口通过 default-features=false 保持轻量。
+default = ["local-onnx"]
+local-onnx = ["nexus-ai/local-onnx"]
+
 [dependencies]
 argon2 = "0.5"
 blake3 = "1"
 chacha20poly1305 = "0.10"
 nexus-sqlite-vec = { path = "../nexus-sqlite-vec" }
-nexus-ai = { path = "../nexus-ai" }
+nexus-ai = { path = "../nexus-ai", default-features = false }
 rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

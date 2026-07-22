@@ -26,7 +26,9 @@ pub use model::{
     MemoryFilters, MemoryKind, MemoryPage, MemoryPatch, MemorySource, Rating, ReviewPhase,
     ReviewState, ReviewStats, SearchHit, SearchMode, SearchQuery,
 };
-pub use nexus_ai::{Embedder, EmbeddingError, LocalOnnxEmbedder};
+#[cfg(feature = "local-onnx")]
+pub use nexus_ai::LocalOnnxEmbedder;
+pub use nexus_ai::{Embedder, EmbeddingError};
 pub use store::MemoryStore;
 
 /// 返回当前核心骨架已经声明的领域模块。

@@ -43,6 +43,8 @@
 
 前端（React）通过 Tauri 的 IPC 调用核心；外部应用通过 Memory Protocol（本地 HTTP/gRPC 或远程 API）调用核心。**同一套核心，两种入口。**
 
+> **移动端边界**：Orbit 手机端不作为 Memory Protocol 持有者，也不监听本地 HTTP/TCP 端口；它只持有受系统安全区保护的本地缓存。查看与离线阅读在本地完成，写入、编辑和 AI 问答通过已授权的远程 HTTPS API 发起。移动构建不链接本地 ONNX Runtime，避免包体和 Android ABI 兼容性成本。
+
 ### 2.3 前端：React + TypeScript + Vite
 
 - 生态成熟，招人容易，AI 辅助友好。

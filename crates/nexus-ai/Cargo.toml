@@ -8,9 +8,14 @@ license.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+# 桌面与独立 AI crate 测试默认保留本地 ONNX 嵌入；移动应用可关闭该能力以避免链接 ORT。
+default = ["local-onnx"]
+local-onnx = ["dep:fastembed"]
+
 [dependencies]
 async-stream = "0.3"
-fastembed = { version = "5.17.2", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
+fastembed = { version = "5.17.2", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"], optional = true }
 futures-util = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 serde = { version = "1", features = ["derive"] }
@@ -19,6 +24,11 @@ thiserror = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread"] }
+
+[[test]]
+# 关闭 local-onnx 的移动构建不编译依赖 ONNX Runtime 的集成测试。
+name = "onnx_embedding"
+required-features = ["local-onnx"]
 
 [lints]
 workspace = true
