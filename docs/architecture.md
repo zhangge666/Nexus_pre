@@ -43,7 +43,7 @@
 
 前端（React）通过 Tauri 的 IPC 调用核心；外部应用通过 Memory Protocol（本地 HTTP/gRPC 或远程 API）调用核心。**同一套核心，两种入口。**
 
-> **移动端边界**：Orbit 手机端不作为 Memory Protocol 持有者，也不监听本地 HTTP/TCP 端口。Android 的 E2E 云模式持有由 Keystore 托管密钥保护的本地内容副本和待上传 oplog，记忆/集合在本机读写、合并和关键词检索，只向独立中继发送签名密文；自托管模式才调用远程 Memory Protocol 提供复习、卡片、语义检索和 AI 问答。移动构建不链接 SQLite、协议服务或本地 ONNX Runtime，避免包体与 Android ABI 兼容性成本。
+> **移动端边界**：Orbit 手机端不作为 Memory Protocol 持有者，也不监听本地 HTTP/TCP 端口。Android 的 E2E 云模式持有由 Keystore 托管密钥保护的本地内容副本和待上传 oplog，记忆/集合在本机读写、合并和关键词检索，只向独立中继发送签名密文；自托管模式才调用远程 Memory Protocol 提供复习、卡片、语义检索和 AI 问答。移动构建不链接 SQLite、协议服务或本地 ONNX Runtime，避免包体与 Android ABI 兼容性成本。后台同步由受联网约束的 WorkManager 唤起 Rust 同步入口，不启动 Activity 或 WebView。
 
 ### 2.3 前端：React + TypeScript + Vite
 
@@ -177,6 +177,14 @@ pub trait ScreenCapturer {
 - 好处：Echo 抓的、Muse 记的、Quill 写的，**立刻都能在 Orbit 里检索到**，无需导入导出。
 - 详见 memory-protocol.md（本地服务发现与单实例仲裁）。
 
+### 5.4 端到端同步部署边界
+
+- `nexus-sync` 定义平台共享的 XChaCha20-Poly1305 信封、Ed25519 设备身份、版本向量、配对包和确定性并发合并；桌面与 Android 不各自实现一套协议。
+- 桌面 Orbit 将 E2E 副本物化到本地工作库，Android Orbit 将副本保存到 Keystore 密钥保护的加密缓存；两端都只把签名密文和不可逆键发送给 `nexus-relay`。
+- 冲突检查器通过统一 IPC 暴露当前胜出版本、并发内容和删除墓碑。恢复或手工合并必须携带打开检查器时的稳定版本 ID 集合；平台同步层重新核对后生成观察全部旧版本的因果后继，避免用过期界面覆盖新到达的冲突。
+- `nexus-relay` 只负责设备登记、密文持久化、增量游标、配对转交、撤销和墓碑确认，不参与明文决胜、冲突展示、检索或 AI。
+- Android WorkManager 仅负责调度和从 Keystore 解封材料；协议、签名、上传、拉取、合并、确认及密钥清零由 Rust 完成，前台和 Worker 通过同一缓存互斥边界串行访问副本。
+
 ---
 
 ## 6. 关键技术风险与对策
@@ -184,7 +192,7 @@ pub trait ScreenCapturer {
 | 风险 | 影响 | 对策 |
 |------|------|------|
 | Tauri 移动端成熟度 | Orbit 移动端受阻 | 平台适配层隔离；M5 优先验证 Android 关键路径，M8 再处理 iOS；必要时局部原生 |
-| 本地共享记忆库并发 | 多 App 同时写冲突 | 单一持有者 + Protocol 中介，写操作串行化，CRDT 兜底 |
+| 本地共享记忆库并发 | 多 App 或多设备同时写冲突 | 同机写入由单一持有者 + Protocol 串行化；跨设备使用版本向量、确定性合并、失败版本留痕和显式冲突解决 |
 | 屏幕抓取权限（Echo） | macOS/移动端权限复杂 | 首启引导授权；无权限时降级为手动截图 |
 | 本地 AI 体积/性能 | 影响轻量目标 | 模型按需下载；低配设备默认走云端；量化模型 |
 | 端到端加密 vs 语义检索 | 服务端无法检索密文 | 检索在**本地明文**上做；云端只做加密块中继与可选的密文备份 |
@@ -194,7 +202,7 @@ pub trait ScreenCapturer {
 ## 7. 构建、质量与发布
 
 - **CI**：Rust `cargo test/clippy` + 前端 `vitest/eslint`；跨平台矩阵构建先覆盖 Win/mac 与 Android，iOS runner 和签名验证延后到 M8。
-- **测试策略**：`nexus-core` 单元测试全覆盖核心算法（检索、加密、同步）；Protocol 有契约测试；App 层做关键流程 E2E。
+- **测试策略**：`nexus-core` 单元测试覆盖检索与存储，`nexus-sync` / `nexus-relay` 覆盖密码学信封、配对、并发和墓碑，Protocol 有契约测试；App 层覆盖桌面/Android 共享 IPC、后台任务和关键流程 E2E。
 - **发布**：桌面走 Tauri updater（增量更新，签名）；M5 Android 走 Google Play，App Store 发布准备延后到 M8；SDK 走 npm / PyPI。
 - **可观测性**：本地优先前提下，遥测默认关闭、可选开启且匿名。
 

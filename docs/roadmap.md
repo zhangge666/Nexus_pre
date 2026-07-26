@@ -95,9 +95,11 @@ core/协议    Orbit+库      完整闭环       Muse最小源    卡片/复习/
 > **Android 实施状态（2026-07-26）**：移动外壳、Android Keystore、AES-GCM 本地副本、独立
 > `nexus-sync` 密码学核心与 `nexus-relay` 零知识中继已经完成。E2E 云模式已接通记忆/集合的离线写入、
 > 签名密文上传、增量拉取、版本向量合并、冲突留痕、游标确认和墓碑删除；24 词恢复短语、二维码配对、
-> 配对包领取与设备撤销也已接入 Android 设置。Rust arm64 交叉检查、前端 Android 构建和双设备中继契约
-> 测试通过。M5 剩余项是 WorkManager 后台时效、真机/平板完整交互与弱网验收，以及最终 APK 重建、签名
-> 和发布流水线。详细状态见 [m5-mobile.md](m5-mobile.md#7-android-当前交付状态2026-07-26)。
+> 配对包领取与设备撤销也已接入 Android 设置。桌面与 Android 已使用同一 E2E 副本和冲突契约，支持逐版本
+> 预览、墓碑提示、恢复和手工合并；Android 的 15 分钟唯一 WorkManager 周期任务、即时同步、联网约束和
+> 指数退避已完成。Rust 桌面/arm64 严格检查、Kotlin 全应用编译、三档视口回归和当前 unsigned release APK
+> 构建均已通过。M5 代码范围已闭环，但里程碑仍需真机/平板双设备、Doze/弱网、正式签名和发布流水线验收，
+> 尚不能标记为全部完成。详细状态见 [m5-mobile.md](m5-mobile.md#7-android-当前交付状态2026-07-26)。
 
 ### M6 · 外联
 - MCP Server：把记忆库暴露给任意 AI 助手。
