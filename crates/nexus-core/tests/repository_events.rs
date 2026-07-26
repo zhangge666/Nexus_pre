@@ -3,9 +3,10 @@
 use std::time::Duration;
 
 use nexus_core::{
-    ContentFormat, CoreEvent, HashEmbedder, IngestInput, Ingestor, ListQuery, MemoryFilters,
-    MemoryKind, MemoryPatch, MemorySource, MemoryStore, SearchMode, SearchQuery,
+    ContentFormat, CoreEvent, HashEmbedder, IngestInput, Ingestor, ListQuery, Memory,
+    MemoryFilters, MemoryKind, MemoryPatch, MemorySource, MemoryStore, SearchMode, SearchQuery,
 };
+use uuid::Uuid;
 
 /// 创建测试使用的完整记忆并返回其模型。
 fn create_fixture(
@@ -157,5 +158,91 @@ fn publishes_committed_events_in_order() {
             id: memory.id,
             source: "quill".into(),
         })
+    );
+}
+
+/// 验证远端快照能保留跨设备标识与时间戳，并在替换内容后重建本机索引。
+#[test]
+fn upserts_synced_memory_with_stable_identity_and_index() {
+    let store = MemoryStore::open_in_memory().expect("应能创建内存工作库");
+    let embedder = HashEmbedder::default();
+    let subscription = store.subscribe().expect("事件订阅应成功");
+    let id = Uuid::now_v7();
+    let snapshot = Memory {
+        id,
+        source: MemorySource::Orbit,
+        kind: MemoryKind::Note,
+        title: Some("远端快照".into()),
+        content: "first synchronized body".into(),
+        content_format: ContentFormat::Markdown,
+        blocks: Vec::new(),
+        tags: vec!["sync".into()],
+        pinned: false,
+        archived: false,
+        created_at: 1_700_000_000_000,
+        updated_at: 1_700_000_000_100,
+        captured_at: Some(1_700_000_000_050),
+        device_id: "android-a".into(),
+        meta: serde_json::json!({"sync": true}),
+    };
+    store
+        .upsert_synced_memory(snapshot.clone(), &embedder)
+        .expect("首次同步快照应创建成功");
+    let mut changed = snapshot;
+    changed.title = Some("远端更新".into());
+    changed.content = "replacement synchronized body".into();
+    changed.updated_at += 100;
+    changed.device_id = "android-b".into();
+    store
+        .upsert_synced_memory(changed.clone(), &embedder)
+        .expect("后续同步快照应覆盖成功");
+
+    let stored = store.get(&id).unwrap().expect("同步记忆应存在");
+    assert_eq!(stored.id, id);
+    assert_eq!(stored.created_at, changed.created_at);
+    assert_eq!(stored.updated_at, changed.updated_at);
+    assert_eq!(stored.device_id, "android-b");
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::MemoryCreated {
+            id,
+            source: "orbit".into(),
+        })
+    );
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::MemoryUpdated {
+            id,
+            source: "orbit".into(),
+        })
+    );
+    assert!(
+        store
+            .search(
+                &SearchQuery {
+                    text: "first".into(),
+                    mode: SearchMode::Keyword,
+                    filters: Default::default(),
+                    limit: 10,
+                },
+                &embedder,
+            )
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .search(
+                &SearchQuery {
+                    text: "replacement".into(),
+                    mode: SearchMode::Keyword,
+                    filters: Default::default(),
+                    limit: 10,
+                },
+                &embedder,
+            )
+            .unwrap()[0]
+            .memory_id,
+        id
     );
 }

@@ -808,7 +808,12 @@ async fn events(
                 nexus_core::CoreEvent::MemoryCreated { source, .. }
                 | nexus_core::CoreEvent::MemoryUpdated { source, .. }
                 | nexus_core::CoreEvent::MemoryDeleted { source, .. } => Some(source.as_str()),
-                nexus_core::CoreEvent::ReviewDue { .. }
+                nexus_core::CoreEvent::CollectionCreated { .. }
+                | nexus_core::CoreEvent::CollectionUpdated { .. }
+                | nexus_core::CoreEvent::CollectionDeleted { .. }
+                | nexus_core::CoreEvent::CollectionMembershipAdded { .. }
+                | nexus_core::CoreEvent::CollectionMembershipRemoved { .. }
+                | nexus_core::CoreEvent::ReviewDue { .. }
                 | nexus_core::CoreEvent::ReviewGraded { .. } => None,
             };
             if source_restriction
@@ -821,6 +826,15 @@ async fn events(
                 nexus_core::CoreEvent::MemoryCreated { .. } => "memory.created",
                 nexus_core::CoreEvent::MemoryUpdated { .. } => "memory.updated",
                 nexus_core::CoreEvent::MemoryDeleted { .. } => "memory.deleted",
+                nexus_core::CoreEvent::CollectionCreated { .. } => "collection.created",
+                nexus_core::CoreEvent::CollectionUpdated { .. } => "collection.updated",
+                nexus_core::CoreEvent::CollectionDeleted { .. } => "collection.deleted",
+                nexus_core::CoreEvent::CollectionMembershipAdded { .. } => {
+                    "collection.membership_added"
+                }
+                nexus_core::CoreEvent::CollectionMembershipRemoved { .. } => {
+                    "collection.membership_removed"
+                }
                 nexus_core::CoreEvent::ReviewDue { .. } => "review.due",
                 nexus_core::CoreEvent::ReviewGraded { .. } => "review.graded",
             };

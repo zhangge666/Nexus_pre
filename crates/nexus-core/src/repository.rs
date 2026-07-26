@@ -112,6 +112,84 @@ impl MemoryStore {
         Ok(memory)
     }
 
+    /// 将可信同步快照按原始 UUID 与时间戳写入本地库，并重建本机检索索引。
+    pub fn upsert_synced_memory<E: Embedder + ?Sized>(
+        &self,
+        mut memory: Memory,
+        embedder: &E,
+    ) -> Result<Memory> {
+        if memory.content.trim().is_empty() {
+            return Err(CoreError::InvalidInput("同步记忆正文不能为空".into()));
+        }
+        if memory.device_id.trim().is_empty() {
+            return Err(CoreError::InvalidInput("同步记忆设备标识不能为空".into()));
+        }
+        if memory.created_at <= 0 || memory.updated_at <= 0 {
+            return Err(CoreError::InvalidInput("同步记忆时间戳无效".into()));
+        }
+        memory.blocks = split_into_blocks(memory.id, &memory.content);
+        let embeddings = memory
+            .blocks
+            .iter()
+            .map(|block| embedder.embed(&block.text))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        if self.get(&memory.id)?.is_none() {
+            self.create(&memory, &embeddings)?;
+            return Ok(memory);
+        }
+
+        let mut connection = self.connection()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "UPDATE memories SET source=?2, kind=?3, title=?4, content=?5, content_format=?6, pinned=?7, archived=?8, created_at=?9, updated_at=?10, captured_at=?11, device_id=?12, meta=?13 WHERE id=?1",
+            params![
+                memory.id.to_string(),
+                memory.source.as_storage_value(),
+                enum_json(&memory.kind)?,
+                memory.title,
+                memory.content,
+                enum_json(&memory.content_format)?,
+                memory.pinned,
+                memory.archived,
+                memory.created_at,
+                memory.updated_at,
+                memory.captured_at,
+                memory.device_id,
+                memory.meta.to_string()
+            ],
+        )?;
+        transaction.execute(
+            "DELETE FROM blocks_fts WHERE memory_id=?1",
+            params![memory.id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM block_vectors_vec WHERE block_id IN (SELECT id FROM blocks WHERE memory_id=?1)",
+            params![memory.id.to_string()],
+        )?;
+        transaction.execute(
+            "DELETE FROM blocks WHERE memory_id=?1",
+            params![memory.id.to_string()],
+        )?;
+        insert_blocks(&transaction, &memory, &embeddings)?;
+        transaction.execute(
+            "DELETE FROM memory_tags WHERE memory_id=?1",
+            params![memory.id.to_string()],
+        )?;
+        for tag in &memory.tags {
+            transaction.execute(
+                "INSERT INTO memory_tags (memory_id, tag) VALUES (?1, ?2)",
+                params![memory.id.to_string(), tag],
+            )?;
+        }
+        transaction.commit()?;
+        self.events.publish(CoreEvent::MemoryUpdated {
+            id: memory.id,
+            source: memory.source.as_storage_value(),
+        })?;
+        Ok(memory)
+    }
+
     /// 级联删除记忆、块、向量、标签和全文索引。
     pub fn delete(&self, id: &Uuid) -> Result<()> {
         let source = self

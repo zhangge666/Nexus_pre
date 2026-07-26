@@ -1,8 +1,10 @@
 //! 本文件验证记忆关联、集合层级、集合成员和级联清理行为。
 
+use std::time::Duration;
+
 use nexus_core::{
-    CollectionPatch, ContentFormat, HashEmbedder, IngestInput, Ingestor, LinkCreator, LinkRelation,
-    MemoryKind, MemorySource, MemoryStore,
+    Collection, CollectionPatch, ContentFormat, CoreEvent, HashEmbedder, IngestInput, Ingestor,
+    LinkCreator, LinkRelation, MemoryKind, MemorySource, MemoryStore,
 };
 
 /// 创建组织关系测试使用的记忆。
@@ -98,4 +100,66 @@ fn manages_nested_collections_and_members() {
         None
     );
     assert!(store.list_collection_memory_ids(child.id).is_ok());
+}
+
+/// 验证集合与成员关系提交事件覆盖桌面同步桥接需要的全部变更类型。
+#[test]
+fn publishes_collection_and_membership_events() {
+    let store = MemoryStore::open_in_memory().expect("内存库应创建成功");
+    let embedder = HashEmbedder::default();
+    let memory_id = create_memory(&store, &embedder, "event memory");
+    let subscription = store.subscribe().expect("事件订阅应成功");
+    let id = uuid::Uuid::now_v7();
+    let collection = Collection {
+        id,
+        name: "同步集合".into(),
+        icon: Some("cloud".into()),
+        parent_id: None,
+        sort: 7,
+        created_at: 1_700_000_000_000,
+        updated_at: 1_700_000_000_100,
+    };
+    store
+        .upsert_synced_collection(collection.clone())
+        .expect("同步集合应创建成功");
+    let mut changed = collection;
+    changed.name = "同步集合更新".into();
+    changed.updated_at += 100;
+    store
+        .upsert_synced_collection(changed)
+        .expect("同步集合应更新成功");
+    store
+        .add_memory_to_collection(id, memory_id)
+        .expect("成员关系应创建成功");
+    store
+        .remove_memory_from_collection(id, memory_id)
+        .expect("成员关系应删除成功");
+    store.delete_collection(id).expect("同步集合应删除成功");
+
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::CollectionCreated { id })
+    );
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::CollectionUpdated { id })
+    );
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::CollectionMembershipAdded {
+            collection_id: id,
+            memory_id,
+        })
+    );
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::CollectionMembershipRemoved {
+            collection_id: id,
+            memory_id,
+        })
+    );
+    assert_eq!(
+        subscription.recv_timeout(Duration::from_secs(1)),
+        Some(CoreEvent::CollectionDeleted { id })
+    );
 }

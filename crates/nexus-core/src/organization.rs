@@ -5,7 +5,8 @@ use serde::de::DeserializeOwned;
 use uuid::Uuid;
 
 use crate::{
-    Collection, CollectionPatch, CoreError, Link, LinkCreator, LinkRelation, MemoryStore, Result,
+    Collection, CollectionPatch, CoreError, CoreEvent, Link, LinkCreator, LinkRelation,
+    MemoryStore, Result,
     ingest::current_timestamp_millis,
     store::{enum_json, parse_uuid},
 };
@@ -93,6 +94,44 @@ impl MemoryStore {
             "INSERT INTO collections (id, name, icon, parent_id, sort, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![collection.id.to_string(), collection.name, collection.icon, collection.parent_id.map(|id| id.to_string()), collection.sort, collection.created_at, collection.updated_at],
         )?;
+        self.events
+            .publish(CoreEvent::CollectionCreated { id: collection.id })?;
+        Ok(collection)
+    }
+
+    /// 将可信同步集合按原始 UUID、层级、排序和时间戳写入本地库。
+    pub fn upsert_synced_collection(&self, mut collection: Collection) -> Result<Collection> {
+        collection.name = validated_collection_name(collection.name)?;
+        if collection.created_at <= 0 || collection.updated_at <= 0 {
+            return Err(CoreError::InvalidInput("同步集合时间戳无效".into()));
+        }
+        if let Some(parent_id) = collection.parent_id {
+            self.require_collection(parent_id)?;
+            if parent_id == collection.id
+                || (self.get_collection(collection.id)?.is_some()
+                    && self.collection_is_descendant(parent_id, collection.id)?)
+            {
+                return Err(CoreError::InvalidInput("集合层级不能形成循环".into()));
+            }
+        }
+        let existed = self.get_collection(collection.id)?.is_some();
+        self.connection()?.execute(
+            "INSERT INTO collections (id, name, icon, parent_id, sort, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) ON CONFLICT(id) DO UPDATE SET name=excluded.name, icon=excluded.icon, parent_id=excluded.parent_id, sort=excluded.sort, created_at=excluded.created_at, updated_at=excluded.updated_at",
+            params![
+                collection.id.to_string(),
+                collection.name,
+                collection.icon,
+                collection.parent_id.map(|id| id.to_string()),
+                collection.sort,
+                collection.created_at,
+                collection.updated_at
+            ],
+        )?;
+        self.events.publish(if existed {
+            CoreEvent::CollectionUpdated { id: collection.id }
+        } else {
+            CoreEvent::CollectionCreated { id: collection.id }
+        })?;
         Ok(collection)
     }
 
@@ -146,6 +185,7 @@ impl MemoryStore {
             "UPDATE collections SET name=?2, icon=?3, parent_id=?4, sort=?5, updated_at=?6 WHERE id=?1",
             params![id.to_string(), collection.name, collection.icon, collection.parent_id.map(|value| value.to_string()), collection.sort, collection.updated_at],
         )?;
+        self.events.publish(CoreEvent::CollectionUpdated { id })?;
         Ok(collection)
     }
 
@@ -158,6 +198,7 @@ impl MemoryStore {
         if affected == 0 {
             return Err(CoreError::NotFound(id));
         }
+        self.events.publish(CoreEvent::CollectionDeleted { id })?;
         Ok(())
     }
 
@@ -165,10 +206,16 @@ impl MemoryStore {
     pub fn add_memory_to_collection(&self, collection_id: Uuid, memory_id: Uuid) -> Result<()> {
         self.require_collection(collection_id)?;
         self.require_memory(memory_id)?;
-        self.connection()?.execute(
+        let affected = self.connection()?.execute(
             "INSERT OR IGNORE INTO collection_items (collection_id, memory_id, added_at) VALUES (?1, ?2, ?3)",
             params![collection_id.to_string(), memory_id.to_string(), current_timestamp_millis()?],
         )?;
+        if affected > 0 {
+            self.events.publish(CoreEvent::CollectionMembershipAdded {
+                collection_id,
+                memory_id,
+            })?;
+        }
         Ok(())
     }
 
@@ -185,6 +232,11 @@ impl MemoryStore {
         if affected == 0 {
             return Err(CoreError::InvalidInput("记忆不在指定集合中".into()));
         }
+        self.events
+            .publish(CoreEvent::CollectionMembershipRemoved {
+                collection_id,
+                memory_id,
+            })?;
         Ok(())
     }
 

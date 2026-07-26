@@ -32,6 +32,35 @@ pub enum CoreEvent {
         /// 记忆来源稳定字符串。
         source: String,
     },
+    /// 一个集合已经创建。
+    CollectionCreated {
+        /// 已创建的集合标识。
+        id: Uuid,
+    },
+    /// 一个集合已经更新。
+    CollectionUpdated {
+        /// 已更新的集合标识。
+        id: Uuid,
+    },
+    /// 一个集合及其成员关系已经删除。
+    CollectionDeleted {
+        /// 已删除的集合标识。
+        id: Uuid,
+    },
+    /// 一条记忆已经加入集合。
+    CollectionMembershipAdded {
+        /// 目标集合标识。
+        collection_id: Uuid,
+        /// 加入集合的记忆标识。
+        memory_id: Uuid,
+    },
+    /// 一条记忆已经从集合移除。
+    CollectionMembershipRemoved {
+        /// 目标集合标识。
+        collection_id: Uuid,
+        /// 移出集合的记忆标识。
+        memory_id: Uuid,
+    },
     /// 一张知识卡片已经到期，复习客户端应刷新队列。
     ReviewDue {
         /// 到期卡片的 Memory 标识。
