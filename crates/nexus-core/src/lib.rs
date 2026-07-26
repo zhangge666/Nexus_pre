@@ -13,6 +13,7 @@ mod repository;
 pub mod review;
 pub mod search;
 pub mod store;
+pub mod sync;
 
 pub use crypto::{CryptoError, EncryptedMediaRef, MasterKey, MediaVault};
 pub use embed::{EmbeddingProfile, HashEmbedder};
@@ -30,6 +31,11 @@ pub use model::{
 pub use nexus_ai::LocalOnnxEmbedder;
 pub use nexus_ai::{Embedder, EmbeddingError};
 pub use store::MemoryStore;
+pub use sync::{
+    ConflictVersion, DeviceIdentity, EncryptedSyncEnvelope, MergeResult, OperationKind,
+    PairingOffer, PairingSecret, PlainSyncOperation, SealedPairingKey, SyncError, SyncKey,
+    VectorRelation, VersionVector, VersionedRecord,
+};
 
 /// 返回当前核心骨架已经声明的领域模块。
 #[must_use]
@@ -45,5 +51,6 @@ pub const fn modules() -> &'static [&'static str] {
         "review",
         "intelligence",
         "events",
+        "sync",
     ]
 }
