@@ -1,4 +1,4 @@
-//! 本文件实现 Muse M3 最小来源的本地服务发现、授权登记与文字写入命令。
+//! 本文件实现 Muse 可选 Orbit 服务的发现、授权登记与灵感同步命令。
 
 use std::{path::PathBuf, sync::Mutex};
 
@@ -6,7 +6,7 @@ use nexus_protocol::{ServiceDiscovery, discover_local_service, shared_nexus_data
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::{Manager, State};
 
-/// 保存 Muse 当前进程获授的最小 capability token。
+/// 保存 Muse 当前进程获授的可选 Orbit capability token。
 #[derive(Clone)]
 struct MuseConnection {
     endpoint: String,
@@ -70,9 +70,9 @@ impl MuseState {
             .await
             .map_err(|error| format!("无法连接 Orbit 本地服务：{error}"))?;
         let registration: RegistrationResponse = parse_response(response).await?;
-        // 即使服务端契约意外扩权，Muse 也拒绝接收超出 M3 边界的授权。
+        // 即使服务端契约意外扩权，Muse 也拒绝接收超出当前同步边界的授权。
         if registration.source != "muse" || registration.scopes != ["memory:write"] {
-            return Err("Orbit 返回的 Muse 授权范围不符合 M3 最小权限约束".into());
+            return Err("Orbit 返回的 Muse 授权范围不符合当前最小同步约束".into());
         }
         *self
             .connection
@@ -96,7 +96,7 @@ impl MuseState {
                 None => ConnectionStatus {
                     state: "disconnected",
                     endpoint: None,
-                    message: Some("请先启动 Orbit，再重试连接。".into()),
+                    message: Some("Orbit 未连接；Muse 仍可在本地独立使用。".into()),
                 },
             },
             Err(_) => ConnectionStatus {

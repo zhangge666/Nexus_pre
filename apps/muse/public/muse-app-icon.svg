@@ -1,0 +1,20 @@
+<!-- Muse 应用图标：以收拢的 M 形轨迹和四向星芒表达“接住当下”。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Muse 应用图标</title>
+  <desc id="desc">深色圆角方形中，一条柔和的 M 形轨迹托住中央星芒。</desc>
+  <defs>
+    <linearGradient id="surface" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#191922"/>
+      <stop offset="1" stop-color="#0E0E14"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="286" y1="300" x2="752" y2="734" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9BEFF"/>
+      <stop offset="1" stop-color="#747EE6"/>
+    </linearGradient>
+  </defs>
+  <rect x="56" y="56" width="912" height="912" rx="224" fill="url(#surface)"/>
+  <rect x="72" y="72" width="880" height="880" rx="208" fill="none" stroke="#FFFFFF" stroke-opacity=".09" stroke-width="16"/>
+  <path d="M260 696V404c0-58 67-91 113-55l139 110 139-110c46-36 113-3 113 55v292" fill="none" stroke="url(#mark)" stroke-width="74" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M512 268c10 75 49 114 124 124-75 10-114 49-124 124-10-75-49-114-124-124 75-10 114-49 124-124Z" fill="#F5F6FF"/>
+  <circle cx="512" cy="392" r="18" fill="#8E97F2"/>
+</svg>

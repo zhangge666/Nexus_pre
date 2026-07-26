@@ -1,4 +1,4 @@
-/** 本文件定义 Muse M3 最小来源前端使用的 IPC 类型与调用。 */
+/** 本文件定义 Muse 可选 Orbit 连接使用的 IPC 类型与调用。 */
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 /** 本地服务连接状态。 */
@@ -19,7 +19,7 @@ export function isTauriRuntime(): boolean {
   return isTauri();
 }
 
-/** 发现 Orbit 本地服务并登记 Muse 最小写入授权。 */
+/** 发现可选 Orbit 本地服务并登记 Muse 写入授权。 */
 export function connectService(): Promise<ConnectionStatus> {
   return invoke<ConnectionStatus>("connect_service");
 }
@@ -29,7 +29,7 @@ export function getConnectionStatus(): Promise<ConnectionStatus> {
   return invoke<ConnectionStatus>("get_connection_status");
 }
 
-/** 以固定 Muse 来源提交一条文字灵感。 */
+/** 把已在本机保存的文字灵感额外同步到 Orbit。 */
 export function submitIdea(content: string): Promise<CreatedMemory> {
   return invoke<CreatedMemory>("submit_idea", { content });
 }

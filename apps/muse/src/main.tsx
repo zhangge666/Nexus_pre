@@ -1,4 +1,4 @@
-/** 本文件挂载 Muse M3 最小来源 React 界面。 */
+/** 本文件挂载 Muse 可独立运行的多页面 React 桌面界面。 */
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "@nexus/ui/styles.css";

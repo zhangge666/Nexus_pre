@@ -11,16 +11,24 @@
   },
   "app": {
     "windows": [{
-      "title": "Muse · M3 来源验证",
-      "width": 560,
-      "height": 400,
-      "minWidth": 390,
-      "minHeight": 340,
-      "resizable": true
+      "title": "Muse",
+      "width": 1020,
+      "height": 680,
+      "minWidth": 720,
+      "minHeight": 520,
+      "center": true,
+      "decorations": false,
+      "resizable": true,
+      "shadow": true,
+      "theme": "Dark"
     }],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
   },
-  "bundle": { "active": false, "targets": "all" }
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"]
+  }
 }

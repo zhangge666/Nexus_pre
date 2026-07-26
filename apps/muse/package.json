@@ -2,7 +2,7 @@
   "name": "@nexus/muse",
   "private": true,
   "version": "0.1.0",
-  "description": "Muse M3 最小文字来源适配器。",
+  "description": "Muse 可独立运行的轻量工作助手。",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
