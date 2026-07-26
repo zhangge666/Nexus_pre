@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-sdk"
+version = "0.1.0"
+description = "Nexus Memory Protocol 的 Python SDK 与 nexus CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Nexus" }]
+dependencies = []
+
+[project.scripts]
+nexus = "nexus_sdk.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nexus_sdk*"]

@@ -119,6 +119,34 @@ export interface SearchInput {
   limit?: number;
 }
 
+/** RAG 问答的可选本地检索范围。 */
+export interface AskInput {
+  question: string;
+  scope?: {
+    collection?: string;
+    source?: MemorySource;
+  };
+}
+
+/** RAG 问答中的一条块级引用。 */
+export interface AskCitation {
+  memory_id: string;
+  block_id: string;
+  snippet: string;
+  source_title: string | null;
+  source_kind: MemoryKind;
+  created_at: number;
+}
+
+/** 问答结果及其可审计的数据流向元数据。 */
+export interface AskResult {
+  answer: string;
+  citations: AskCitation[];
+  provider: string;
+  sent_context_count: number;
+  sends_data_remote: boolean;
+}
+
 /** 记忆关联类型。 */
 export type LinkRelation = "references" | "derived_from" | "related" | "duplicate";
 
@@ -194,7 +222,12 @@ export interface ConnectedApp {
   source: MemorySource;
   scopes: string[];
   lastActiveAt: number;
+  createdAt: number;
   memoriesCount: number;
+  readCount: number;
+  writeCount: number;
+  lastScope: string | null;
+  sendsDataRemote: boolean;
   tokenId: string;
 }
 
@@ -281,6 +314,11 @@ export class ProtocolClient {
       body: input,
     });
     return response.hits;
+  }
+
+  /** 使用服务端本地检索和已配置 Completion Provider 执行带引用问答。 */
+  public ask(input: AskInput): Promise<AskResult> {
+    return this.request("/ask", { method: "POST", body: input });
   }
 
   /** 创建一条有向记忆关联。 */

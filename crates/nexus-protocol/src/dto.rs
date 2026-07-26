@@ -7,10 +7,10 @@ use nexus_core::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// 表示第一方本地应用请求最小 capability token 的登记信息。
+/// 表示本地应用或第三方集成请求 capability token 的登记信息。
 #[derive(Debug, Deserialize)]
 pub struct RegisterConnectionRequest {
-    /// 稳定应用标识；M3 仅接受 Muse 桌面来源。
+    /// 稳定应用标识；第三方标识只允许小写字母、数字、点、短横线和下划线。
     pub app_id: String,
     /// 面向用户展示的应用名称。
     pub name: String,
@@ -48,8 +48,18 @@ pub struct ConnectedAppResponse {
     pub scopes: Vec<String>,
     /// 最近成功鉴权的 Unix 毫秒时间。
     pub last_active_at: i64,
+    /// 首次完成授权的 Unix 毫秒时间。
+    pub created_at: i64,
     /// 当前来源已经写入的记忆数量。
     pub memories_count: usize,
+    /// 此令牌累计通过能力域校验的读取类请求数量。
+    pub read_count: u64,
+    /// 此令牌累计通过能力域校验的写入类请求数量。
+    pub write_count: u64,
+    /// 最近一次成功鉴权使用的能力域。
+    pub last_scope: Option<String>,
+    /// 数据是否会由 Memory Protocol 直接发送到远程网络。
+    pub sends_data_remote: bool,
     /// 可撤销令牌的非敏感标识。
     pub token_id: Uuid,
 }

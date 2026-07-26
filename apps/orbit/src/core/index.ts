@@ -36,6 +36,7 @@ import {
   listInboxItems as _mockListInbox,
   markInboxRead as _mockMarkRead,
   listConnectedApps as _mockListApps,
+  registerExternalApp as _mockRegisterExternalApp,
   revokeApp as _mockRevoke,
   getGraphData as _mockGraph,
   listReviewCards as _mockListCards,
@@ -82,6 +83,7 @@ export const addMemoryToCollection = makeFn("addMemoryToCollection", _mockAddToC
 export const listInboxItems     = makeFn("listInboxItems",     _mockListInbox);
 export const markInboxRead      = makeFn("markInboxRead",      _mockMarkRead);
 export const listConnectedApps  = makeFn("listConnectedApps",  _mockListApps);
+export const registerExternalApp = makeFn("registerExternalApp", _mockRegisterExternalApp);
 export const revokeApp          = makeFn("revokeApp",          _mockRevoke);
 export const getGraphData       = makeFn("getGraphData",       _mockGraph);
 export const listReviewCards    = makeFn("listReviewCards",    _mockListCards);

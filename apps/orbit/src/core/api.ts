@@ -7,6 +7,7 @@ import type {
   AskRequest,
   AskResponse,
   ConnectedApp,
+  RegisteredConnection,
   CreateCardRequest,
   GenerateCardsRequest,
   GradeResult,
@@ -159,6 +160,15 @@ export async function markInboxRead(id: string): Promise<void> {
 
 export async function listConnectedApps(): Promise<ConnectedApp[]> {
   return invoke<ConnectedApp[]>("list_connected_apps");
+}
+
+/** 由 Orbit 持有者为用户确认的第三方应用签发来源受限令牌。 */
+export async function registerExternalApp(
+  appId: string,
+  name: string,
+  scopes: string[],
+): Promise<RegisteredConnection> {
+  return invoke<RegisteredConnection>("register_external_app", { appId, name, scopes });
 }
 
 export async function revokeApp(tokenId: string): Promise<void> {

@@ -1,11 +1,13 @@
 {
   "name": "@nexus/protocol-client",
   "version": "0.1.0",
-  "private": true,
   "description": "Memory Protocol 的共享 TypeScript 客户端。",
   "type": "module",
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",

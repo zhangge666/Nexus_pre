@@ -469,6 +469,26 @@ impl OrbitState {
         .await
     }
 
+    /// 为用户在连接面板确认的第三方应用签发来源受限 capability token。
+    async fn register_external_app(
+        &self,
+        app_id: String,
+        name: String,
+        scopes: Vec<String>,
+    ) -> Result<RegisteredConnection, String> {
+        let source = format!("external:{app_id}");
+        self.send_json(
+            self.client.post(self.protocol_url("/v1/connections")?),
+            serde_json::json!({
+                "app_id": app_id,
+                "name": name,
+                "source": source,
+                "scopes": scopes,
+            }),
+        )
+        .await
+    }
+
     /// 撤销指定应用 capability token，使后续写入立即返回未授权。
     async fn revoke_app(&self, token_id: String) -> Result<(), String> {
         self.send_json::<serde_json::Value>(
@@ -1443,8 +1463,23 @@ struct ConnectedApp {
     source: String,
     scopes: Vec<String>,
     last_active_at: i64,
+    created_at: i64,
     memories_count: usize,
+    read_count: u64,
+    write_count: u64,
+    last_scope: Option<String>,
+    sends_data_remote: bool,
     token_id: String,
+}
+
+/// 表示第三方授权创建后只返回一次的敏感令牌。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisteredConnection {
+    token_id: String,
+    token: String,
+    scopes: Vec<String>,
+    source: String,
 }
 
 impl From<MemoryResponse> for MemorySummary {
@@ -1585,6 +1620,17 @@ async fn list_connected_apps(
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<Vec<ConnectedApp>, String> {
     state.list_connected_apps().await
+}
+
+/// 通过 Tauri IPC 为第三方 SDK、MCP 或浏览器扩展创建显式授权。
+#[tauri::command]
+async fn register_external_app(
+    app_id: String,
+    name: String,
+    scopes: Vec<String>,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<RegisteredConnection, String> {
+    state.register_external_app(app_id, name, scopes).await
 }
 
 /// 通过 Tauri IPC 撤销一条本地应用授权。
@@ -1936,7 +1982,12 @@ pub fn run() {
                         });
                         let grant =
                             CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
-                        let protocol_state = ProtocolState::from_shared(store, embedder, grant);
+                        let protocol_state = ProtocolState::from_shared_with_connection_store(
+                            store,
+                            embedder,
+                            grant,
+                            data_dir.join("connections.json"),
+                        )?;
                         let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
                         tauri::async_runtime::spawn(async move {
                             // 服务任务持有租约，服务异常退出时立即释放锁供其他实例接管。
@@ -1999,6 +2050,7 @@ pub fn run() {
             add_memory_to_collection,
             get_service_status,
             list_connected_apps,
+            register_external_app,
             revoke_app,
             get_review_queue,
             list_review_cards,

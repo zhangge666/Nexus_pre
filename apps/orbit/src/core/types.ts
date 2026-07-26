@@ -184,8 +184,21 @@ export interface ConnectedApp {
   source: string;
   scopes: string[];
   lastActiveAt: number;
+  createdAt: number;
   memoriesCount: number;
+  readCount: number;
+  writeCount: number;
+  lastScope: string | null;
+  sendsDataRemote: boolean;
   tokenId: string;
+}
+
+/** 新建第三方授权后只展示一次的敏感令牌。 */
+export interface RegisteredConnection {
+  tokenId: string;
+  token: string;
+  scopes: string[];
+  source: `external:${string}`;
 }
 
 /** 集合 */

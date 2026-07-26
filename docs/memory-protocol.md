@@ -76,7 +76,7 @@ M3 起，桌面产品从各自 Tauri 应用目录的同级 `com.nexus.shared` �
 
 最小授权示例：一个浏览器剪藏扩展只需 `memory:write`（限 `source=external:clipper`）。
 
-### 4.3 M3 第一方来源登记与撤销
+### 4.3 第一方来源登记与第三方授权
 
 M3 只开放 Muse 的第一方本地登记切片。Muse 读取当前用户专属的本地发现记录后，以持有者
 登记凭据请求一个来源受限令牌：
@@ -95,11 +95,31 @@ Content-Type: application/json
 → 201 { "tokenId": "...", "token": "...", "source": "muse", "scopes": ["memory:write"] }
 ```
 
-服务端严格拒绝 Muse 申请其他来源或 scope。Orbit 使用 `admin` 令牌调用
+服务端严格拒绝 Muse 申请其他来源或 scope。M6 第三方授权由用户在 Orbit「连接与隐私」
+面板中创建，第三方来源必须严格等于 `external:<app_id>`，且不能申请 `review` 或 `admin`：
+
+```http
+POST /v1/connections
+Authorization: Bearer <orbit-holder-token>
+Content-Type: application/json
+
+{
+  "app_id": "my-app",
+  "name": "My App",
+  "source": "external:my-app",
+  "scopes": ["memory:read", "memory:write", "search"]
+}
+```
+
+第三方令牌正文只在创建响应中展示一次；服务端仅把 SHA-256 摘要、scope 与活动审计元数据
+持久化到共享数据目录。Orbit 重启后令牌继续有效，重复登记不会再次返回正文，遗失时必须
+撤销后重新创建。`memory:write` 与 `memory:delete` 只能操作令牌自己的来源。
+
+Orbit 使用 `admin` 令牌调用
 `GET /v1/connections` 查看连接、最近活动与来源记忆数量，调用
 `DELETE /v1/connections/{tokenId}` 撤销授权；撤销后旧令牌立即返回 `401`，Muse 保留输入并
-要求用户重新连接。M3 登记状态随本地服务实例存在，持有者重启后 Muse 重新登记；长期令牌
-持久化与第三方审批流留到 M6。
+要求用户重新连接。M3 Muse 继续使用随本地服务实例存在的短期令牌；M6 第三方令牌使用上述
+摘要持久化流程。
 
 ---
 
@@ -238,7 +258,7 @@ GET /v1/events?types=memory.created,review.due   (SSE / WebSocket)
 
 | 集成方 | 方式 |
 |--------|------|
-| 前端/Node 应用 | `@nexus/protocol-client` |
+| 前端/Node 应用 | `@nexus/sdk-ts`（公开 SDK）或 `@nexus/protocol-client`（低层协议客户端） |
 | Python 脚本/数据管线 | `nexus-sdk`（PyPI） |
 | 桌面其他 App | 本地 REST / gRPC |
 | 浏览器扩展 | native messaging → 本地服务（一键剪藏进记忆库） |
@@ -246,14 +266,14 @@ GET /v1/events?types=memory.created,review.due   (SSE / WebSocket)
 | 自动化 | Webhook / CLI (`nexus` 命令行) |
 
 ```ts
-import { ProtocolClient } from "@nexus/protocol-client";
-const nexus = new ProtocolClient({ endpoint, token });
-await nexus.createMemory({ source: "external:my-app", kind: "note", content: "...", content_format: "markdown" });
-const hits = await nexus.search({ text: "量子计算笔记", mode: "hybrid" });
+import { NexusClient } from "@nexus/sdk-ts";
+const nexus = new NexusClient({ endpoint, token, source: "external:my-app" });
+await nexus.addMemory({ content: "...", tags: ["example"] });
+const hits = await nexus.searchMemory({ text: "量子计算笔记", mode: "hybrid" });
 ```
 
-客户端包含 Memory CRUD、混合检索、关联、集合成员管理、服务端错误映射，以及会自动重连的
-`subscribeEvents()` SSE 异步迭代器。
+低层客户端包含 Memory CRUD、混合检索、问答、关联、集合成员管理、服务端错误映射，以及
+会自动重连的 `subscribeEvents()` SSE 异步迭代器；公开 SDK 额外固定第三方写入来源。
 
 ### MCP 示例（让 AI 助手拥有你的记忆）
 

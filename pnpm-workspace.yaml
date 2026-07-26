@@ -3,6 +3,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "sdk/*"
 
 allowBuilds:
   esbuild: true

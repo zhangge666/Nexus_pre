@@ -3,7 +3,8 @@
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
-    io,
+    fs, io,
+    path::{Path as FilePath, PathBuf},
     sync::{Arc, RwLock},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -74,7 +75,28 @@ struct RegisteredConnection {
     name: String,
     source: String,
     grant: CapabilityGrant,
+    created_at: i64,
     last_active_at: i64,
+    read_count: u64,
+    write_count: u64,
+    last_scope: Option<Scope>,
+    persistent: bool,
+}
+
+/// 表示写入本地连接存储的非敏感授权快照；令牌仅保存 SHA-256 摘要。
+#[derive(Debug, Deserialize, Serialize)]
+struct PersistentConnection {
+    token_id: Uuid,
+    token_digest: String,
+    app_id: String,
+    name: String,
+    source: String,
+    scopes: Vec<String>,
+    created_at: i64,
+    last_active_at: i64,
+    read_count: u64,
+    write_count: u64,
+    last_scope: Option<String>,
 }
 
 /// 持有本地协议服务共享的存储、嵌入器和客户端授权。
@@ -84,6 +106,7 @@ pub struct ProtocolState {
     embedder: Arc<HashEmbedder>,
     admin_grant: Arc<CapabilityGrant>,
     connections: Arc<RwLock<HashMap<Uuid, RegisteredConnection>>>,
+    connection_store: Option<Arc<PathBuf>>,
     completion: Arc<RwLock<Arc<dyn Completion>>>,
 }
 
@@ -106,8 +129,27 @@ impl ProtocolState {
             embedder,
             admin_grant: Arc::new(grant),
             connections: Arc::new(RwLock::new(HashMap::new())),
+            connection_store: None,
             completion: Arc::new(RwLock::new(Arc::new(LocalExtractiveCompletion))),
         }
+    }
+
+    /// 使用磁盘连接存储创建服务状态，使第三方令牌在 Orbit 重启后仍可撤销和继续使用。
+    pub fn from_shared_with_connection_store(
+        store: Arc<MemoryStore>,
+        embedder: Arc<HashEmbedder>,
+        grant: CapabilityGrant,
+        connection_store: PathBuf,
+    ) -> Result<Self, ProtocolError> {
+        let connections = load_persistent_connections(&connection_store)?;
+        Ok(Self {
+            store,
+            embedder,
+            admin_grant: Arc::new(grant),
+            connections: Arc::new(RwLock::new(connections)),
+            connection_store: Some(Arc::new(connection_store)),
+            completion: Arc::new(RwLock::new(Arc::new(LocalExtractiveCompletion))),
+        })
     }
 
     /// 原子切换后续问答和卡片生成使用的 Completion Provider。
@@ -258,22 +300,15 @@ pub fn router(state: ProtocolState) -> Router {
         .with_state(state)
 }
 
-/// 校验持有者凭据并为 M3 Muse 签发仅可写入 `source=muse` 的令牌。
+/// 校验持有者凭据，并为第一方 Muse 或用户确认的第三方集成签发最小权限令牌。
 async fn register_connection(
     State(state): State<ProtocolState>,
     headers: HeaderMap,
-    Json(request): Json<RegisterConnectionRequest>,
+    Json(mut request): Json<RegisterConnectionRequest>,
 ) -> Result<(StatusCode, Json<RegisterConnectionResponse>), ProtocolError> {
     authorize_admin(&headers, &state)?;
-    if request.app_id != "com.nexus.muse"
-        || request.name.trim() != "Muse"
-        || request.source != "muse"
-        || request.scopes != [Scope::MemoryWrite.as_str()]
-    {
-        return Err(ProtocolError::InvalidRequest(
-            "M3 仅允许 Muse 申请 source=muse 的 memory:write 能力".into(),
-        ));
-    }
+    request.name = request.name.trim().to_owned();
+    let scopes = validate_connection_request(&request)?;
 
     let mut connections = state
         .connections
@@ -283,13 +318,25 @@ async fn register_connection(
         .values_mut()
         .find(|connection| connection.app_id == request.app_id)
     {
+        let existing_scopes = existing.grant.scopes().collect::<HashSet<_>>();
+        let requested_scopes = scopes.iter().copied().collect::<HashSet<_>>();
+        if existing.source != request.source || existing_scopes != requested_scopes {
+            return Err(ProtocolError::InvalidRequest(
+                "应用已经授权；如需变更来源或权限，请先撤销现有令牌".into(),
+            ));
+        }
         existing.last_active_at = unix_millis();
+        let token = existing.grant.token_value().ok_or_else(|| {
+            ProtocolError::InvalidRequest(
+                "该应用已经授权，令牌正文不会再次显示；如已遗失请先撤销再创建".into(),
+            )
+        })?;
         return Ok((
             StatusCode::OK,
             Json(RegisterConnectionResponse {
                 token_id: existing.token_id,
-                token: existing.grant.token_value().to_owned(),
-                scopes: vec![Scope::MemoryWrite.as_str().into()],
+                token: token.to_owned(),
+                scopes: sorted_scope_names(existing.grant.scopes()),
                 source: existing.source.clone(),
             }),
         ));
@@ -297,6 +344,21 @@ async fn register_connection(
 
     let token_id = Uuid::new_v4();
     let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
+    let persistent = request.source.starts_with("external:");
+    let grant = if persistent {
+        CapabilityGrant::from_token_hashing(
+            &token,
+            scopes.iter().copied(),
+            Some(request.source.clone()),
+        )
+    } else {
+        CapabilityGrant::new(
+            token.clone(),
+            scopes.iter().copied(),
+            Some(request.source.clone()),
+        )
+    };
+    let created_at = unix_millis();
     connections.insert(
         token_id,
         RegisteredConnection {
@@ -304,23 +366,213 @@ async fn register_connection(
             app_id: request.app_id,
             name: request.name,
             source: request.source.clone(),
-            grant: CapabilityGrant::new(
-                token.clone(),
-                [Scope::MemoryWrite],
-                Some(request.source.clone()),
-            ),
-            last_active_at: unix_millis(),
+            grant,
+            created_at,
+            last_active_at: created_at,
+            read_count: 0,
+            write_count: 0,
+            last_scope: None,
+            persistent,
         },
     );
+    if let Err(error) = persist_connections(
+        state.connection_store.as_deref().map(PathBuf::as_path),
+        &connections,
+    ) {
+        connections.remove(&token_id);
+        return Err(error);
+    }
     Ok((
         StatusCode::CREATED,
         Json(RegisterConnectionResponse {
             token_id,
             token,
-            scopes: vec![Scope::MemoryWrite.as_str().into()],
+            scopes: sorted_scope_names(scopes),
             source: request.source,
         }),
     ))
+}
+
+/// 校验连接名称、来源和能力域，确保第三方授权不能获得管理或复习权限。
+fn validate_connection_request(
+    request: &RegisterConnectionRequest,
+) -> Result<Vec<Scope>, ProtocolError> {
+    if request.app_id == "com.nexus.muse" {
+        if request.name == "Muse"
+            && request.source == "muse"
+            && request.scopes == [Scope::MemoryWrite.as_str()]
+        {
+            return Ok(vec![Scope::MemoryWrite]);
+        }
+        return Err(ProtocolError::InvalidRequest(
+            "Muse 仅可申请 source=muse 的 memory:write 能力".into(),
+        ));
+    }
+
+    if request.name.is_empty() || request.name.chars().count() > 80 {
+        return Err(ProtocolError::InvalidRequest(
+            "应用名称长度必须为 1 到 80 个字符".into(),
+        ));
+    }
+    if !is_valid_external_app_id(&request.app_id) {
+        return Err(ProtocolError::InvalidRequest(
+            "第三方应用标识只允许 1 到 80 个小写字母、数字、点、短横线或下划线，且必须以字母或数字开头".into(),
+        ));
+    }
+    if request.source != format!("external:{}", request.app_id) {
+        return Err(ProtocolError::InvalidRequest(
+            "第三方应用来源必须为 external:<app_id>".into(),
+        ));
+    }
+    if request.scopes.is_empty() || request.scopes.len() > 5 {
+        return Err(ProtocolError::InvalidRequest(
+            "第三方应用必须申请 1 到 5 个最小能力域".into(),
+        ));
+    }
+
+    let mut scopes = Vec::with_capacity(request.scopes.len());
+    let mut seen = HashSet::new();
+    for value in &request.scopes {
+        let scope = Scope::parse(value)
+            .ok_or_else(|| ProtocolError::InvalidRequest(format!("未知能力域: {value}")))?;
+        if matches!(scope, Scope::Admin | Scope::Review) {
+            return Err(ProtocolError::Forbidden);
+        }
+        if seen.insert(scope) {
+            scopes.push(scope);
+        }
+    }
+    Ok(scopes)
+}
+
+/// 判断第三方应用标识是否适合稳定地进入 `external:<app_id>` 来源字段。
+fn is_valid_external_app_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .bytes()
+            .next()
+            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'_')
+        })
+}
+
+/// 以协议文档中的稳定顺序返回能力域名称，避免 HashSet 导致管理界面抖动。
+fn sorted_scope_names(scopes: impl IntoIterator<Item = Scope>) -> Vec<String> {
+    const ORDER: &[Scope] = &[
+        Scope::MemoryRead,
+        Scope::MemoryWrite,
+        Scope::MemoryDelete,
+        Scope::Search,
+        Scope::Subscribe,
+        Scope::Review,
+        Scope::Admin,
+    ];
+    let scopes = scopes.into_iter().collect::<HashSet<_>>();
+    ORDER
+        .iter()
+        .filter(|scope| scopes.contains(scope))
+        .map(|scope| scope.as_str().to_owned())
+        .collect()
+}
+
+/// 从连接存储恢复第三方授权；第一方短期令牌不会进入此文件。
+fn load_persistent_connections(
+    path: &FilePath,
+) -> Result<HashMap<Uuid, RegisteredConnection>, ProtocolError> {
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let records = serde_json::from_slice::<Vec<PersistentConnection>>(&fs::read(path)?)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let mut connections = HashMap::with_capacity(records.len());
+    for record in records {
+        let scopes = record
+            .scopes
+            .iter()
+            .map(|scope| {
+                Scope::parse(scope).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("连接存储包含未知能力域: {scope}"),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !record.source.starts_with("external:")
+            || record.token_digest.len() != 64
+            || scopes
+                .iter()
+                .any(|scope| matches!(scope, Scope::Admin | Scope::Review))
+        {
+            return Err(
+                io::Error::new(io::ErrorKind::InvalidData, "连接存储包含无效的第三方授权").into(),
+            );
+        }
+        let last_scope = match record.last_scope.as_deref() {
+            Some(scope) => Some(
+                Scope::parse(scope)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "最近能力域无效"))?,
+            ),
+            None => None,
+        };
+        connections.insert(
+            record.token_id,
+            RegisteredConnection {
+                token_id: record.token_id,
+                app_id: record.app_id,
+                name: record.name,
+                source: record.source.clone(),
+                grant: CapabilityGrant::from_token_digest(
+                    record.token_digest,
+                    scopes,
+                    Some(record.source),
+                ),
+                created_at: record.created_at,
+                last_active_at: record.last_active_at,
+                read_count: record.read_count,
+                write_count: record.write_count,
+                last_scope,
+                persistent: true,
+            },
+        );
+    }
+    Ok(connections)
+}
+
+/// 把第三方授权以令牌摘要形式写入磁盘，避免敏感令牌正文进入设置文件。
+fn persist_connections(
+    path: Option<&FilePath>,
+    connections: &HashMap<Uuid, RegisteredConnection>,
+) -> Result<(), ProtocolError> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let records = connections
+        .values()
+        .filter(|connection| connection.persistent)
+        .map(|connection| PersistentConnection {
+            token_id: connection.token_id,
+            token_digest: connection.grant.token_digest(),
+            app_id: connection.app_id.clone(),
+            name: connection.name.clone(),
+            source: connection.source.clone(),
+            scopes: sorted_scope_names(connection.grant.scopes()),
+            created_at: connection.created_at,
+            last_active_at: connection.last_active_at,
+            read_count: connection.read_count,
+            write_count: connection.write_count,
+            last_scope: connection.last_scope.map(|scope| scope.as_str().to_owned()),
+        })
+        .collect::<Vec<_>>();
+    let content = serde_json::to_vec_pretty(&records)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    fs::write(path, content)?;
+    Ok(())
 }
 
 /// 校验管理权限并返回已登记应用及其来源记忆数量。
@@ -347,13 +599,14 @@ async fn list_connections(
             id: connection.app_id.clone(),
             name: connection.name.clone(),
             source: connection.source.clone(),
-            scopes: connection
-                .grant
-                .scopes()
-                .map(|scope| scope.as_str().to_owned())
-                .collect(),
+            scopes: sorted_scope_names(connection.grant.scopes()),
             last_active_at: connection.last_active_at,
+            created_at: connection.created_at,
             memories_count: page.total,
+            read_count: connection.read_count,
+            write_count: connection.write_count,
+            last_scope: connection.last_scope.map(|scope| scope.as_str().to_owned()),
+            sends_data_remote: false,
             token_id: connection.token_id,
         });
     }
@@ -368,13 +621,19 @@ async fn revoke_connection(
     Path(token_id): Path<Uuid>,
 ) -> Result<StatusCode, ProtocolError> {
     authorize_admin(&headers, &state)?;
-    let removed = state
+    let mut connections = state
         .connections
         .write()
-        .map_err(|_| ProtocolError::InvalidRequest("连接授权状态不可用".into()))?
-        .remove(&token_id);
-    if removed.is_none() {
+        .map_err(|_| ProtocolError::InvalidRequest("连接授权状态不可用".into()))?;
+    let Some(removed) = connections.remove(&token_id) else {
         return Err(ProtocolError::InvalidRequest("连接不存在或已被撤销".into()));
+    };
+    if let Err(error) = persist_connections(
+        state.connection_store.as_deref().map(PathBuf::as_path),
+        &connections,
+    ) {
+        connections.insert(token_id, removed);
+        return Err(error);
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -541,7 +800,7 @@ async fn events(
     let grant = authorize(&headers, &state, Scope::Subscribe)?;
     let subscription = state.store.subscribe()?;
     let requested_types = split_csv(request.types.as_deref());
-    let source_restriction = grant.source_restriction().map(str::to_owned);
+    let source_restriction = grant.readable_source_restriction().cloned();
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(32);
     tokio::task::spawn_blocking(move || {
         while let Some(event) = subscription.recv() {
@@ -554,7 +813,7 @@ async fn events(
             };
             if source_restriction
                 .as_ref()
-                .is_some_and(|allowed| source != Some(allowed.as_str()))
+                .is_some_and(|allowed| source.is_none_or(|source| !allowed.contains(source)))
             {
                 continue;
             }
@@ -599,7 +858,7 @@ async fn get_memory(
 ) -> Result<Json<MemoryResponse>, ProtocolError> {
     let grant = authorize(&headers, &state, Scope::MemoryRead)?;
     let memory = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
-    if !grant.allows_source(&memory.source.as_storage_value()) {
+    if !grant.allows_read_source(&memory.source.as_storage_value()) {
         return Err(ProtocolError::Forbidden);
     }
     Ok(Json(memory.into()))
@@ -634,7 +893,7 @@ async fn update_memory(
 ) -> Result<Json<MemoryResponse>, ProtocolError> {
     let grant = authorize(&headers, &state, Scope::MemoryWrite)?;
     let existing = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
-    if !grant.allows_source(&existing.source.as_storage_value()) {
+    if !grant.allows_write_source(&existing.source.as_storage_value()) {
         return Err(ProtocolError::Forbidden);
     }
     let memory = state.store.update(
@@ -662,7 +921,7 @@ async fn delete_memory(
 ) -> Result<StatusCode, ProtocolError> {
     let grant = authorize(&headers, &state, Scope::MemoryDelete)?;
     let existing = state.store.get(&id)?.ok_or(CoreError::NotFound(id))?;
-    if !grant.allows_source(&existing.source.as_storage_value()) {
+    if !grant.allows_write_source(&existing.source.as_storage_value()) {
         return Err(ProtocolError::Forbidden);
     }
     state.store.delete(&id)?;
@@ -723,7 +982,7 @@ async fn create_memory(
     Json(request): Json<CreateMemoryRequest>,
 ) -> Result<(StatusCode, Json<CreateMemoryResponse>), ProtocolError> {
     let grant = authorize(&headers, &state, Scope::MemoryWrite)?;
-    if !grant.allows_source(&request.source) {
+    if !grant.allows_write_source(&request.source) {
         return Err(ProtocolError::Forbidden);
     }
     let source = parse_source(&request.source)?;
@@ -1416,17 +1675,19 @@ fn list_filters(
     })
 }
 
-/// 将 capability token 的来源限制合并到请求过滤器，拒绝显式越权来源。
+/// 将 capability token 的可读来源白名单合并到请求过滤器，拒绝显式越权来源。
 fn apply_source_restriction(
     sources: &mut Vec<String>,
     grant: &CapabilityGrant,
 ) -> Result<(), ProtocolError> {
-    if let Some(allowed) = grant.source_restriction() {
-        if !sources.is_empty() && sources.iter().any(|source| source != allowed) {
+    if let Some(allowed) = grant.readable_source_restriction() {
+        if !sources.is_empty() && sources.iter().any(|source| !allowed.contains(source)) {
             return Err(ProtocolError::Forbidden);
         }
-        sources.clear();
-        sources.push(allowed.to_owned());
+        if sources.is_empty() {
+            sources.extend(allowed.iter().cloned());
+            sources.sort();
+        }
     }
     Ok(())
 }
@@ -1484,7 +1745,21 @@ fn authorize(
         return Err(ProtocolError::Forbidden);
     }
     connection.last_active_at = unix_millis();
-    Ok(connection.grant.clone())
+    connection.last_scope = Some(scope);
+    if matches!(
+        scope,
+        Scope::MemoryWrite | Scope::MemoryDelete | Scope::Review | Scope::Admin
+    ) {
+        connection.write_count = connection.write_count.saturating_add(1);
+    } else {
+        connection.read_count = connection.read_count.saturating_add(1);
+    }
+    let grant = connection.grant.clone();
+    persist_connections(
+        state.connection_store.as_deref().map(PathBuf::as_path),
+        &connections,
+    )?;
+    Ok(grant)
 }
 
 /// 仅接受 Orbit 持有者管理令牌，避免普通连接自行登记或撤销其他应用。

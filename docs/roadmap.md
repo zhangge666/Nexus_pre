@@ -103,6 +103,11 @@ core/协议    Orbit+库      完整闭环       Muse最小源    卡片/复习/
 - 浏览器扩展（native messaging 一键剪藏，source=external:clipper）。
 - Orbit「连接与隐私」面板：授权应用、scope、令牌撤销、数据流向可视。
 
+> **实施状态（2026-07-26）**：MCP stdio Server、TypeScript/Python SDK、`nexus` CLI、
+> Chrome/Edge Native Messaging 剪藏器及 Orbit「连接与隐私」面板均已完成。第三方令牌
+> 强制绑定 `external:<app_id>`，正文只展示一次并以 SHA-256 摘要持久化；scope、读写活动、
+> 数据流向与撤销均可审计。统一验收与发布边界见 [m6-outreach.md](m6-outreach.md)。
+
 ### M7 · 产品族扩展
 - **Muse 产品化**：全局热键秒唤起、失焦/回车保存、托盘常驻、轻量冷启动、收件箱与本地语音转写；M3 最小来源升级而不是另起协议。
 - **Echo 产品化**：全局热键截图、本地 OCR、预览确认、敏感信息保护与入库，并在 Orbit 中检索和治理来源。

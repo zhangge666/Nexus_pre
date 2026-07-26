@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nexus Clipper</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="mark" aria-hidden="true">N</span>
+        <div>
+          <h1>Nexus Clipper</h1>
+          <p>保存到本地记忆库</p>
+        </div>
+      </header>
+      <label for="title">标题</label>
+      <input id="title" maxlength="200" autocomplete="off" />
+      <label for="tags">标签 <span>用逗号分隔</span></label>
+      <input id="tags" placeholder="网页, 稍后阅读" autocomplete="off" />
+      <label class="selection-option">
+        <input id="selection-only" type="checkbox" />
+        <span>优先只保存选中文本</span>
+      </label>
+      <p id="status" role="status" aria-live="polite">正在读取当前页面…</p>
+      <button id="clip" type="button" disabled>剪藏到 Nexus</button>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

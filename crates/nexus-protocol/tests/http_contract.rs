@@ -8,7 +8,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use nexus_ai::{Completion, CompletionFuture, CompletionRequest, CompletionResponse};
-use nexus_core::MemoryStore;
+use nexus_core::{HashEmbedder, MemoryStore};
 use nexus_protocol::{CapabilityGrant, ProtocolState, Scope, router};
 use serde_json::{Value, json};
 use tower::ServiceExt;
@@ -741,6 +741,192 @@ async fn registers_lists_and_revokes_muse_connection() {
         .await
         .expect("撤销后的请求仍应返回响应");
     assert_eq!(retried.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// 验证第三方集成可获得显式选择的权限、读取整库，并且写入仍被限定到自身来源。
+#[tokio::test]
+async fn registers_external_connection_with_scoped_data_flow() {
+    let app = test_router([Scope::Admin], None);
+    let existing = app
+        .clone()
+        .oneshot(json_request(
+            "/v1/memories",
+            json!({
+                "source": "orbit",
+                "kind": "note",
+                "content": "M6 external integration searchable memory",
+                "content_format": "plain"
+            }),
+        ))
+        .await
+        .expect("管理端应能预置记忆");
+    assert_eq!(existing.status(), StatusCode::CREATED);
+
+    let registered = app
+        .clone()
+        .oneshot(json_request(
+            "/v1/connections",
+            json!({
+                "app_id": "mcp",
+                "name": "Nexus MCP",
+                "source": "external:mcp",
+                "scopes": ["memory:read", "memory:write", "search"]
+            }),
+        ))
+        .await
+        .expect("第三方连接登记应返回响应");
+    assert_eq!(registered.status(), StatusCode::CREATED);
+    let registered = response_json(registered).await;
+    let token = registered["token"].as_str().expect("应签发第三方令牌");
+    assert_eq!(
+        registered["scopes"],
+        json!(["memory:read", "memory:write", "search"])
+    );
+
+    let searched = app
+        .clone()
+        .oneshot(request_with_token(
+            Method::POST,
+            "/v1/search",
+            token,
+            Some(json!({
+                "text": "external integration searchable",
+                "mode": "hybrid",
+                "limit": 10
+            })),
+        ))
+        .await
+        .expect("第三方检索应返回响应");
+    assert_eq!(searched.status(), StatusCode::OK);
+    assert_eq!(
+        response_json(searched).await["hits"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let created = app
+        .clone()
+        .oneshot(request_with_token(
+            Method::POST,
+            "/v1/memories",
+            token,
+            Some(json!({
+                "source": "external:mcp",
+                "kind": "note",
+                "content": "MCP owned memory",
+                "content_format": "plain"
+            })),
+        ))
+        .await
+        .expect("第三方自身来源写入应返回响应");
+    assert_eq!(created.status(), StatusCode::CREATED);
+
+    let escaped = app
+        .clone()
+        .oneshot(request_with_token(
+            Method::POST,
+            "/v1/memories",
+            token,
+            Some(json!({
+                "source": "external:other",
+                "kind": "note",
+                "content": "越权来源",
+                "content_format": "plain"
+            })),
+        ))
+        .await
+        .expect("越权写入应返回响应");
+    assert_eq!(escaped.status(), StatusCode::FORBIDDEN);
+
+    let listed = app
+        .oneshot(authorized_request(Method::GET, "/v1/connections", None))
+        .await
+        .expect("连接审计列表应返回响应");
+    let listed = response_json(listed).await;
+    assert_eq!(listed[0]["readCount"], 1);
+    assert_eq!(listed[0]["writeCount"], 2);
+    assert_eq!(listed[0]["lastScope"], "memory:write");
+    assert_eq!(listed[0]["sendsDataRemote"], false);
+}
+
+/// 验证第三方连接不能通过登记接口获得管理或复习能力。
+#[tokio::test]
+async fn rejects_privileged_external_scopes() {
+    for scope in ["admin", "review"] {
+        let app = test_router([Scope::Admin], None);
+        let response = app
+            .oneshot(json_request(
+                "/v1/connections",
+                json!({
+                    "app_id": "unsafe-app",
+                    "name": "Unsafe App",
+                    "source": "external:unsafe-app",
+                    "scopes": [scope]
+                }),
+            ))
+            .await
+            .expect("越权登记应返回响应");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+}
+
+/// 验证第三方令牌只以摘要持久化，并在服务重启后继续可用和可撤销。
+#[tokio::test]
+async fn persists_external_connections_without_plaintext_token() {
+    let directory = tempfile::tempdir().expect("应创建临时连接目录");
+    let path = directory.path().join("connections.json");
+    let state = ProtocolState::from_shared_with_connection_store(
+        Arc::new(MemoryStore::open_in_memory().expect("应创建内存工作库")),
+        Arc::new(HashEmbedder::default()),
+        CapabilityGrant::new(TOKEN, [Scope::Admin], None),
+        path.clone(),
+    )
+    .expect("应创建带持久化的协议状态");
+    let app = router(state);
+    let registered = app
+        .oneshot(json_request(
+            "/v1/connections",
+            json!({
+                "app_id": "persistent-sdk",
+                "name": "Persistent SDK",
+                "source": "external:persistent-sdk",
+                "scopes": ["memory:read", "search"]
+            }),
+        ))
+        .await
+        .expect("持久化授权应返回响应");
+    let registered = response_json(registered).await;
+    let token = registered["token"].as_str().unwrap().to_owned();
+    let persisted = std::fs::read_to_string(&path).expect("应写入连接存储");
+    assert!(!persisted.contains(&token));
+    assert!(persisted.contains("token_digest"));
+
+    let restored = ProtocolState::from_shared_with_connection_store(
+        Arc::new(MemoryStore::open_in_memory().expect("应创建重启后的内存工作库")),
+        Arc::new(HashEmbedder::default()),
+        CapabilityGrant::new(TOKEN, [Scope::Admin], None),
+        path.clone(),
+    )
+    .expect("应恢复连接存储");
+    let app = router(restored);
+    let searched = app
+        .clone()
+        .oneshot(request_with_token(
+            Method::POST,
+            "/v1/search",
+            &token,
+            Some(json!({"text": "restart", "mode": "hybrid", "limit": 10})),
+        ))
+        .await
+        .expect("恢复后的令牌应返回响应");
+    assert_eq!(searched.status(), StatusCode::OK);
+    let listed = app
+        .oneshot(authorized_request(Method::GET, "/v1/connections", None))
+        .await
+        .expect("恢复后的连接应可管理");
+    assert_eq!(response_json(listed).await[0]["id"], "persistent-sdk");
 }
 
 /// 创建使用内存数据库和测试 capability grant 的协议路由。

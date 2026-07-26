@@ -5,6 +5,7 @@ import type {
   AskResponse,
   ChatMessage,
   ConnectedApp,
+  RegisteredConnection,
   CreateCardRequest,
   GradeResult,
   GenerateCardsRequest,
@@ -348,36 +349,56 @@ export const mockConnectedApps: ConnectedApp[] = [
     id: "app-echo",
     name: "Echo",
     source: "echo",
-    scopes: ["read", "write", "search"],
+    scopes: ["memory:read", "memory:write", "search"],
     lastActiveAt: Date.now() - 7_200_000,
+    createdAt: Date.now() - 30 * 86_400_000,
     memoriesCount: 142,
+    readCount: 37,
+    writeCount: 142,
+    lastScope: "memory:write",
+    sendsDataRemote: false,
     tokenId: "tok-001",
   },
   {
     id: "app-muse",
     name: "Muse",
     source: "muse",
-    scopes: ["read", "write", "search"],
+    scopes: ["memory:write"],
     lastActiveAt: Date.now() - 1_800_000,
+    createdAt: Date.now() - 20 * 86_400_000,
     memoriesCount: 89,
+    readCount: 0,
+    writeCount: 89,
+    lastScope: "memory:write",
+    sendsDataRemote: false,
     tokenId: "tok-002",
   },
   {
     id: "app-quill",
     name: "Quill",
     source: "quill",
-    scopes: ["read", "write", "search"],
+    scopes: ["memory:read", "memory:write", "search"],
     lastActiveAt: Date.now() - 86_400_000,
+    createdAt: Date.now() - 18 * 86_400_000,
     memoriesCount: 56,
+    readCount: 24,
+    writeCount: 56,
+    lastScope: "search",
+    sendsDataRemote: false,
     tokenId: "tok-003",
   },
   {
     id: "app-claude",
     name: "Claude (MCP)",
     source: "external:claude",
-    scopes: ["read", "search"],
+    scopes: ["memory:read", "search"],
     lastActiveAt: Date.now() - 259_200_000,
+    createdAt: Date.now() - 14 * 86_400_000,
     memoriesCount: 12,
+    readCount: 31,
+    writeCount: 0,
+    lastScope: "search",
+    sendsDataRemote: false,
     tokenId: "tok-004",
   },
 ];
@@ -681,6 +702,37 @@ export async function markInboxRead(id: string): Promise<void> {
 export async function listConnectedApps(): Promise<ConnectedApp[]> {
   await delay(200);
   return mockConnectedApps;
+}
+
+/** 浏览器预览中模拟签发一条来源受限的第三方授权。 */
+export async function registerExternalApp(
+  appId: string,
+  name: string,
+  scopes: string[],
+): Promise<RegisteredConnection> {
+  await delay(300);
+  const tokenId = `tok-${crypto.randomUUID()}`;
+  const source = `external:${appId}` as const;
+  mockConnectedApps.unshift({
+    id: appId,
+    name,
+    source,
+    scopes,
+    lastActiveAt: Date.now(),
+    createdAt: Date.now(),
+    memoriesCount: 0,
+    readCount: 0,
+    writeCount: 0,
+    lastScope: null,
+    sendsDataRemote: false,
+    tokenId,
+  });
+  return {
+    tokenId,
+    token: `nx_${crypto.randomUUID().replaceAll("-", "")}`,
+    scopes,
+    source,
+  };
 }
 
 export async function revokeApp(tokenId: string): Promise<void> {

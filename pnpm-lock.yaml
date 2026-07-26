@@ -100,9 +100,21 @@ importers:
 
   packages/protocol-client: {}
 
+  packages/sdk-ts:
+    dependencies:
+      '@nexus/protocol-client':
+        specifier: workspace:*
+        version: link:../protocol-client
+
   packages/shared: {}
 
   packages/ui: {}
+
+  sdk/mcp-server:
+    dependencies:
+      '@nexus/sdk-ts':
+        specifier: workspace:*
+        version: link:../../packages/sdk-ts
 
 packages:
 

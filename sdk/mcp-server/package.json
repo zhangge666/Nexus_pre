@@ -1,0 +1,21 @@
+{
+  "name": "@nexus/mcp-server",
+  "version": "0.1.0",
+  "description": "将 Nexus 记忆库暴露为 Model Context Protocol 工具。",
+  "type": "module",
+  "bin": {
+    "nexus-mcp": "./src/index.mjs"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node --check src/index.mjs",
+    "check": "node --check src/index.mjs",
+    "test": "pnpm --filter @nexus/sdk-ts build && node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@nexus/sdk-ts": "workspace:*"
+  }
+}

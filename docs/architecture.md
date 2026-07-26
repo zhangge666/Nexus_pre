@@ -94,13 +94,16 @@ nexus/
 ├── packages/                     # 共享前端包 (pnpm workspace)
 │   ├── ui/                       # @nexus/ui 设计系统与组件
 │   ├── protocol-client/          # @nexus/protocol-client 协议 TS 客户端
+│   ├── sdk-ts/                   # @nexus/sdk-ts 第三方公开 SDK
 │   ├── editor/                   # @nexus/editor 共享编辑器（Quill/Muse 复用）
 │   └── shared/                   # 类型、工具、i18n
 │
 ├── sdk/                          # 外联 SDK（供第三方使用）
-│   ├── sdk-ts/
-│   ├── sdk-python/
+│   ├── python/                   # nexus-sdk 与 nexus CLI
 │   └── mcp-server/               # 面向 AI 助手的 MCP 服务
+│
+├── extensions/
+│   └── clipper/                  # Manifest V3 + Native Messaging 剪藏器
 │
 └── docs/
 ```

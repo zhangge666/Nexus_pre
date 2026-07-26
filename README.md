@@ -95,6 +95,7 @@ docs/
 ├── design-system.md         设计系统 · 暗色高级简约（Linear 风）token 与规范
 ├── roadmap.md               开发路线图与里程碑
 ├── m5-mobile.md             M5 Android 移动端方案与 iOS 最终阶段边界
+├── m6-outreach.md           M6 外联实现、接入、安全模型与验收
 └── apps/
     ├── echo.md              屏幕记忆 · 功能说明 + 开发文档
     ├── muse.md              灵感捕捉 · 功能说明 + 开发文档
@@ -111,3 +112,4 @@ docs/
 - 想知道**界面长什么样、如何统一风格** → [design-system.md](docs/design-system.md)
 - 想知道**先做什么后做什么** → [roadmap.md](docs/roadmap.md)
 - 想了解**移动端怎么做、界面如何适配** → [m5-mobile.md](docs/m5-mobile.md)
+- 想接入 **SDK、MCP 或浏览器剪藏** → [m6-outreach.md](docs/m6-outreach.md)
