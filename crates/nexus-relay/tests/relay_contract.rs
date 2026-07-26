@@ -8,13 +8,15 @@ use axum::{
     http::{Request, StatusCode, header},
 };
 use http_body_util::BodyExt;
-use nexus_core::{
-    DeviceIdentity, OperationKind, PairingOffer, PlainSyncOperation, SyncKey, VersionVector,
-};
 use nexus_relay::{
     ApprovePairingRequest, BootstrapDeviceRequest, CreatePairingRequest,
-    FetchPairingPackageRequest, PairingDeviceRequest, RelayState, RevokeDeviceRequest,
-    approve_pairing_action, bootstrap_message, create_device_proof, pairing_request_message,
+    FetchPairingPackageRequest, PairingDeviceRequest, RecoverDeviceRequest, RelayState,
+    RevokeDeviceRequest, approve_pairing_action, bootstrap_message, create_device_proof,
+    pairing_request_message, recover_device_message, recovery_registration_message,
+};
+use nexus_sync::{
+    DeviceIdentity, EncryptedSyncEnvelope, OperationKind, PairingOffer, PlainSyncOperation,
+    SyncKey, VersionVector, VersionedRecord,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -68,9 +70,14 @@ async fn bootstrap(app: &Router, key: &SyncKey, identity: &DeviceIdentity, name:
         device_id: identity.device_id().into(),
         name: name.into(),
         public_key: identity.public_key().into(),
+        recovery_public_key: key.recovery_public_key().unwrap(),
         signature: String::new(),
+        recovery_signature: String::new(),
     };
     request.signature = identity.sign(bootstrap_message(&request).as_bytes());
+    request.recovery_signature = key
+        .sign_recovery_claim(recovery_registration_message(&request).as_bytes())
+        .unwrap();
     let (status, _) = json_request(app, "POST", "/v1/sync/devices/bootstrap", Some(&request)).await;
     assert_eq!(status, StatusCode::CREATED);
 }
@@ -265,6 +272,25 @@ async fn pairs_and_revokes_signed_devices() {
         .unwrap();
     assert_eq!(recovered.to_bytes(), key.to_bytes());
 
+    let recovered_device = DeviceIdentity::generate("android-recovered").unwrap();
+    let mut recovery = RecoverDeviceRequest {
+        workspace_id: key.workspace_id(),
+        device_id: recovered_device.device_id().into(),
+        name: "恢复设备".into(),
+        public_key: recovered_device.public_key().into(),
+        device_signature: String::new(),
+        recovery_signature: String::new(),
+    };
+    let recovery_message = recover_device_message(&recovery);
+    recovery.device_signature = recovered_device.sign(recovery_message.as_bytes());
+    recovery.recovery_signature = key
+        .sign_recovery_claim(recovery_message.as_bytes())
+        .unwrap();
+    let (status, restored) =
+        json_request(&app, "POST", "/v1/sync/devices/recover", Some(&recovery)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(restored["deviceId"], recovered_device.device_id());
+
     let revoke_action = format!(
         "device:revoke:{}:{}",
         key.workspace_id(),
@@ -294,6 +320,139 @@ async fn pairs_and_revokes_signed_devices() {
     let envelope = key.encrypt_operation(&unauthorized, &mobile).unwrap();
     let (status, _) = json_request(&app, "POST", "/v1/sync/changes", Some(&envelope)).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// 验证双设备并发写入能在客户端确定性收敛，且墓碑必须等待全部有效设备确认。
+#[tokio::test]
+async fn converges_concurrent_devices_and_waits_for_all_tombstone_acks() {
+    let app = nexus_relay::router(RelayState::in_memory(TOKEN).unwrap());
+    let key = SyncKey::generate();
+    let primary = DeviceIdentity::generate("desktop-primary").unwrap();
+    let mobile = DeviceIdentity::generate("android-secondary").unwrap();
+    bootstrap(&app, &key, &primary, "桌面主设备").await;
+
+    let mut recovery = RecoverDeviceRequest {
+        workspace_id: key.workspace_id(),
+        device_id: mobile.device_id().into(),
+        name: "Android 手机".into(),
+        public_key: mobile.public_key().into(),
+        device_signature: String::new(),
+        recovery_signature: String::new(),
+    };
+    let recovery_message = recover_device_message(&recovery);
+    recovery.device_signature = mobile.sign(recovery_message.as_bytes());
+    recovery.recovery_signature = key
+        .sign_recovery_claim(recovery_message.as_bytes())
+        .unwrap();
+    let (status, _) = json_request(&app, "POST", "/v1/sync/devices/recover", Some(&recovery)).await;
+    assert_eq!(status, StatusCode::CREATED);
+
+    let mut primary_version = VersionVector::default();
+    let mut mobile_version = VersionVector::default();
+    let primary_write = operation(
+        &primary,
+        &mut primary_version,
+        "memory-concurrent",
+        OperationKind::Upsert,
+    );
+    let mut mobile_write = operation(
+        &mobile,
+        &mut mobile_version,
+        "memory-concurrent",
+        OperationKind::Upsert,
+    );
+    mobile_write.payload = Some(serde_json::json!({"content": "android concurrent payload"}));
+    for (identity, operation) in [(&primary, &primary_write), (&mobile, &mobile_write)] {
+        let envelope = key.encrypt_operation(operation, identity).unwrap();
+        let (status, _) = json_request(&app, "POST", "/v1/sync/changes", Some(&envelope)).await;
+        assert_eq!(status, StatusCode::CREATED);
+    }
+
+    let (status, pulled) = json_request::<Value>(
+        &app,
+        "GET",
+        &pull_uri(&key, &mobile, 0, 200, "concurrent-pull-nonce1"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let operations = pulled["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|change| {
+            let envelope: EncryptedSyncEnvelope =
+                serde_json::from_value(change["envelope"].clone()).unwrap();
+            let public_key = if envelope.device_id == primary.device_id() {
+                primary.public_key()
+            } else {
+                mobile.public_key()
+            };
+            key.decrypt_operation(&envelope, public_key).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let to_record = |operation: &PlainSyncOperation| VersionedRecord {
+        value: operation.payload.clone(),
+        version: operation.version.clone(),
+        device_id: operation.device_id.clone(),
+        modified_at: operation.created_at,
+        conflicts: Vec::new(),
+    };
+    let forward = to_record(&operations[0])
+        .merge(to_record(&operations[1]))
+        .record;
+    let reverse = to_record(&operations[1])
+        .merge(to_record(&operations[0]))
+        .record;
+    assert_eq!(forward, reverse);
+    assert_eq!(forward.conflicts.len(), 1);
+
+    primary_version.merge(&mobile_version);
+    let primary_sequence = primary_version.observe(primary.device_id(), 2).unwrap();
+    let tombstone = PlainSyncOperation {
+        operation_id: Uuid::now_v7(),
+        entity_id: "memory-concurrent".into(),
+        device_id: primary.device_id().into(),
+        device_sequence: primary_sequence,
+        version: primary_version,
+        kind: OperationKind::Tombstone,
+        payload: None,
+        created_at: 1_700_000_000_100,
+    };
+    let envelope = key.encrypt_operation(&tombstone, &primary).unwrap();
+    let (status, deleted) = json_request(&app, "POST", "/v1/sync/changes", Some(&envelope)).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(deleted["removedCiphertexts"], 2);
+    assert_eq!(deleted["cursor"], 3);
+
+    let primary_action = format!("changes:ack:{}:3", key.workspace_id());
+    let primary_ack = serde_json::json!({
+        "workspaceId": key.workspace_id(),
+        "cursor": 3,
+        "proof": create_device_proof(&primary, &primary_action, "primary-ack-nonce01")
+    });
+    let (_, first_ack) = json_request(&app, "POST", "/v1/sync/ack", Some(&primary_ack)).await;
+    assert_eq!(first_ack["removedTombstones"], 0);
+
+    let (status, still_visible) = json_request::<Value>(
+        &app,
+        "GET",
+        &pull_uri(&key, &mobile, 0, 200, "tombstone-pull-nonce1"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(still_visible["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(still_visible["changes"][0]["envelope"]["kind"], "tombstone");
+
+    let mobile_action = format!("changes:ack:{}:3", key.workspace_id());
+    let mobile_ack = serde_json::json!({
+        "workspaceId": key.workspace_id(),
+        "cursor": 3,
+        "proof": create_device_proof(&mobile, &mobile_action, "mobile-ack-nonce0001")
+    });
+    let (_, final_ack) = json_request(&app, "POST", "/v1/sync/ack", Some(&mobile_ack)).await;
+    assert_eq!(final_ack["removedTombstones"], 1);
 }
 
 /// 确认墓碑被全部设备确认后，持久化快照不再保留任何操作密文。

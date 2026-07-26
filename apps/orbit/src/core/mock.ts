@@ -5,6 +5,12 @@ import type {
   AskResponse,
   ChatMessage,
   ConnectedApp,
+  E2eContentStatus,
+  E2eDevice,
+  E2ePairingJoin,
+  E2ePairingOffer,
+  E2ePairingStatus,
+  E2eStatus,
   RegisteredConnection,
   CreateCardRequest,
   GradeResult,
@@ -562,6 +568,14 @@ export async function updateMemory(
   return mockMemories[idx];
 }
 
+/** 浏览器预览中删除一条 mock 记忆。 */
+export async function deleteMemory(id: string): Promise<void> {
+  await delay(150);
+  const index = mockMemories.findIndex((memory) => memory.id === id);
+  if (index === -1) throw new Error(`Memory ${id} not found`);
+  mockMemories.splice(index, 1);
+}
+
 export async function getReviewQueue(): Promise<ReviewCard[]> {
   await delay(300);
   return mockReviewCards.filter((c) => c.dueAt <= Date.now());
@@ -681,6 +695,161 @@ export async function disconnectRemote(): Promise<void> {
 /** 浏览器预览中模拟保存系统复习提醒。 */
 export async function configureReviewReminder(_enabled: boolean, _reminderTime: string): Promise<void> {
   await delay(100);
+}
+
+let mockE2eStatus: E2eStatus = {
+  configured: false,
+  workspaceId: null,
+  deviceId: null,
+  pendingJoin: false,
+  outgoingPairing: false,
+};
+
+const mockE2eDevices: E2eDevice[] = [];
+
+/** 浏览器预览中返回 E2E 设备身份状态。 */
+export async function getE2eStatus(): Promise<E2eStatus> {
+  await delay(100);
+  return { ...mockE2eStatus };
+}
+
+/** 浏览器预览中返回稳定的本地副本同步状态。 */
+export async function getE2eContentStatus(): Promise<E2eContentStatus> {
+  await delay(80);
+  return {
+    cursor: mockMemories.length,
+    pendingChanges: 0,
+    conflictCount: mockMemories.reduce((total, memory) => total + (memory.conflictCount ?? 0), 0),
+    lastSyncAt: Date.now(),
+  };
+}
+
+/** 浏览器预览中模拟立即完成一次密文增量同步。 */
+export async function syncE2eContent(): Promise<E2eContentStatus> {
+  await delay(180);
+  return getE2eContentStatus();
+}
+
+/** 浏览器预览中模拟创建首个 E2E 工作区。 */
+export async function initializeE2e(deviceName: string): Promise<E2eStatus> {
+  await delay(250);
+  const deviceId = `android-${crypto.randomUUID().replaceAll("-", "")}`;
+  mockE2eStatus = {
+    configured: true,
+    workspaceId: crypto.randomUUID().replaceAll("-", ""),
+    deviceId,
+    pendingJoin: false,
+    outgoingPairing: false,
+  };
+  mockE2eDevices.push({
+    workspaceId: mockE2eStatus.workspaceId ?? "preview",
+    deviceId,
+    name: deviceName,
+    publicKey: "preview-ed25519-public-key",
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+    revokedAt: null,
+    lastSequence: 0,
+    acknowledgedCursor: 0,
+  });
+  return { ...mockE2eStatus };
+}
+
+/** 浏览器预览中模拟使用恢复短语登记设备。 */
+export async function restoreE2e(_recoveryPhrase: string, deviceName: string): Promise<E2eStatus> {
+  return initializeE2e(deviceName);
+}
+
+/** 浏览器预览中返回不可用于真实恢复的示例短语。 */
+export async function getRecoveryPhrase(): Promise<string> {
+  await delay(100);
+  return "abandon ".repeat(23) + "art";
+}
+
+/** 浏览器预览中模拟创建配对二维码。 */
+export async function createE2ePairingOffer(): Promise<E2ePairingOffer> {
+  await delay(200);
+  mockE2eStatus = { ...mockE2eStatus, outgoingPairing: true };
+  return {
+    sessionId: crypto.randomUUID(),
+    pairingUri: "nexus://pair?version=1&session=preview&workspace=preview&secret=preview",
+    qrDataUrl: "",
+    verificationCode: "482731",
+    expiresAt: Date.now() + 600_000,
+  };
+}
+
+/** 浏览器预览中返回待批准配对状态。 */
+export async function getE2ePairingStatus(): Promise<E2ePairingStatus> {
+  await delay(100);
+  return {
+    sessionId: "preview",
+    expiresAt: Date.now() + 600_000,
+    pendingDevice: null,
+    approved: false,
+    consumed: false,
+  };
+}
+
+/** 浏览器预览中模拟提交新设备配对申请。 */
+export async function requestE2ePairing(
+  _pairingUri: string,
+  _deviceName: string,
+): Promise<E2ePairingJoin> {
+  await delay(200);
+  mockE2eStatus = { ...mockE2eStatus, pendingJoin: true };
+  return {
+    deviceId: `android-${crypto.randomUUID().replaceAll("-", "")}`,
+    verificationCode: "482731",
+    waitingForApproval: true,
+  };
+}
+
+/** 浏览器预览中模拟批准配对设备。 */
+export async function approveE2ePairing(): Promise<E2eDevice> {
+  await delay(200);
+  const device: E2eDevice = {
+    workspaceId: mockE2eStatus.workspaceId ?? "preview",
+    deviceId: `android-${crypto.randomUUID().replaceAll("-", "")}`,
+    name: "新 Android 设备",
+    publicKey: "preview-ed25519-public-key",
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+    revokedAt: null,
+    lastSequence: 0,
+    acknowledgedCursor: 0,
+  };
+  mockE2eDevices.push(device);
+  mockE2eStatus = { ...mockE2eStatus, outgoingPairing: false };
+  return device;
+}
+
+/** 浏览器预览中模拟领取配对包。 */
+export async function completeE2ePairing(): Promise<E2eStatus> {
+  await delay(200);
+  mockE2eStatus = {
+    ...mockE2eStatus,
+    configured: true,
+    pendingJoin: false,
+    workspaceId: mockE2eStatus.workspaceId ?? "preview",
+    deviceId: mockE2eStatus.deviceId ?? "android-preview",
+  };
+  return { ...mockE2eStatus };
+}
+
+/** 浏览器预览中列出 E2E 设备。 */
+export async function listE2eDevices(): Promise<E2eDevice[]> {
+  await delay(100);
+  return mockE2eDevices.map((device) => ({ ...device }));
+}
+
+/** 浏览器预览中模拟撤销 E2E 设备。 */
+export async function revokeE2eDevice(deviceId: string): Promise<E2eDevice> {
+  await delay(150);
+  const device = mockE2eDevices.find((item) => item.deviceId === deviceId);
+  if (!device) throw new Error("设备不存在");
+  device.revokedAt = Date.now();
+  return { ...device };
 }
 
 export async function addMemoryToCollection(collectionId: string, memoryId: string): Promise<void> {

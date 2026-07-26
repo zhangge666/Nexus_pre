@@ -5,7 +5,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { BrainCircuit, House, MessageCircle, Search, Settings } from "lucide-react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { InspectorPanel, InspectorProvider } from "./components/Inspector";
-import { getSettings } from "./core";
+import { getE2eStatus, getSettings } from "./core";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SearchPage = lazy(() => import("./pages/SearchPage"));
@@ -28,11 +28,19 @@ const MOBILE_TABS = [
 
 /** 首次启动时根据 Keystore 中是否存在连接令牌选择工作台或连接设置。 */
 function MobileLanding(): React.JSX.Element {
-  const [target, setTarget] = useState<"/today" | "/settings" | null>(null);
+  const [target, setTarget] = useState<"/today" | "/settings" | "/settings?section=security" | null>(null);
 
   useEffect(() => {
     void getSettings()
-      .then((settings) => setTarget(settings.sync.hasAccessToken ? "/today" : "/settings"))
+      .then(async (settings) => {
+        if (!settings.sync.hasAccessToken) return "/settings" as const;
+        if (settings.sync.mode === "e2e_cloud") {
+          const e2e = await getE2eStatus();
+          if (!e2e.configured) return "/settings?section=security" as const;
+        }
+        return "/today" as const;
+      })
+      .then(setTarget)
       .catch(() => setTarget("/settings"));
   }, []);
 
@@ -43,6 +51,29 @@ function MobileLanding(): React.JSX.Element {
 
 /** 渲染 Android 全屏工作区，并将常用入口固定在系统安全区上方。 */
 function MobileShell(): React.JSX.Element {
+  const [zeroKnowledgeMode, setZeroKnowledgeMode] = useState(false);
+
+  useEffect(() => {
+    /** E2E 中继不接触明文，因此只展示已经由本地加密副本完整承载的主导航。 */
+    function refreshMode(): void {
+      void getSettings()
+        .then((settings) => setZeroKnowledgeMode(settings.sync.mode === "e2e_cloud"))
+        .catch(() => setZeroKnowledgeMode(false));
+    }
+
+    refreshMode();
+    window.addEventListener("focus", refreshMode);
+    window.addEventListener("orbit-settings-changed", refreshMode);
+    return () => {
+      window.removeEventListener("focus", refreshMode);
+      window.removeEventListener("orbit-settings-changed", refreshMode);
+    };
+  }, []);
+
+  const tabs = zeroKnowledgeMode
+    ? MOBILE_TABS.filter((tab) => tab.to !== "/review" && tab.to !== "/ask")
+    : MOBILE_TABS;
+
   return (
     <div className="mobile-root">
       <main className="mobile-workspace">
@@ -69,7 +100,7 @@ function MobileShell(): React.JSX.Element {
       <InspectorPanel />
 
       <nav className="mobile-tabbar" aria-label="Android 主导航">
-        {MOBILE_TABS.map(({ to, label, icon: Icon }) => (
+        {tabs.map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className={({ isActive }) => `mobile-tab${isActive ? " active" : ""}`}>
             <Icon size={20} aria-hidden="true" />
             <span>{label}</span>

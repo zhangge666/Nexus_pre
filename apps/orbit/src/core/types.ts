@@ -32,6 +32,8 @@ export interface MemorySummary {
   updatedAt: number;
   capturedAt: number | null;
   links: Link[];
+  /** E2E 并发合并保留的未胜出版本数量。 */
+  conflictCount?: number;
 }
 
 /** 检索命中（块级） */
@@ -199,6 +201,61 @@ export interface RegisteredConnection {
   token: string;
   scopes: string[];
   source: `external:${string}`;
+}
+
+/** Android Keystore 中 E2E 根密钥与设备身份的公开状态。 */
+export interface E2eStatus {
+  configured: boolean;
+  workspaceId: string | null;
+  deviceId: string | null;
+  pendingJoin: boolean;
+  outgoingPairing: boolean;
+}
+
+/** Android 加密本地副本的增量同步状态。 */
+export interface E2eContentStatus {
+  cursor: number;
+  pendingChanges: number;
+  conflictCount: number;
+  lastSyncAt: number | null;
+}
+
+/** 已连接设备创建的 E2E 配对二维码。 */
+export interface E2ePairingOffer {
+  sessionId: string;
+  pairingUri: string;
+  qrDataUrl: string;
+  verificationCode: string;
+  expiresAt: number;
+}
+
+/** 中继登记的 E2E 设备公开信息。 */
+export interface E2eDevice {
+  workspaceId: string;
+  deviceId: string;
+  name: string;
+  publicKey: string;
+  createdAt: number;
+  lastSeenAt: number;
+  revokedAt: number | null;
+  lastSequence: number;
+  acknowledgedCursor: number;
+}
+
+/** 已连接设备读取的配对申请状态。 */
+export interface E2ePairingStatus {
+  sessionId: string;
+  expiresAt: number;
+  pendingDevice: E2eDevice | null;
+  approved: boolean;
+  consumed: boolean;
+}
+
+/** 新设备提交二维码配对申请后的等待状态。 */
+export interface E2ePairingJoin {
+  deviceId: string;
+  verificationCode: string;
+  waitingForApproval: boolean;
 }
 
 /** 集合 */

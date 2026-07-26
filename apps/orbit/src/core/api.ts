@@ -7,6 +7,12 @@ import type {
   AskRequest,
   AskResponse,
   ConnectedApp,
+  E2eDevice,
+  E2eContentStatus,
+  E2ePairingJoin,
+  E2ePairingOffer,
+  E2ePairingStatus,
+  E2eStatus,
   RegisteredConnection,
   CreateCardRequest,
   GenerateCardsRequest,
@@ -58,6 +64,11 @@ export async function updateMemory(
   content: string
 ): Promise<MemorySummary> {
   return invoke<MemorySummary>("update_memory", { id, title, content });
+}
+
+/** 删除记忆；E2E 模式由原生层生成并同步墓碑。 */
+export async function deleteMemory(id: string): Promise<void> {
+  return invoke<void>("delete_memory", { id });
 }
 
 /** 读取本地 Memory Protocol 的可用性与当前服务持有角色。 */
@@ -199,4 +210,72 @@ export async function disconnectRemote(): Promise<void> {
 /** 将复习提醒配置同步到 Android 系统通知调度器。 */
 export async function configureReviewReminder(enabled: boolean, reminderTime: string): Promise<void> {
   return invoke<void>("configure_review_reminder", { enabled, reminderTime });
+}
+
+/** 返回 Android Keystore 中 E2E 根密钥和设备身份状态。 */
+export async function getE2eStatus(): Promise<E2eStatus> {
+  return invoke<E2eStatus>("get_e2e_status");
+}
+
+/** 立即完成一轮 Android E2E 密文增量同步。 */
+export async function syncE2eContent(): Promise<E2eContentStatus> {
+  return invoke<E2eContentStatus>("sync_e2e_content");
+}
+
+/** 读取 Android E2E 加密副本的本地进度。 */
+export async function getE2eContentStatus(): Promise<E2eContentStatus> {
+  return invoke<E2eContentStatus>("get_e2e_content_status");
+}
+
+/** 创建首个 E2E 工作区和 Android 签名设备。 */
+export async function initializeE2e(deviceName: string): Promise<E2eStatus> {
+  return invoke<E2eStatus>("initialize_e2e", { deviceName });
+}
+
+/** 使用 24 词 BIP39 短语恢复 E2E 工作区。 */
+export async function restoreE2e(recoveryPhrase: string, deviceName: string): Promise<E2eStatus> {
+  return invoke<E2eStatus>("restore_e2e", { recoveryPhrase, deviceName });
+}
+
+/** 读取当前 E2E 根密钥对应的恢复短语。 */
+export async function getRecoveryPhrase(): Promise<string> {
+  return invoke<string>("get_recovery_phrase");
+}
+
+/** 创建含一次性秘密的 E2E 配对二维码。 */
+export async function createE2ePairingOffer(): Promise<E2ePairingOffer> {
+  return invoke<E2ePairingOffer>("create_e2e_pairing_offer");
+}
+
+/** 查询当前设备创建的配对会话状态。 */
+export async function getE2ePairingStatus(): Promise<E2ePairingStatus> {
+  return invoke<E2ePairingStatus>("get_e2e_pairing_status");
+}
+
+/** 使用二维码 URI 创建新设备加入申请。 */
+export async function requestE2ePairing(
+  pairingUri: string,
+  deviceName: string,
+): Promise<E2ePairingJoin> {
+  return invoke<E2ePairingJoin>("request_e2e_pairing", { pairingUri, deviceName });
+}
+
+/** 批准当前配对会话中的新设备。 */
+export async function approveE2ePairing(): Promise<E2eDevice> {
+  return invoke<E2eDevice>("approve_e2e_pairing");
+}
+
+/** 新设备领取配对包并将根密钥写入 Android Keystore。 */
+export async function completeE2ePairing(): Promise<E2eStatus> {
+  return invoke<E2eStatus>("complete_e2e_pairing");
+}
+
+/** 列出当前 E2E 工作区登记的设备。 */
+export async function listE2eDevices(): Promise<E2eDevice[]> {
+  return invoke<E2eDevice[]>("list_e2e_devices");
+}
+
+/** 撤销指定 E2E 设备。 */
+export async function revokeE2eDevice(deviceId: string): Promise<E2eDevice> {
+  return invoke<E2eDevice>("revoke_e2e_device", { deviceId });
 }

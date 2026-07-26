@@ -25,11 +25,14 @@ interface TodayInspectorProps {
 /** 显示数据规模与本地服务健康度，作为工作台右侧的基础诊断内容。 */
 function TodayInspector({ collectionCount, totalMemories, status }: TodayInspectorProps): React.JSX.Element {
   const remote = status?.role === "remote";
-  const serviceText = status?.available ? `${remote ? "远程" : "本地"}服务已连接` : status?.message ?? "正在检查记忆服务";
+  const zeroKnowledge = status?.message?.includes("E2E 零知识中继") ?? false;
+  const serviceText = status?.available
+    ? zeroKnowledge ? "E2E 零知识中继已连接" : `${remote ? "远程" : "本地"}服务已连接`
+    : status?.message ?? "正在检查记忆服务";
   return (
     <div className="today-inspector">
       <section className="inspector-section">
-        <div className="review-inspector-title"><Database size={14} /><span>{remote ? "远程记忆服务" : "本地记忆库"}</span></div>
+        <div className="review-inspector-title"><Database size={14} /><span>{zeroKnowledge ? "本机加密副本" : remote ? "远程记忆服务" : "本地记忆库"}</span></div>
         <div className="review-detail-grid">
           <div className="review-detail-row"><span>已保存记忆</span><strong>{totalMemories} 条</strong></div>
           <div className="review-detail-row"><span>集合</span><strong>{collectionCount} 个</strong></div>
@@ -38,7 +41,7 @@ function TodayInspector({ collectionCount, totalMemories, status }: TodayInspect
       <section className="inspector-section">
         <div className="review-inspector-title"><span>服务诊断</span></div>
         <p className="inspector-answer">{serviceText}</p>
-        {status && <p className="inspector-question">{status.role === "holder" ? "当前 Orbit 正在持有本地服务。" : status.role === "remote" ? "当前 Android 客户端通过 HTTPS 连接远程记忆服务。" : "当前 Orbit 已连接到另一实例持有的本地服务。"}</p>}
+        {status && <p className="inspector-question">{status.role === "holder" ? "当前 Orbit 正在持有本地服务。" : zeroKnowledge ? "内容在本机解密，中继只接收设备签名密文。" : status.role === "remote" ? "当前 Android 客户端通过 HTTPS 连接远程记忆服务。" : "当前 Orbit 已连接到另一实例持有的本地服务。"}</p>}
       </section>
     </div>
   );

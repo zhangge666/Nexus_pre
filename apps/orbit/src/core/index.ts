@@ -25,6 +25,7 @@ import {
   getMemory as _mockGet,
   createMemory as _mockCreate,
   updateMemory as _mockUpdate,
+  deleteMemory as _mockDelete,
   getReviewQueue as _mockQueue,
   getReviewStats as _mockStats,
   gradeCard as _mockGrade,
@@ -46,6 +47,19 @@ import {
   generateCards as _mockGenerateCards,
   disconnectRemote as _mockDisconnectRemote,
   configureReviewReminder as _mockConfigureReviewReminder,
+  getE2eStatus as _mockGetE2eStatus,
+  getE2eContentStatus as _mockGetE2eContentStatus,
+  syncE2eContent as _mockSyncE2eContent,
+  initializeE2e as _mockInitializeE2e,
+  restoreE2e as _mockRestoreE2e,
+  getRecoveryPhrase as _mockGetRecoveryPhrase,
+  createE2ePairingOffer as _mockCreateE2ePairingOffer,
+  getE2ePairingStatus as _mockGetE2ePairingStatus,
+  requestE2ePairing as _mockRequestE2ePairing,
+  approveE2ePairing as _mockApproveE2ePairing,
+  completeE2ePairing as _mockCompleteE2ePairing,
+  listE2eDevices as _mockListE2eDevices,
+  revokeE2eDevice as _mockRevokeE2eDevice,
 } from "./mock";
 
 // ===== 惰性路由包装 =====
@@ -72,6 +86,7 @@ export const listMemories       = makeFn("listMemories",       _mockList);
 export const getMemory          = makeFn("getMemory",          _mockGet);
 export const createMemory       = makeFn("createMemory",       _mockCreate);
 export const updateMemory       = makeFn("updateMemory",       _mockUpdate);
+export const deleteMemory       = makeFn("deleteMemory",       _mockDelete);
 export const getReviewQueue     = makeFn("getReviewQueue",     _mockQueue);
 export const getReviewStats     = makeFn("getReviewStats",     _mockStats);
 export const gradeCard          = makeFn("gradeCard",          _mockGrade);
@@ -93,6 +108,19 @@ export const createCard         = makeFn("createCard",         _mockCreateCard);
 export const generateCards      = makeFn("generateCards",      _mockGenerateCards);
 export const disconnectRemote   = makeFn("disconnectRemote",   _mockDisconnectRemote);
 export const configureReviewReminder = makeFn("configureReviewReminder", _mockConfigureReviewReminder);
+export const getE2eStatus = makeFn("getE2eStatus", _mockGetE2eStatus);
+export const getE2eContentStatus = makeFn("getE2eContentStatus", _mockGetE2eContentStatus);
+export const syncE2eContent = makeFn("syncE2eContent", _mockSyncE2eContent);
+export const initializeE2e = makeFn("initializeE2e", _mockInitializeE2e);
+export const restoreE2e = makeFn("restoreE2e", _mockRestoreE2e);
+export const getRecoveryPhrase = makeFn("getRecoveryPhrase", _mockGetRecoveryPhrase);
+export const createE2ePairingOffer = makeFn("createE2ePairingOffer", _mockCreateE2ePairingOffer);
+export const getE2ePairingStatus = makeFn("getE2ePairingStatus", _mockGetE2ePairingStatus);
+export const requestE2ePairing = makeFn("requestE2ePairing", _mockRequestE2ePairing);
+export const approveE2ePairing = makeFn("approveE2ePairing", _mockApproveE2ePairing);
+export const completeE2ePairing = makeFn("completeE2ePairing", _mockCompleteE2ePairing);
+export const listE2eDevices = makeFn("listE2eDevices", _mockListE2eDevices);
+export const revokeE2eDevice = makeFn("revokeE2eDevice", _mockRevokeE2eDevice);
 
 /** 获取集合成员；浏览器预览将按现有 mock 列表返回，便于页面结构预览。 */
 export async function listCollectionMemories(collectionId: string): Promise<import("./types").MemorySummary[]> {

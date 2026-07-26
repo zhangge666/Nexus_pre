@@ -1,15 +1,16 @@
 /** 本文件实现 Orbit 的设置工作台，集中管理搜索、问答、复习、关联与外观偏好。 */
 import type React from "react";
 import { useEffect, useState } from "react";
-import { BrainCircuit, Cloud, Info, Layers, Link2, MessageCircle, Palette, Search } from "lucide-react";
+import { BrainCircuit, Cloud, Info, Layers, Link2, MessageCircle, Palette, Search, ShieldCheck } from "lucide-react";
 import { configureReviewReminder, disconnectRemote, getSettings, saveSettings } from "../core";
 import type { OrbitSettings } from "../core";
+import { E2eSecuritySection } from "../components/E2eSecuritySection";
 import { useInspector } from "../components/Inspector";
 import { PageLayout } from "../components/PageLayout";
 import { Topbar } from "../components/Topbar";
 import { isAndroidPlatform } from "../platform";
 
-type SettingsSection = "search" | "rag" | "cards" | "review" | "links" | "sync" | "appearance" | "about";
+type SettingsSection = "search" | "rag" | "cards" | "review" | "links" | "sync" | "security" | "appearance" | "about";
 
 interface SettingsSectionMeta {
   key: SettingsSection;
@@ -25,6 +26,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
   review: { key: "review", label: "复习调度", description: "配置间隔复习算法、每日限额与到期提醒。", icon: <BrainCircuit size={15} /> },
   links: { key: "links", label: "关联", description: "控制自动关联、去重提示与知识图谱密度。", icon: <Link2 size={15} /> },
   sync: { key: "sync", label: "移动连接", description: "配置 Android 访问的远程加密记忆服务。", icon: <Cloud size={15} /> },
+  security: { key: "security", label: "端到端加密", description: "管理 E2E 根密钥、恢复短语、设备配对与撤销。", icon: <ShieldCheck size={15} /> },
   appearance: { key: "appearance", label: "外观", description: "选择 Orbit 在当前设备上使用的显示主题。", icon: <Palette size={15} /> },
   about: { key: "about", label: "关于 Orbit", description: "查看版本、数据位置与默认隐私策略。", icon: <Info size={15} /> },
 };
@@ -32,7 +34,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
 const SECTION_GROUPS: { label: string; items: SettingsSection[] }[] = [
   { label: "智能", items: isAndroidPlatform() ? ["search"] : ["search", "rag"] },
   { label: "学习", items: ["cards", "review", "links"] },
-  { label: "应用", items: isAndroidPlatform() ? ["sync", "appearance", "about"] : ["appearance", "about"] },
+  { label: "应用", items: isAndroidPlatform() ? ["sync", "security", "appearance", "about"] : ["appearance", "about"] },
 ];
 
 /** 渲染受控开关，并将状态变化交给设置页统一保存。 */
@@ -74,7 +76,11 @@ function SettingsSectionLayout({ meta, children }: { meta: SettingsSectionMeta; 
 /** 渲染设置分类和内容，并将保存操作明确收束到标题栏。 */
 export default function SettingsPage(): React.JSX.Element {
   const { close: closeInspector } = useInspector();
-  const [section, setSection] = useState<SettingsSection>("search");
+  const [section, setSection] = useState<SettingsSection>(() =>
+    isAndroidPlatform() && new URLSearchParams(window.location.search).get("section") === "security"
+      ? "security"
+      : "search"
+  );
   const [settings, setSettings] = useState<OrbitSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -110,6 +116,7 @@ export default function SettingsPage(): React.JSX.Element {
         }
       }
       setSettings(await getSettings());
+      window.dispatchEvent(new Event("orbit-settings-changed"));
       setSaved(true);
       setDirty(false);
       if (reminderError) {
@@ -214,6 +221,8 @@ export default function SettingsPage(): React.JSX.Element {
       </SettingRow>}
     </SettingsSectionLayout>;
 
+    if (section === "security") return <E2eSecuritySection />;
+
     if (section === "appearance") return <SettingsSectionLayout meta={SECTIONS.appearance}>
       <SettingRow label="主题" id="theme"><div className="radio-group segments-3"><label className={`radio-option${settings.appearance.theme === "dark" ? " active" : ""}`}><input id="theme" type="radio" name="theme" checked={settings.appearance.theme === "dark"} onChange={() => update("appearance", { theme: "dark" })} />暗色</label><label className={`radio-option${settings.appearance.theme === "light" ? " active" : ""}`}><input type="radio" name="theme" checked={settings.appearance.theme === "light"} onChange={() => update("appearance", { theme: "light" })} />亮色</label><label className={`radio-option${settings.appearance.theme === "system" ? " active" : ""}`}><input type="radio" name="theme" checked={settings.appearance.theme === "system"} onChange={() => update("appearance", { theme: "system" })} />跟随系统</label></div></SettingRow>
     </SettingsSectionLayout>;
@@ -221,9 +230,9 @@ export default function SettingsPage(): React.JSX.Element {
     return <SettingsSectionLayout meta={SECTIONS.about}>
       <div className="about-facts">
         <div><span>应用</span><strong>Orbit 0.1.0</strong></div>
-        <div><span>数据</span><strong>{isAndroidPlatform() ? "远程记忆按需缓存到本机加密文件" : "记忆与设置均存储在本机"}</strong></div>
-        <div><span>凭据</span><strong>{isAndroidPlatform() ? "访问令牌由 Android Keystore 保护" : "API Key 使用系统凭据库存放"}</strong></div>
-        <div><span>问答</span><strong>{isAndroidPlatform() ? "由已连接的远程服务提供" : "默认使用本地抽取式回答"}</strong></div>
+        <div><span>数据</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "记忆保存在本机加密副本，中继只存密文" : "远程记忆按需缓存到本机加密文件" : "记忆与设置均存储在本机"}</strong></div>
+        <div><span>凭据</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "访问令牌、根密钥与设备身份由 Android Keystore 保护" : "访问令牌由 Android Keystore 保护" : "API Key 使用系统凭据库存放"}</strong></div>
+        <div><span>问答</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "零知识模式不向中继发送明文上下文" : "由已连接的自托管服务提供" : "默认使用本地抽取式回答"}</strong></div>
       </div>
     </SettingsSectionLayout>;
   }
@@ -240,7 +249,9 @@ export default function SettingsPage(): React.JSX.Element {
           {SECTION_GROUPS.map((group) => (
             <div className="settings-nav-group" key={group.label}>
               <p className="settings-nav-label">{group.label}</p>
-              {group.items.map((key) => {
+              {group.items
+                .filter((key) => key !== "security" || settings.sync.mode === "e2e_cloud")
+                .map((key) => {
                 const item = SECTIONS[key];
                 return <button key={key} className={`settings-nav-item${section === key ? " active" : ""}`} onClick={() => setSection(key)} aria-current={section === key ? "page" : undefined}><span>{item.icon}</span>{item.label}</button>;
               })}

@@ -15,7 +15,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{delete, get, post},
 };
-use nexus_core::{
+use nexus_sync::{
     DeviceIdentity, EncryptedSyncEnvelope, OperationKind, SealedPairingKey, SyncError,
     verify_device_signature,
 };
@@ -210,11 +210,13 @@ pub fn router(state: RelayState) -> Router {
         .route("/health", get(health))
         .route("/v1/sync/capabilities", get(capabilities))
         .route("/v1/sync/devices/bootstrap", post(bootstrap_device))
+        .route("/v1/sync/devices/recover", post(recover_device))
         .route("/v1/sync/devices", get(list_devices))
         .route("/v1/sync/devices/{device_id}", delete(revoke_device))
         .route("/v1/sync/changes", post(push_change).get(pull_changes))
         .route("/v1/sync/ack", post(acknowledge_changes))
         .route("/v1/sync/pairings", post(create_pairing))
+        .route("/v1/sync/pairings/{session_id}", get(get_pairing_status))
         .route(
             "/v1/sync/pairings/{session_id}/request",
             post(request_pairing),
@@ -266,14 +268,23 @@ async fn bootstrap_device(
         bootstrap_message(&request).as_bytes(),
         &request.signature,
     )?;
+    verify_device_signature(
+        &request.recovery_public_key,
+        recovery_registration_message(&request).as_bytes(),
+        &request.recovery_signature,
+    )?;
     let device = state.mutate(|snapshot| {
-        if snapshot
-            .devices
-            .values()
-            .any(|device| device.workspace_id == request.workspace_id)
-        {
+        if snapshot.workspaces.contains_key(&request.workspace_id) {
             return Err(RelayError::Conflict);
         }
+        snapshot.workspaces.insert(
+            request.workspace_id.clone(),
+            RelayWorkspace {
+                workspace_id: request.workspace_id.clone(),
+                recovery_public_key: request.recovery_public_key,
+                created_at: unix_millis(),
+            },
+        );
         let device = RelayDevice {
             workspace_id: request.workspace_id,
             device_id: request.device_id,
@@ -289,6 +300,51 @@ async fn bootstrap_device(
             device_map_key(&device.workspace_id, &device.device_id),
             device.clone(),
         );
+        Ok(device)
+    })?;
+    Ok((StatusCode::CREATED, Json(device)))
+}
+
+/// 使用恢复短语派生签名登记新设备；根密钥和恢复短语始终不上传中继。
+async fn recover_device(
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    Json(request): Json<RecoverDeviceRequest>,
+) -> Result<(StatusCode, Json<RelayDevice>), RelayError> {
+    state.authorize(&headers)?;
+    validate_workspace_id(&request.workspace_id)?;
+    validate_device_fields(&request.device_id, &request.name, &request.public_key)?;
+    verify_device_signature(
+        &request.public_key,
+        recover_device_message(&request).as_bytes(),
+        &request.device_signature,
+    )?;
+    let device = state.mutate(|snapshot| {
+        let workspace = snapshot
+            .workspaces
+            .get(&request.workspace_id)
+            .ok_or(RelayError::NotFound)?;
+        verify_device_signature(
+            &workspace.recovery_public_key,
+            recover_device_message(&request).as_bytes(),
+            &request.recovery_signature,
+        )?;
+        let map_key = device_map_key(&request.workspace_id, &request.device_id);
+        if snapshot.devices.contains_key(&map_key) {
+            return Err(RelayError::Conflict);
+        }
+        let device = RelayDevice {
+            workspace_id: request.workspace_id,
+            device_id: request.device_id,
+            name: request.name,
+            public_key: request.public_key,
+            created_at: unix_millis(),
+            last_seen_at: unix_millis(),
+            revoked_at: None,
+            last_sequence: 0,
+            acknowledged_cursor: 0,
+        };
+        snapshot.devices.insert(map_key, device.clone());
         Ok(device)
     })?;
     Ok((StatusCode::CREATED, Json(device)))
@@ -457,6 +513,9 @@ async fn create_pairing(
                 request.workspace_id, request.session_id
             ),
         )?;
+        if snapshot.pairings.contains_key(&request.session_id) {
+            return Err(RelayError::Conflict);
+        }
         let expires_at = unix_millis() + PAIRING_TTL_MILLIS;
         snapshot.pairings.insert(
             request.session_id,
@@ -478,6 +537,37 @@ async fn create_pairing(
                 expires_at,
             }),
         ))
+    })
+}
+
+/// 返回一次配对会话的待批准设备元数据，不返回或解密任何根密钥材料。
+async fn get_pairing_status(
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    AxumPath(session_id): AxumPath<Uuid>,
+    Query(request): Query<PairingStatusQuery>,
+) -> Result<Json<PairingStatusResponse>, RelayError> {
+    state.authorize(&headers)?;
+    state.inspect(|snapshot| {
+        let proof = request.proof();
+        snapshot.verify_proof(
+            &request.workspace_id,
+            &proof,
+            &format!("pairing:status:{}:{session_id}", request.workspace_id),
+        )?;
+        let session = snapshot
+            .pairings
+            .get(&session_id)
+            .filter(|session| session.workspace_id == request.workspace_id)
+            .ok_or(RelayError::NotFound)?;
+        Ok(Json(PairingStatusResponse {
+            session_id,
+            workspace_id: session.workspace_id.clone(),
+            expires_at: session.expires_at,
+            pending_device: session.pending_device.clone(),
+            approved: session.sealed_key.is_some(),
+            consumed: session.consumed_at.is_some(),
+        }))
     })
 }
 
@@ -583,9 +673,6 @@ async fn fetch_pairing_package(
             .pairings
             .get_mut(&session_id)
             .ok_or(RelayError::NotFound)?;
-        if session.consumed_at.is_some() {
-            return Err(RelayError::NotFound);
-        }
         let pending = session
             .pending_device
             .as_ref()
@@ -599,7 +686,8 @@ async fn fetch_pairing_package(
             &request.signature,
         )?;
         let sealed = session.sealed_key.clone().ok_or(RelayError::NotFound)?;
-        session.consumed_at = Some(unix_millis());
+        // 同一待配对设备可在会话有效期内幂等重取，避免本机 Keystore 写入失败后永久丢失配对包。
+        session.consumed_at.get_or_insert_with(unix_millis);
         Ok(Json(sealed))
     })
 }
@@ -666,8 +754,30 @@ pub struct BootstrapDeviceRequest {
     pub name: String,
     /// Ed25519 公钥。
     pub public_key: String,
+    /// 从同步根密钥域分离派生的恢复签名公钥。
+    pub recovery_public_key: String,
     /// 设备对登记消息的自签名。
     pub signature: String,
+    /// 恢复签名身份对工作区登记消息的签名。
+    pub recovery_signature: String,
+}
+
+/// 使用恢复短语登记新设备的请求。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverDeviceRequest {
+    /// 恢复短语对应的工作区标识。
+    pub workspace_id: String,
+    /// 新设备稳定标识。
+    pub device_id: String,
+    /// 用户可识别设备名称。
+    pub name: String,
+    /// 新设备 Ed25519 公钥。
+    pub public_key: String,
+    /// 新设备对恢复登记消息的签名。
+    pub device_signature: String,
+    /// 根密钥派生恢复身份对同一消息的签名。
+    pub recovery_signature: String,
 }
 
 /// 设备列表查询。
@@ -682,6 +792,29 @@ struct SignedWorkspaceQuery {
 }
 
 impl SignedWorkspaceQuery {
+    /// 将扁平查询字段恢复为统一设备证明。
+    fn proof(&self) -> DeviceProof {
+        DeviceProof {
+            device_id: self.device_id.clone(),
+            timestamp: self.timestamp,
+            nonce: self.nonce.clone(),
+            signature: self.signature.clone(),
+        }
+    }
+}
+
+/// 配对状态读取查询。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PairingStatusQuery {
+    workspace_id: String,
+    device_id: String,
+    timestamp: i64,
+    nonce: String,
+    signature: String,
+}
+
+impl PairingStatusQuery {
     /// 将扁平查询字段恢复为统一设备证明。
     fn proof(&self) -> DeviceProof {
         DeviceProof {
@@ -805,6 +938,18 @@ struct PairingSessionResponse {
     expires_at: i64,
 }
 
+/// 配对会话当前状态。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PairingStatusResponse {
+    session_id: Uuid,
+    workspace_id: String,
+    expires_at: i64,
+    pending_device: Option<PendingDevice>,
+    approved: bool,
+    consumed: bool,
+}
+
 /// 新设备配对申请。
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -839,12 +984,18 @@ pub struct FetchPairingPackageRequest {
     pub signature: String,
 }
 
+/// 表示配对会话中等待现有设备批准的新设备公开信息。
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct PendingDevice {
-    device_id: String,
-    name: String,
-    public_key: String,
-    requested_at: i64,
+#[serde(rename_all = "camelCase")]
+pub struct PendingDevice {
+    /// 待批准设备标识。
+    pub device_id: String,
+    /// 待批准设备展示名称。
+    pub name: String,
+    /// 待批准设备 Ed25519 公钥。
+    pub public_key: String,
+    /// Unix 毫秒申请时间。
+    pub requested_at: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -863,6 +1014,8 @@ struct PairingSession {
 struct RelaySnapshot {
     version: u8,
     cursor: u64,
+    #[serde(default)]
+    workspaces: HashMap<String, RelayWorkspace>,
     devices: HashMap<String, RelayDevice>,
     changes: BTreeMap<u64, StoredEnvelope>,
     pairings: HashMap<Uuid, PairingSession>,
@@ -874,11 +1027,19 @@ impl Default for RelaySnapshot {
         Self {
             version: SNAPSHOT_VERSION,
             cursor: 0,
+            workspaces: HashMap::new(),
             devices: HashMap::new(),
             changes: BTreeMap::new(),
             pairings: HashMap::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct RelayWorkspace {
+    workspace_id: String,
+    recovery_public_key: String,
+    created_at: i64,
 }
 
 impl RelaySnapshot {
@@ -1034,7 +1195,29 @@ impl RelaySnapshot {
 #[must_use]
 pub fn bootstrap_message(request: &BootstrapDeviceRequest) -> String {
     format!(
-        "device:bootstrap:{}:{}:{}:{}",
+        "device:bootstrap:{}:{}:{}:{}:{}",
+        request.workspace_id,
+        request.device_id,
+        request.name,
+        request.public_key,
+        request.recovery_public_key
+    )
+}
+
+/// 返回首台设备登记时恢复签名覆盖的稳定消息。
+#[must_use]
+pub fn recovery_registration_message(request: &BootstrapDeviceRequest) -> String {
+    format!(
+        "workspace:recovery:{}:{}",
+        request.workspace_id, request.recovery_public_key
+    )
+}
+
+/// 返回恢复短语登记新设备时两种身份共同签名的稳定消息。
+#[must_use]
+pub fn recover_device_message(request: &RecoverDeviceRequest) -> String {
+    format!(
+        "device:recover:{}:{}:{}:{}",
         request.workspace_id, request.device_id, request.name, request.public_key
     )
 }

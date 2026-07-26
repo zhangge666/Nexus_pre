@@ -3,6 +3,8 @@
 mod credentials;
 #[cfg(target_os = "android")]
 mod mobile_cache;
+#[cfg(target_os = "android")]
+mod mobile_sync;
 
 use std::{
     fs, io,
@@ -222,6 +224,15 @@ fn copy_directory_if_missing(source: &Path, target: &Path) -> io::Result<()> {
 }
 
 impl OrbitState {
+    /// 判断 Android 是否正在使用只接受签名密文的零知识中继。
+    #[cfg(target_os = "android")]
+    fn uses_e2e_sync(&self) -> Result<bool, String> {
+        self.settings
+            .lock()
+            .map(|settings| json_string(&settings, "/sync/mode") == "e2e_cloud")
+            .map_err(|_| "Orbit 设置状态不可用".to_owned())
+    }
+
     /// 返回当前协议端点；Android 尚未配置远程地址时给出可操作错误。
     fn endpoint(&self) -> Result<String, String> {
         let endpoint = self
@@ -267,6 +278,18 @@ impl OrbitState {
 
     /// 通过本地 Memory Protocol 创建手动记忆。
     async fn create_memory(&self, content: String) -> Result<MemorySummary, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::create_memory(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                content,
+            )
+            .await;
+        }
         let created: CreatedMemory = self
             .send_json(
                 self.client.post(self.protocol_url("/v1/memories")?),
@@ -288,6 +311,19 @@ impl OrbitState {
 
     /// 通过本地 Memory Protocol 执行默认混合检索。
     async fn search_memory(&self, query: String, mode: String) -> Result<Vec<MemoryHit>, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            let _ = mode;
+            return mobile_sync::search_memories(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &query,
+            )
+            .await;
+        }
         let response: SearchResponse = self
             .send_json(
                 self.client.post(self.protocol_url("/v1/search")?),
@@ -303,6 +339,18 @@ impl OrbitState {
             let value = value.trim();
             !value.is_empty() && value != "all"
         });
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::list_memories(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                source.as_deref(),
+            )
+            .await;
+        }
         let path = source.map_or_else(
             || "/v1/memories?limit=100".to_owned(),
             |value| format!("/v1/memories?limit=100&source={value}"),
@@ -323,6 +371,21 @@ impl OrbitState {
     /// 聚合全部记忆及其关联，用于知识图谱展示；无关联的独立记忆同样必须作为节点返回。
     async fn get_graph_data(&self) -> Result<GraphData, String> {
         let memories = self.list_memories(None).await?;
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return Ok(GraphData {
+                nodes: memories
+                    .into_iter()
+                    .map(|memory| GraphNode {
+                        id: memory.id,
+                        title: memory.title.unwrap_or_else(|| memory.kind.clone()),
+                        kind: memory.kind,
+                        source: memory.source,
+                    })
+                    .collect(),
+                edges: Vec::new(),
+            });
+        }
         let memory_ids = memories
             .iter()
             .map(|memory| memory.id.clone())
@@ -383,6 +446,18 @@ impl OrbitState {
         &self,
         collection_id: String,
     ) -> Result<Vec<MemorySummary>, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::list_collection_memories(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &collection_id,
+            )
+            .await;
+        }
         let ids: Vec<String> = self
             .send_json(
                 self.client
@@ -399,6 +474,18 @@ impl OrbitState {
 
     /// 读取详情面板展示的完整记忆。
     async fn get_memory(&self, id: String) -> Result<MemorySummary, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::get_memory(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &id,
+            )
+            .await;
+        }
         let response: MemoryResponse = self
             .send_json(
                 self.client
@@ -416,6 +503,19 @@ impl OrbitState {
         title: Option<String>,
         content: String,
     ) -> Result<MemorySummary, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::update_memory(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &id,
+                (title, content),
+            )
+            .await;
+        }
         let response: MemoryResponse = self
             .send_json(
                 self.client
@@ -426,8 +526,42 @@ impl OrbitState {
         Ok(MemorySummary::from(response))
     }
 
+    /// 删除指定记忆；E2E 模式写入墓碑，Memory Protocol 模式调用受鉴权删除端点。
+    async fn delete_memory(&self, id: String) -> Result<(), String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::delete_memory(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &id,
+            )
+            .await;
+        }
+        self.send_json::<serde_json::Value>(
+            self.client
+                .delete(self.protocol_url(&format!("/v1/memories/{id}"))?),
+            serde_json::json!({}),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// 读取集合树需要的全部集合。
     async fn list_collections(&self) -> Result<Vec<Collection>, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::list_collections(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+            )
+            .await;
+        }
         self.send_json(
             self.client.get(self.protocol_url("/v1/collections")?),
             serde_json::json!({}),
@@ -437,6 +571,18 @@ impl OrbitState {
 
     /// 创建集合并返回可立即插入侧边栏的数据。
     async fn create_collection(&self, name: String) -> Result<Collection, String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::create_collection(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                name,
+            )
+            .await;
+        }
         self.send_json(
             self.client.post(self.protocol_url("/v1/collections")?),
             serde_json::json!({"name": name}),
@@ -450,6 +596,19 @@ impl OrbitState {
         collection_id: String,
         memory_id: String,
     ) -> Result<(), String> {
+        #[cfg(target_os = "android")]
+        if self.uses_e2e_sync()? {
+            return mobile_sync::add_memory_to_collection(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &collection_id,
+                &memory_id,
+            )
+            .await;
+        }
         self.send_json::<serde_json::Value>(
             self.client.put(self.protocol_url(&format!(
                 "/v1/collections/{collection_id}/memories/{memory_id}"
@@ -745,8 +904,29 @@ impl OrbitState {
                 .token
                 .lock()
                 .map_err(|_| "Orbit 连接状态不可用".to_owned())? = access_token.clone();
-            let status = self.service_status().await;
-            if !status.available {
+            #[cfg(target_os = "android")]
+            let connection_error = if mode == "e2e_cloud" {
+                mobile_sync::validate_relay(&self.client, &remote_endpoint, &access_token)
+                    .await
+                    .err()
+            } else {
+                let status = self.service_status().await;
+                (!status.available).then(|| {
+                    status
+                        .message
+                        .unwrap_or_else(|| "无法连接远程记忆服务".into())
+                })
+            };
+            #[cfg(not(target_os = "android"))]
+            let connection_error = {
+                let status = self.service_status().await;
+                (!status.available).then(|| {
+                    status
+                        .message
+                        .unwrap_or_else(|| "无法连接远程记忆服务".into())
+                })
+            };
+            if let Some(connection_error) = connection_error {
                 *self
                     .endpoint
                     .lock()
@@ -755,9 +935,7 @@ impl OrbitState {
                     .token
                     .lock()
                     .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
-                return Err(status
-                    .message
-                    .unwrap_or_else(|| "无法连接远程记忆服务".into()));
+                return Err(connection_error);
             }
             #[cfg(target_os = "android")]
             if let Err(error) = self
@@ -776,27 +954,27 @@ impl OrbitState {
                 return Err(error.to_string());
             }
             #[cfg(target_os = "android")]
-            if !previous_endpoint.is_empty() && previous_endpoint != remote_endpoint {
-                if let Err(error) = self.cache.clear() {
-                    *self
-                        .endpoint
-                        .lock()
-                        .map_err(|_| "Orbit 连接状态不可用".to_owned())? =
-                        previous_endpoint.clone();
-                    *self
-                        .token
-                        .lock()
-                        .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
-                    if previous_token.is_empty() {
-                        let _ = self.app.secure_storage().delete(REMOTE_TOKEN_STORAGE_KEY);
-                    } else {
-                        let _ = self
-                            .app
-                            .secure_storage()
-                            .store(REMOTE_TOKEN_STORAGE_KEY, previous_token.as_bytes());
-                    }
-                    return Err(error);
+            if !previous_endpoint.is_empty()
+                && previous_endpoint != remote_endpoint
+                && let Err(error) = self.cache.clear()
+            {
+                *self
+                    .endpoint
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_endpoint.clone();
+                *self
+                    .token
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
+                if previous_token.is_empty() {
+                    let _ = self.app.secure_storage().delete(REMOTE_TOKEN_STORAGE_KEY);
+                } else {
+                    let _ = self
+                        .app
+                        .secure_storage()
+                        .store(REMOTE_TOKEN_STORAGE_KEY, previous_token.as_bytes());
                 }
+                return Err(error);
             }
             set_json_string(&mut next, "/sync/relayEndpoint", &remote_endpoint);
             // 令牌仅保留在当前进程内存中；持久化函数会再次从 JSON 副本中剔除。
@@ -827,7 +1005,7 @@ impl OrbitState {
                 .settings
                 .lock()
                 .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(mobile))]
@@ -872,6 +1050,9 @@ impl OrbitState {
         }
         if let Err(error) = self.cache.clear() {
             errors.push(format!("清除离线缓存失败：{error}"));
+        }
+        if let Err(error) = mobile_sync::clear_local_identity(&self.app) {
+            errors.push(format!("清除 E2E 设备身份失败：{error}"));
         }
         // 即使磁盘清理部分失败，也必须立即终止当前进程继续使用旧连接。
         *self
@@ -924,6 +1105,29 @@ impl OrbitState {
                 };
             }
         };
+        #[cfg(target_os = "android")]
+        let uses_e2e_relay = self
+            .settings
+            .lock()
+            .ok()
+            .is_some_and(|settings| json_string(&settings, "/sync/mode") == "e2e_cloud");
+        #[cfg(target_os = "android")]
+        if uses_e2e_relay {
+            return match mobile_sync::validate_relay(&self.client, &endpoint, &token).await {
+                Ok(()) => ServiceStatus {
+                    role: self.role,
+                    endpoint,
+                    available: true,
+                    message: Some("E2E 零知识中继可用".into()),
+                },
+                Err(error) => ServiceStatus {
+                    role: self.role,
+                    endpoint,
+                    available: false,
+                    message: Some(error),
+                },
+            };
+        }
         let response = self
             .client
             .get(format!("{endpoint}/v1/capabilities"))
@@ -1195,7 +1399,7 @@ struct ListMemoriesResponse {
 }
 
 /// 表示集合接口的跨平台传输结构，并统一输出前端使用的 camelCase 字段。
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Collection {
     id: String,
@@ -1409,7 +1613,7 @@ struct CompletionStatus {
 }
 
 /// 表示 Orbit 列表和详情面板共用的记忆数据。
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct MemorySummary {
     id: String,
@@ -1425,6 +1629,8 @@ struct MemorySummary {
     updated_at: i64,
     captured_at: Option<i64>,
     links: Vec<serde_json::Value>,
+    #[serde(default)]
+    conflict_count: usize,
 }
 
 /// 表示知识图谱所需的最小节点字段，内容来自 Memory Protocol 的真实记忆列表。
@@ -1500,6 +1706,7 @@ impl From<MemoryResponse> for MemorySummary {
             captured_at: memory.captured_at,
             // Memory Protocol 当前详情响应不携带 links；显式返回空数组以保持前端契约完整。
             links: Vec::new(),
+            conflict_count: 0,
         }
     }
 }
@@ -1579,6 +1786,12 @@ async fn update_memory(
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<MemorySummary, String> {
     state.update_memory(id, title, content).await
+}
+
+/// 通过 Tauri IPC 删除记忆；E2E 模式会生成可验证墓碑。
+#[tauri::command]
+async fn delete_memory(id: String, state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
+    state.delete_memory(id).await
 }
 
 /// 通过 Tauri IPC 返回集合列表。
@@ -1736,6 +1949,288 @@ fn disconnect_remote(state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
 #[tauri::command]
 fn disconnect_remote(_state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
     Err("当前平台没有 Android 远程连接".into())
+}
+
+/// 返回当前 Android 设备的 E2E 根密钥、身份和待处理配对状态。
+#[tauri::command]
+fn get_e2e_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        serde_json::to_value(mobile_sync::status(&state.app)?).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 立即执行一次 Android E2E 密文上传、拉取、合并和游标确认。
+#[tauri::command]
+async fn sync_e2e_content(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = mobile_sync::sync_content(
+            &state.app,
+            &state.cache,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+        )
+        .await?;
+        serde_json::to_value(status).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 内容副本".into())
+    }
+}
+
+/// 返回 Android E2E 本地副本的游标、待上传操作和冲突留痕数量。
+#[tauri::command]
+fn get_e2e_content_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        serde_json::to_value(mobile_sync::content_status(&state.app, &state.cache)?)
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 内容副本".into())
+    }
+}
+
+/// 创建首个 E2E 工作区并把根密钥与设备私钥封存在 Android Keystore。
+#[tauri::command]
+async fn initialize_e2e(
+    device_name: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = mobile_sync::initialize(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+            &device_name,
+        )
+        .await?;
+        serde_json::to_value(status).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (device_name, state);
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 使用 24 词恢复短语重新登记 Android 设备，短语不会发送到中继。
+#[tauri::command]
+async fn restore_e2e(
+    recovery_phrase: String,
+    device_name: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = mobile_sync::restore(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+            &recovery_phrase,
+            &device_name,
+        )
+        .await?;
+        serde_json::to_value(status).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (recovery_phrase, device_name, state);
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 返回当前根密钥对应的 24 词 BIP39 恢复短语。
+#[tauri::command]
+fn get_recovery_phrase(state: State<'_, Arc<OrbitState>>) -> Result<String, String> {
+    #[cfg(target_os = "android")]
+    {
+        mobile_sync::recovery_phrase(&state.app)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 创建含一次性高熵秘密的 Android 配对二维码。
+#[tauri::command]
+async fn create_e2e_pairing_offer(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let offer = mobile_sync::create_pairing_offer(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+        )
+        .await?;
+        serde_json::to_value(offer).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 查询当前设备创建的配对会话是否已有设备等待批准。
+#[tauri::command]
+async fn get_e2e_pairing_status(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = mobile_sync::pairing_status(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+        )
+        .await?;
+        serde_json::to_value(status).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 扫描或粘贴配对 URI 后创建新 Android 设备加入请求。
+#[tauri::command]
+async fn request_e2e_pairing(
+    pairing_uri: String,
+    device_name: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let result = mobile_sync::request_pairing(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+            &pairing_uri,
+            &device_name,
+        )
+        .await?;
+        serde_json::to_value(result).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (pairing_uri, device_name, state);
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 批准当前配对会话中的新设备并上传根密钥密文包。
+#[tauri::command]
+async fn approve_e2e_pairing(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let device = mobile_sync::approve_pairing(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+        )
+        .await?;
+        serde_json::to_value(device).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 新设备领取配对包、解封根密钥并完成 Android Keystore 写入。
+#[tauri::command]
+async fn complete_e2e_pairing(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let status = mobile_sync::complete_pairing(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+        )
+        .await?;
+        serde_json::to_value(status).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 列出当前 E2E 工作区的全部设备和撤销状态。
+#[tauri::command]
+async fn list_e2e_devices(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let devices = mobile_sync::list_devices(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+        )
+        .await?;
+        serde_json::to_value(devices).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = state;
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
+}
+
+/// 撤销指定 E2E 设备，使其签名信封立即失效。
+#[tauri::command]
+async fn revoke_e2e_device(
+    device_id: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let device = mobile_sync::revoke_device(
+            &state.app,
+            &state.client,
+            &state.endpoint()?,
+            &state.token()?,
+            &device_id,
+        )
+        .await?;
+        serde_json::to_value(device).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (device_id, state);
+        Err("当前平台没有 Android E2E 设备身份".into())
+    }
 }
 
 /// 配置 Android 每日复习通知；关闭时同步取消既有调度。
@@ -2045,6 +2540,7 @@ pub fn run() {
             list_inbox_items,
             mark_inbox_read,
             update_memory,
+            delete_memory,
             list_collections,
             create_collection,
             add_memory_to_collection,
@@ -2063,6 +2559,19 @@ pub fn run() {
             get_settings,
             save_settings,
             disconnect_remote,
+            get_e2e_status,
+            sync_e2e_content,
+            get_e2e_content_status,
+            initialize_e2e,
+            restore_e2e,
+            get_recovery_phrase,
+            create_e2e_pairing_offer,
+            get_e2e_pairing_status,
+            request_e2e_pairing,
+            approve_e2e_pairing,
+            complete_e2e_pairing,
+            list_e2e_devices,
+            revoke_e2e_device,
             configure_review_reminder
         ])
         .run(tauri::generate_context!())

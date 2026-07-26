@@ -13,7 +13,7 @@ mod repository;
 pub mod review;
 pub mod search;
 pub mod store;
-pub mod sync;
+pub use nexus_sync as sync;
 
 pub use crypto::{CryptoError, EncryptedMediaRef, MasterKey, MediaVault};
 pub use embed::{EmbeddingProfile, HashEmbedder};
@@ -30,12 +30,12 @@ pub use model::{
 #[cfg(feature = "local-onnx")]
 pub use nexus_ai::LocalOnnxEmbedder;
 pub use nexus_ai::{Embedder, EmbeddingError};
-pub use store::MemoryStore;
-pub use sync::{
+pub use nexus_sync::{
     ConflictVersion, DeviceIdentity, EncryptedSyncEnvelope, MergeResult, OperationKind,
     PairingOffer, PairingSecret, PlainSyncOperation, SealedPairingKey, SyncError, SyncKey,
     VectorRelation, VersionVector, VersionedRecord, verify_device_signature,
 };
+pub use store::MemoryStore;
 
 /// 返回当前核心骨架已经声明的领域模块。
 #[must_use]

@@ -1,4 +1,4 @@
-//! 本文件实现 E2E 同步密钥、设备签名、加密操作信封、配对封装、恢复短语与版本向量合并。
+//! 本文件实现 Nexus E2E 同步密钥、设备签名、加密操作信封、配对封装、恢复短语与版本向量合并。
 
 use std::{cmp::Ordering, collections::BTreeMap, fmt};
 
@@ -103,6 +103,18 @@ impl SyncKey {
             .to_string()
     }
 
+    /// 返回由根密钥确定性派生的恢复签名公钥，中继据此验证恢复短语持有证明。
+    pub fn recovery_public_key(&self) -> Result<String, SyncError> {
+        let pair = self.recovery_key_pair()?;
+        Ok(URL_SAFE_NO_PAD.encode(pair.public_key().as_ref()))
+    }
+
+    /// 使用根密钥派生的独立 Ed25519 身份签署恢复登记消息。
+    pub fn sign_recovery_claim(&self, message: &[u8]) -> Result<String, SyncError> {
+        let pair = self.recovery_key_pair()?;
+        Ok(URL_SAFE_NO_PAD.encode(pair.sign(message).as_ref()))
+    }
+
     /// 加密并签名一条同步操作，信封头只保留中继路由所需的不可逆元数据。
     pub fn encrypt_operation(
         &self,
@@ -188,6 +200,13 @@ impl SyncKey {
             return Err(SyncError::AuthenticationFailed);
         }
         Ok(operation)
+    }
+
+    /// 从根密钥经域分离 BLAKE3 派生恢复签名种子，不复用同步加密密钥字节。
+    fn recovery_key_pair(&self) -> Result<Ed25519KeyPair, SyncError> {
+        let seed = blake3::keyed_hash(&self.0, b"nexus-recovery-signing-v1");
+        Ed25519KeyPair::from_seed_unchecked(seed.as_bytes())
+            .map_err(|_| SyncError::DeviceIdentity("无法派生恢复签名身份".into()))
     }
 }
 
@@ -729,6 +748,21 @@ impl VersionVector {
         Ok(*counter)
     }
 
+    /// 记录设备已经产生的全局逻辑时钟，只允许单调前进并返回合并后的值。
+    pub fn observe(
+        &mut self,
+        device_id: impl Into<String>,
+        counter: u64,
+    ) -> Result<u64, SyncError> {
+        let device_id = normalized_identifier(device_id.into(), "设备标识")?;
+        if counter == 0 {
+            return Err(SyncError::InvalidInput("设备逻辑时钟必须大于零".into()));
+        }
+        let current = self.0.entry(device_id).or_default();
+        *current = (*current).max(counter);
+        Ok(*current)
+    }
+
     /// 逐设备取最大值合并另一个版本向量。
     pub fn merge(&mut self, other: &Self) {
         for (device, counter) in &other.0 {
@@ -762,7 +796,7 @@ impl VersionVector {
 
 /// 表示一个包含版本向量、删除状态和冲突留痕的实体快照。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", bound(deserialize = "T: Deserialize<'de>"))]
 pub struct VersionedRecord<T> {
     /// 当前可见值；`None` 表示墓碑。
     pub value: Option<T>,
@@ -934,6 +968,13 @@ mod tests {
         let recovered = SyncKey::from_recovery_phrase(&phrase).unwrap();
         assert_eq!(recovered.workspace_id(), key.workspace_id());
         assert_eq!(recovered.to_bytes(), key.to_bytes());
+        let message = b"recovery-claim";
+        verify_device_signature(
+            &recovered.recovery_public_key().unwrap(),
+            message,
+            &key.sign_recovery_claim(message).unwrap(),
+        )
+        .unwrap();
     }
 
     /// 验证中继信封不包含明文，并能被登记设备公钥和根密钥认证解密。
@@ -995,6 +1036,16 @@ mod tests {
         assert_eq!(left.relation(&after), VectorRelation::Before);
         assert_eq!(after.relation(&left), VectorRelation::After);
         assert_eq!(after.relation(&concurrent), VectorRelation::Concurrent);
+    }
+
+    /// 验证跨实体共用的设备全局序号可以直接写入版本向量且不会倒退。
+    #[test]
+    fn observes_global_device_sequence_monotonically() {
+        let mut version = VersionVector::default();
+        assert_eq!(version.observe("device-a", 7).unwrap(), 7);
+        assert_eq!(version.observe("device-a", 3).unwrap(), 7);
+        assert_eq!(version.get("device-a"), 7);
+        assert!(version.observe("device-a", 0).is_err());
     }
 
     /// 验证并发墓碑阻止旧内容复活，同时保留内容冲突供用户恢复。

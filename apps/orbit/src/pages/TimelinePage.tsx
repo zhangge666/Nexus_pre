@@ -2,7 +2,7 @@
 import type React from "react";
 import { useCallback, useEffect, useState } from "react";
 import { BookOpenText, Filter } from "lucide-react";
-import { addMemoryToCollection, getMemory, listCollectionMemories, listCollections, listMemories, updateMemory } from "../core";
+import { addMemoryToCollection, deleteMemory, getMemory, listCollectionMemories, listCollections, listMemories, updateMemory } from "../core";
 import { useSearchParams } from "react-router-dom";
 import type { MemoryCollection, MemorySummary } from "../core";
 import { EmptyState } from "../components/EmptyState";
@@ -67,7 +67,7 @@ export default function TimelinePage(): React.JSX.Element {
 
   useEffect(() => {
     if (!selected) return;
-    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onAddToCollection={handleAddToCollection} />);
+    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onDelete={handleDelete} onAddToCollection={handleAddToCollection} />);
   }, [collections, selected, show]);
 
   /** 读取完整记忆并在全局检查器中打开详情。 */
@@ -87,6 +87,14 @@ export default function TimelinePage(): React.JSX.Element {
       setNotice(`保存失败：${String(error)}`);
       throw error;
     }
+  }
+
+  /** 删除当前记忆并从时间线立即移除；原生 E2E 模式会同步墓碑。 */
+  async function handleDelete(id: string): Promise<void> {
+    await deleteMemory(id);
+    setMemories((current) => current.filter((memory) => memory.id !== id));
+    setSelected(null);
+    setNotice("记忆已删除并等待同步");
   }
 
   /** 将当前选中记忆加入集合，并同步刷新集合计数。 */

@@ -15,14 +15,12 @@ local-onnx = ["nexus-ai/local-onnx"]
 
 [dependencies]
 argon2 = "0.5"
-base64 = "0.22"
-bip39 = "2"
 blake3 = "1"
 chacha20poly1305 = "0.10"
 nexus-sqlite-vec = { path = "../nexus-sqlite-vec" }
 nexus-ai = { path = "../nexus-ai", default-features = false }
+nexus-sync = { path = "../nexus-sync" }
 rand_core = { version = "0.6", features = ["getrandom"] }
-ring = "0.17"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

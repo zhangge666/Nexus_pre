@@ -6,7 +6,7 @@
 
 ## 0. 一句话结论
 
-M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 先交付 Android，界面**复用页面与 `@nexus/ui`、只分叉布局外壳**。Android 客户端本地负责加密缓存、离线查看和解密展示；写入、编辑、AI 问答均调用远程 HTTPS API，不监听本地端口，也不作为其他 Nexus 软件的服务端。Tauri 能交付"视觉精美 + 过渡丝滑"的效果，但受 WebView 天花板约束；真遇到原生手感瓶颈时，按架构预案把**个别页面**下沉到原生视图，不推翻整体。iOS 在 M8 复用已稳定的移动共享层，不与当前 Android 开发并行。
+M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 先交付 Android，界面**复用页面与 `@nexus/ui`、只分叉布局外壳**。Android 的 E2E 云模式在本机维护由 Keystore 托管密钥保护的加密副本：记忆、集合和成员关系先本地落盘，再以 XChaCha20-Poly1305 签名信封上传零知识中继；列表、详情和关键词检索均在本机解密后完成。自托管 Memory Protocol 模式仍可使用远程 HTTPS 复习和问答能力。两种模式都不监听本地端口，也不把 Android 作为其他 Nexus 软件的服务端。Tauri 能交付“视觉精美 + 过渡丝滑”的效果，但受 WebView 天花板约束；真遇到原生手感瓶颈时，按架构预案把**个别页面**下沉到原生视图，不推翻整体。iOS 在 M8 复用已稳定的移动共享层，不与当前 Android 开发并行。
 
 ## 1. 技术选型（已锁定，非开放选择）
 
@@ -15,7 +15,7 @@ M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 先交付 Android，界面**�
 - **渲染**：M5 Android 走系统 WebView（基于 Chromium），**不是原生渲染**——这是当前所有性能判断的前提；WKWebView 相关适配留到 M8。
 - **已有脚手架**：`apps/orbit/src-tauri/icons/android/` 的 mipmap 资源、`crates/platform/platform-mobile` 空壳已建好，等 M5 填充。
 - **本地边界**：移动端不启动 `nexus-protocol`、不监听回环 HTTP/TCP 端口、不参与桌面应用间仲裁；Tauri IPC 仅供同一 App 的 WebView 与 Rust 侧通信。
-- **AI 与编辑**：移动端不链接 ONNX Runtime 或执行本地嵌入。记忆写入、编辑、AI 问答通过携带用户授权的远程 HTTPS API 完成；接口失败时保留输入并给出重试入口。
+- **E2E 内容边界**：E2E 云模式的记忆写入、编辑、集合整理与删除均先进入本地加密副本和可靠待上传队列；零知识中继不提供明文 AI、语义向量或 FSRS 服务，因此该模式只显示本地副本已经完整承载的主导航。自托管 Memory Protocol 模式继续通过授权 HTTPS 使用复习、卡片和 AI 问答。
 
 ## 2. Tauri 能否做出"精美 + 丝滑"
 
@@ -42,7 +42,7 @@ M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 先交付 Android，界面**�
 
 **✅ 采用：外壳分叉 + 页面/核心复用。**
 - **共享**（不动）：`pages/*`（TodayPage、ReviewPage、CardsPage、AskPage 等内容页）、`@nexus/ui`、领域类型与缓存展示逻辑。
-- **传输层分叉**：桌面继续使用本地 Memory Protocol；移动端使用远程 HTTPS 客户端。写入、编辑和 AI 页只调用远程接口，不能复用桌面本地端口发现或服务持有者逻辑。
+- **传输层分叉**：桌面继续使用本地 Memory Protocol；Android 的 `self_hosted` 模式使用远程 Memory Protocol，`e2e_cloud` 模式只使用 `/v1/sync/*` 密文中继并在本地完成内容读写、合并和关键词检索。移动端不能复用桌面本地端口发现或服务持有者逻辑。
 - **分叉**（新增）：只有布局外壳分两套。桌面保留现有 `WorkspaceShell`（三栏 + 拖拽）；移动端新写 `MobileShell`（底部 Tab 栏 + 全屏页面 + 手势返回），检查器从"右侧常驻抽屉"改为"底部弹出 sheet"。
 - 在入口 `main.tsx` 按 `platform` 判断挂载哪个外壳。**桌面代码路径完全不变，移动端是新增文件而非修改现有文件**，改坏桌面的概率趋近于零。呼应架构 §5：差异隔离在边界层，共享内核不动。
 
@@ -76,10 +76,11 @@ pnpm --filter @nexus/orbit android:dev
 
 | 能力 | M5 移动端处理方式 |
 |---|---|
-| 浏览、集合、详情、离线查看 | 从受系统安全区保护的本地加密缓存读取并解密展示 |
-| 写入、编辑 | 调用已授权的远程 HTTPS API；失败时保留草稿并可重试 |
-| AI 问答 | 调用远程 HTTPS API，沿用桌面端的数据最小化与 Provider 提示规则 |
-| 同步与配对 | 经 E2E 加密中继与远程 API 完成，不暴露本机监听端口 |
+| 浏览、集合、详情、离线查看 | E2E 云模式从 Keystore 密钥保护的本地加密副本读取；自托管模式使用加密 HTTP 响应缓存 |
+| 写入、编辑、删除 | E2E 云模式先写本地副本和待上传 oplog，随后上传签名密文；删除使用 tombstone；自托管模式调用授权 HTTPS API |
+| 检索 | E2E 云模式只在本机解密内容上执行关键词检索；自托管模式可使用服务端混合/语义检索 |
+| 复习、卡片、AI 问答 | 仅自托管 Memory Protocol 模式提供；零知识中继不接收明文、向量或 AI 上下文，E2E 模式隐藏对应主导航 |
+| 同步与配对 | 经独立 E2E 加密中继完成上传、拉取、合并、确认、配对、恢复与撤销，不暴露本机监听端口 |
 | 本地协议服务、第三方接入、ONNX 嵌入 | 明确不做；仅桌面 Orbit 持有这些能力 |
 
 ## 5. 桌面端回归护栏
@@ -98,10 +99,10 @@ pnpm --filter @nexus/orbit android:dev
 
 ### 7.1 本阶段已完成
 
-- 新增 Android 专用 `MobileShell`：采用全屏内容区、五项底部导航和详情底部 Sheet，不复用桌面三栏拖拽外壳。
+- 新增 Android 专用 `MobileShell`：采用全屏内容区、按连接能力显示三至五项底部导航和详情底部 Sheet，不复用桌面三栏拖拽外壳。
 - 完成状态栏、底部手势区安全边距、触摸目标、键盘焦点和 `prefers-reduced-motion` 适配。
 - Android 运行时不再启动本地 Memory Protocol、不参与桌面服务持有者仲裁、不打开桌面共享数据库，也不启动桌面常驻提醒扫描。
-- Android 仅通过远程 Memory Protocol 工作；发布构建强制 HTTPS，调试构建允许 HTTP，并在保存连接前调用 `/v1/capabilities` 校验端点和令牌。
+- Android 按连接模式分流：`self_hosted` 使用远程 Memory Protocol，`e2e_cloud` 只使用独立的 `/v1/sync/*` 零知识中继；发布构建强制 HTTPS，调试构建允许 HTTP。
 - 新增“移动连接”设置，支持托管云、自托管地址和访问令牌；尚未实现的冲突策略不再提前展示。
 - `nexus-platform-mobile` 已实现 Tauri Android 原生安全存储插件：访问令牌由 Android Keystore 中不可导出的 AES-256-GCM 密钥保护，密文仅写入应用私有 `SharedPreferences`，不写入普通 JSON 设置文件。
 - 新增 AES-256-GCM 加密离线响应缓存：缓存密钥由 Keystore 托管，缓存最多保留 256 条、30 天，并按远程服务来源隔离；网络错误或服务端 5xx 时可回退到只读缓存。
@@ -111,6 +112,13 @@ pnpm --filter @nexus/orbit android:dev
 - Android 设置页隐藏无效的本地 RAG Provider，提供“断开并清除本机数据”，并明确展示当前远程问答、Keystore 与加密缓存边界。
 - 将 `nexus-core`、`nexus-protocol`、SQLite 和本地嵌入相关依赖限制在桌面目标，Android 二进制不再链接本地数据库与协议服务实现。
 - 桌面入口仍挂载原 `App`/`WorkspaceShell`，Android 构建通过平台常量挂载 `MobileApp`，两套外壳保持边界隔离。
+- 新增轻量 `nexus-sync`：Android 只链接 XChaCha20-Poly1305、Ed25519、BIP39、配对封装和版本向量能力，不会因同步重新引入 SQLite 或 `nexus-core`。
+- 新增独立 `nexus-relay`：只持久化签名密文、公钥、不可逆工作区/实体键和服务器游标，支持设备登记、恢复、配对、撤销、增量拉取、确认及 tombstone 清理。
+- Android 已实现 24 词 BIP39 恢复、二维码 URI 与六位人工确认码、配对包幂等领取、设备清单和撤销；根密钥、设备标识、PKCS#8 私钥及待处理配对材料均由 Keystore 保护。
+- E2E 云模式已实现加密本地内容副本和可靠待上传队列：记忆、集合、成员关系可离线创建或编辑，联网后按设备连续序号上传、按游标拉取、验证来源设备签名并确认应用进度。
+- 版本向量按设备全局逻辑时钟推进；并发更新使用确定性规则收敛并保留失败版本计数，详情面板展示冲突提示；后续编辑会基于已合并向量形成因果新版本。
+- 删除入口已接入墓碑同步：本机立即隐藏记忆并清理已知集合成员关系，中继移除旧密文，全部有效设备确认后再删除墓碑本身。
+- E2E 云模式的列表、详情、集合和关键词检索均读取本地解密副本；零知识中继不提供的复习、卡片、语义检索和 AI 问答不会再作为该模式的底部主导航。
 
 ### 7.2 已执行验证
 
@@ -120,15 +128,17 @@ pnpm --filter @nexus/orbit android:dev
 - `pnpm --filter @nexus/orbit check`：前端 TypeScript 检查通过。
 - `pnpm --filter @nexus/orbit build`：桌面前端构建通过。
 - `VITE_NEXUS_PLATFORM=android pnpm --filter @nexus/orbit build`：Android 外壳前端构建通过。
-- Android Rust `aarch64-linux-android` release 库、Kotlin Keystore 插件及 Gradle Android 工程已成功编译；本机已生成 `app-universal-release-unsigned.apk`，正式分发仍需签名配置。
+- `cargo test -p nexus-sync`：覆盖密钥/恢复短语、信封加解密、防篡改、配对封装、全局设备时钟、并发收敛和墓碑优先。
+- `cargo test -p nexus-relay`：覆盖中继零明文、双设备并发收敛、全部有效设备确认后清除墓碑、恢复登记、配对与撤销。
+- Android Rust `aarch64-linux-android` release 库已在新增内容同步闭环后再次通过交叉检查；Kotlin Keystore 插件及 Gradle Android 工程此前已成功编译并生成 `app-universal-release-unsigned.apk`，最终改动仍需重新执行完整 APK 构建。
 
-### 7.3 M5 Android 后续内容
+### 7.3 M5 Android 剩余验收
 
-- 实现真正的 E2E 零知识同步协议与密文中继；当前远程 Memory Protocol 是 HTTPS 鉴权连接，不能等同于云端只存密文的 E2E 同步。
-- 完成设备身份、公钥注册、二维码/配对码密钥交换、BIP39 式恢复短语及设备撤销。
-- 定义并实现版本向量、冲突记录与合并协议，再恢复冲突策略界面；不得只在客户端增加无执行逻辑的选项。
-- 补齐远端增量游标、后台重连和可证删除；当前自动刷新与离线缓存只提供前台最终一致的只读降级。
+- 在真实手机和平板上完成双设备“创建 → 配对 → 并发编辑 → 离线重连 → 删除 → 撤销 → 恢复短语重建”的完整数据验收，并抓取中继快照确认只含密文。
+- 为长时间后台挂起补充 Android WorkManager 约束同步；当前联网、回到前台、页面刷新和每 60 秒刷新可以重试待上传 oplog，但受系统冻结后的后台时效仍需真机确认。
+- 冲突留痕目前在记忆详情和安全设置中展示数量；若产品要求逐版本预览、恢复或手工合并，还需新增专用冲突检查器。
+- E2E 云模式不向中继发送明文，因此复习、卡片、语义检索和 AI 问答只在自托管 Memory Protocol 模式开放；若未来要求零知识模式提供这些能力，必须新增本地索引/本地调度或由用户明确授权的端侧 Provider，不能回退为中继明文处理。
 - 在真实手机与平板上完成返回手势、软键盘、长列表性能、弱网恢复、深色/亮色主题和无障碍验收。
-- 配置正式签名、版本号、渠道构建与发布流水线。
+- 重新执行最终 universal APK 构建，配置正式签名、版本号、渠道构建与发布流水线。
 
 以上后续项只针对 Android；iOS 仍按第 6 节延后到最终 M8。

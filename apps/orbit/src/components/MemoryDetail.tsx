@@ -1,7 +1,7 @@
 /** 本文件实现记忆详情面板组件。 */
 import type React from "react";
 import { useState } from "react";
-import { X, Save, Pencil, Layers, BookmarkCheck } from "lucide-react";
+import { X, Save, Pencil, Layers, BookmarkCheck, Trash2, TriangleAlert } from "lucide-react";
 import type { MemorySummary, MemoryCollection } from "../core";
 
 interface MemoryDetailProps {
@@ -10,6 +10,7 @@ interface MemoryDetailProps {
   onClose: () => void;
   onSave: (id: string, title: string | null, content: string) => Promise<void>;
   onAddToCollection: (collectionId: string) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
   onGenerateCard?: () => void;
 }
 
@@ -56,12 +57,14 @@ export function MemoryDetail({
   onClose,
   onSave,
   onAddToCollection,
+  onDelete,
   onGenerateCard,
 }: MemoryDetailProps): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(memory.title ?? "");
   const [editContent, setEditContent] = useState(memory.content);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   /** 保存编辑内容并在成功后退出编辑态，避免阅读与编辑状态混杂。 */
@@ -76,6 +79,21 @@ export function MemoryDetail({
       setSaveError(`保存失败：${String(error)}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** 二次确认后删除当前记忆；E2E 模式会由原生层写入墓碑。 */
+  async function handleDelete(): Promise<void> {
+    if (!onDelete || !window.confirm("删除后会同步到其他设备，是否继续？")) return;
+    setDeleting(true);
+    setSaveError("");
+    try {
+      await onDelete(memory.id);
+      onClose();
+    } catch (error) {
+      setSaveError(`删除失败：${String(error)}`);
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -97,6 +115,11 @@ export function MemoryDetail({
               <button className="detail-action" onClick={() => setEditing(true)}>
                 <Pencil size={13} />编辑
               </button>
+              {onDelete && (
+                <button className="detail-action danger-text" onClick={() => void handleDelete()} disabled={deleting}>
+                  <Trash2 size={13} />{deleting ? "删除中…" : "删除"}
+                </button>
+              )}
             </>
           )}
           <button className="icon-button" onClick={onClose} aria-label="关闭详情">
@@ -136,6 +159,11 @@ export function MemoryDetail({
               <span className="detail-time">{formatDate(memory.createdAt)}</span>
               {memory.pinned && <span className="pin-badge"><BookmarkCheck size={11} />置顶</span>}
             </div>
+            {!!memory.conflictCount && (
+              <p className="detail-conflict-notice" role="status">
+                <TriangleAlert size={13} />已保留 {memory.conflictCount} 个并发版本，可在端到端加密设置中查看冲突数量。
+              </p>
+            )}
             <h3 className="detail-title-text">{memory.title ?? memory.kind}</h3>
             <div className="detail-content">
               {memory.contentFormat === "markdown"

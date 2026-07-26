@@ -43,7 +43,7 @@
 
 前端（React）通过 Tauri 的 IPC 调用核心；外部应用通过 Memory Protocol（本地 HTTP/gRPC 或远程 API）调用核心。**同一套核心，两种入口。**
 
-> **移动端边界**：Orbit 手机端不作为 Memory Protocol 持有者，也不监听本地 HTTP/TCP 端口；它只持有受系统安全区保护的本地缓存。查看与离线阅读在本地完成，写入、编辑和 AI 问答通过已授权的远程 HTTPS API 发起。移动构建不链接本地 ONNX Runtime，避免包体和 Android ABI 兼容性成本。
+> **移动端边界**：Orbit 手机端不作为 Memory Protocol 持有者，也不监听本地 HTTP/TCP 端口。Android 的 E2E 云模式持有由 Keystore 托管密钥保护的本地内容副本和待上传 oplog，记忆/集合在本机读写、合并和关键词检索，只向独立中继发送签名密文；自托管模式才调用远程 Memory Protocol 提供复习、卡片、语义检索和 AI 问答。移动构建不链接 SQLite、协议服务或本地 ONNX Runtime，避免包体与 Android ABI 兼容性成本。
 
 ### 2.3 前端：React + TypeScript + Vite
 

@@ -26,12 +26,14 @@ Android 客户端暴露 HTTPS；中继进程本身不得直接暴露明文公网
 | `GET /health` | 无账户信息的存活检查 |
 | `GET /v1/sync/capabilities` | 返回零知识、AEAD、设备签名和恢复短语能力 |
 | `POST /v1/sync/devices/bootstrap` | 空工作区登记首台自签名设备 |
+| `POST /v1/sync/devices/recover` | 验证根密钥派生的恢复签名并登记新设备 |
 | `GET /v1/sync/devices` | 有效设备签名后列出工作区设备 |
 | `DELETE /v1/sync/devices/{device_id}` | 撤销设备；禁止撤销最后一台有效设备 |
 | `POST /v1/sync/changes` | 验证 Ed25519 签名并写入密文信封 |
 | `GET /v1/sync/changes` | 按服务器游标拉取密文增量 |
 | `POST /v1/sync/ack` | 确认已应用游标并清理全设备确认的墓碑 |
 | `POST /v1/sync/pairings` | 已连接设备创建十分钟一次性会话 |
+| `GET /v1/sync/pairings/{id}` | 已连接设备查询待批准设备与配对包状态 |
 | `POST /v1/sync/pairings/{id}/request` | 新设备提交公钥和自签名申请 |
 | `POST /v1/sync/pairings/{id}/approve` | 已连接设备上传用二维码秘密封装的根密钥密文 |
 | `POST /v1/sync/pairings/{id}/package` | 新设备签名取回并消费配对包 |
@@ -67,3 +69,16 @@ Ed25519 签名；密文上传直接验证信封签名与设备连续序号。
 - 墓碑删除旧密文，全部有效设备确认后删除墓碑。
 - 配对中继未接触二维码秘密，新设备仍可解封同一根密钥。
 - 设备撤销后，其有效签名也不能继续上传。
+- 两台设备对同一实体并发写入后，客户端按版本向量和稳定规则得到相同胜者并保留失败版本。
+- 墓碑在部分设备确认后继续保留，只有全部有效设备确认游标后才清除。
+
+## 6. Android 内容同步闭环
+
+Orbit Android 的 `e2e_cloud` 模式不会调用 `/v1/memories`、`/v1/search` 或 `/v1/ask`。客户端执行以下闭环：
+
+1. 从 Keystore 解封根密钥和 Ed25519 设备身份，并打开 AES-256-GCM 加密本地副本。
+2. 本地写入先生成携带版本向量的 `PlainSyncOperation`，加密签名后持久化到待上传队列。
+3. 按设备连续序号重试 `POST /v1/sync/changes`；相同操作 ID 可安全幂等重试。
+4. 使用签名请求按游标分页拉取密文，依据设备清单公钥验签，再在本地解密和确定性合并。
+5. 完整应用一页后持久化副本，全部增量处理完成后调用 `/v1/sync/ack`。
+6. 列表、详情、集合与关键词检索只读取本地解密副本；中继始终无法执行明文检索。

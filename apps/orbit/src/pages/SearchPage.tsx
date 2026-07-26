@@ -3,7 +3,7 @@ import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Command, Filter, Plus, Search, Sparkles } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { addMemoryToCollection, getMemory, listCollections, listMemories, searchMemory, updateMemory } from "../core";
+import { addMemoryToCollection, deleteMemory, getMemory, getSettings, listCollections, listMemories, searchMemory, updateMemory } from "../core";
 import type { MemoryCollection, MemoryHit, MemorySummary, SearchMode } from "../core";
 import { EmptyState } from "../components/EmptyState";
 import { MemoryDetail } from "../components/MemoryDetail";
@@ -13,6 +13,7 @@ import { Topbar } from "../components/Topbar";
 import { useInspector } from "../components/Inspector";
 import { PageLayout } from "../components/PageLayout";
 import { useMemoryChanges } from "../core/events";
+import { isAndroidPlatform } from "../platform";
 
 const SOURCES = ["all", "orbit", "muse", "quill", "echo"] as const;
 const MODES: { key: SearchMode; label: string }[] = [
@@ -57,6 +58,7 @@ export default function SearchPage(): React.JSX.Element {
   const [notice, setNotice] = useState("正在显示全部记忆");
   const [busy, setBusy] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
+  const [localKeywordOnly, setLocalKeywordOnly] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   /** 读取当前来源的记忆列表，并保留用户选择的来源。 */
@@ -75,6 +77,21 @@ export default function SearchPage(): React.JSX.Element {
     void refresh();
     void listCollections().then(setCollections).catch((error) => setNotice(`集合加载失败：${String(error)}`));
   }, [refresh]);
+
+  useEffect(() => {
+    if (!isAndroidPlatform()) return;
+    /** E2E 中继没有明文索引，切换模式时同步收窄为本机关键词检索。 */
+    function refreshSearchCapability(): void {
+      void getSettings().then((settings) => {
+        const localOnly = settings.sync.mode === "e2e_cloud";
+        setLocalKeywordOnly(localOnly);
+        if (localOnly) setMode("keyword");
+      }).catch(() => undefined);
+    }
+    refreshSearchCapability();
+    window.addEventListener("orbit-settings-changed", refreshSearchCapability);
+    return () => window.removeEventListener("orbit-settings-changed", refreshSearchCapability);
+  }, []);
 
   /** 外部捕获端或另一 Orbit 窗口写入后，重新读取真实列表与集合树。 */
   useMemoryChanges(
@@ -108,7 +125,7 @@ export default function SearchPage(): React.JSX.Element {
       present("检索概览", <SearchInsight query={query} />);
       return;
     }
-    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onAddToCollection={handleAddToCollection} />);
+    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onDelete={handleDelete} onAddToCollection={handleAddToCollection} />);
   }, [collections, present, query, selected, show]);
 
   /** 仅执行真实 Memory Protocol 检索；问答能力属于 M4，不能阻断 M2 搜索结果。 */
@@ -144,6 +161,15 @@ export default function SearchPage(): React.JSX.Element {
     setMemories((current) => current.map((memory) => memory.id === id ? updated : memory));
     setSelected(updated);
     setNotice("更改已保存");
+  }
+
+  /** 删除当前记忆并清理本页列表与检索命中。 */
+  async function handleDelete(id: string): Promise<void> {
+    await deleteMemory(id);
+    setMemories((current) => current.filter((memory) => memory.id !== id));
+    setHits((current) => current.filter((hit) => hit.memoryId !== id));
+    setSelected(null);
+    setNotice("记忆已删除并等待同步");
   }
 
   /** 将当前记忆归入集合后刷新树计数，并在原位反馈操作结果。 */
@@ -182,11 +208,11 @@ export default function SearchPage(): React.JSX.Element {
     <PageLayout className="search-page-workspace">
       <Topbar title="记忆" subtitle={notice} actions={<><button className="secondary-button command-entry" onClick={() => searchInputRef.current?.focus()}><Command size={14} />搜索 <kbd>⌘ K</kbd></button><button className="primary-small" onClick={() => setCaptureOpen(true)}><Plus size={15} />新建记忆</button></>} />
       <section className="search-main" aria-labelledby="search-title">
-        <p id="search-title" className="search-description">从所有上下文中找到答案</p>
+        <p id="search-title" className="search-description">{localKeywordOnly ? "在本机解密副本中检索，中继无法看到查询内容" : "从所有上下文中找到答案"}</p>
         <form className="search-box" onSubmit={handleSearch}>
           <Search size={17} aria-hidden="true" />
           <input ref={searchInputRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索内容、想法或来源" aria-label="搜索记忆" />
-          <select value={mode} onChange={(event) => setMode(event.target.value as SearchMode)} aria-label="搜索模式">{MODES.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select>
+          <select value={mode} onChange={(event) => setMode(event.target.value as SearchMode)} aria-label="搜索模式" disabled={localKeywordOnly}>{MODES.filter(({ key }) => !localKeywordOnly || key === "keyword").map(({ key, label }) => <option key={key} value={key}>{label}</option>)}</select>
           <button type="submit" disabled={busy || !query.trim()}>{busy ? "搜索中" : "搜索"}</button>
         </form>
       </section>
