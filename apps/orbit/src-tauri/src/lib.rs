@@ -1,6 +1,8 @@
 //! 本文件装配 Orbit 桌面本地服务、Android 远程客户端以及统一 HTTP 协议访问。
 
 mod credentials;
+#[cfg(target_os = "android")]
+mod mobile_cache;
 
 use std::{
     fs, io,
@@ -11,13 +13,18 @@ use std::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::{Emitter, Manager, State};
-#[cfg(not(mobile))]
 use tauri_plugin_notification::NotificationExt;
+#[cfg(target_os = "android")]
+use tauri_plugin_notification::{Schedule, ScheduleInterval};
 
 #[cfg(not(mobile))]
 use chrono::{Local, Timelike};
+#[cfg(target_os = "android")]
+use mobile_cache::EncryptedCache;
 #[cfg(not(mobile))]
 use nexus_core::{HashEmbedder, MemoryStore};
+#[cfg(target_os = "android")]
+use nexus_platform_mobile::{SecureStorage, SecureStorageExt};
 #[cfg(not(mobile))]
 use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
@@ -33,7 +40,16 @@ struct OrbitState {
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     settings_path: PathBuf,
     settings: Arc<Mutex<serde_json::Value>>,
+    #[cfg(target_os = "android")]
+    app: tauri::AppHandle,
+    #[cfg(target_os = "android")]
+    cache: EncryptedCache,
 }
+
+#[cfg(target_os = "android")]
+const REMOTE_TOKEN_STORAGE_KEY: &str = "orbit.remote-access-token";
+#[cfg(target_os = "android")]
+const CACHE_KEY_STORAGE_KEY: &str = "orbit.offline-cache-key";
 
 /// 表示当前 Orbit 使用桌面本地服务还是 Android 远程服务。
 #[derive(Clone, Copy, PartialEq, Eq, Serialize)]
@@ -149,8 +165,7 @@ fn public_settings(settings: &serde_json::Value) -> serde_json::Value {
     let has_access_token = settings
         .pointer("/sync/accessToken")
         .and_then(serde_json::Value::as_str)
-        .is_some_and(|value| !value.is_empty())
-        || credentials::load_sync_token().is_some();
+        .is_some_and(|value| !value.is_empty());
     #[cfg(not(mobile))]
     let has_access_token = false;
     set_json_string(&mut public, "/sync/accessToken", "");
@@ -638,7 +653,7 @@ impl OrbitState {
         let current_access_token = {
             let in_memory = json_string(&current, "/sync/accessToken");
             if in_memory.is_empty() {
-                credentials::load_sync_token().unwrap_or_default()
+                self.token().unwrap_or_default()
             } else {
                 in_memory
             }
@@ -681,7 +696,13 @@ impl OrbitState {
         {
             let mode = json_string(&next, "/sync/mode");
             if mode == "local" {
-                return Err("Android 必须选择端到端云同步或自托管连接".into());
+                set_json_string(&mut next, "/rag/apiKey", "");
+                persist_settings(&self.settings_path, &next)?;
+                *self
+                    .settings
+                    .lock()
+                    .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
+                return Ok(());
             }
             let remote_endpoint =
                 normalize_remote_endpoint(&json_string(&next, "/sync/relayEndpoint"))?;
@@ -709,21 +730,79 @@ impl OrbitState {
                 *self
                     .endpoint
                     .lock()
-                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_endpoint;
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_endpoint.clone();
                 *self
                     .token
                     .lock()
-                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token;
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
                 return Err(status
                     .message
                     .unwrap_or_else(|| "无法连接远程记忆服务".into()));
             }
-            credentials::save_sync_token(&access_token)?;
+            #[cfg(target_os = "android")]
+            if let Err(error) = self
+                .app
+                .secure_storage()
+                .store(REMOTE_TOKEN_STORAGE_KEY, access_token.as_bytes())
+            {
+                *self
+                    .endpoint
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_endpoint.clone();
+                *self
+                    .token
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
+                return Err(error.to_string());
+            }
+            #[cfg(target_os = "android")]
+            if !previous_endpoint.is_empty() && previous_endpoint != remote_endpoint {
+                if let Err(error) = self.cache.clear() {
+                    *self
+                        .endpoint
+                        .lock()
+                        .map_err(|_| "Orbit 连接状态不可用".to_owned())? =
+                        previous_endpoint.clone();
+                    *self
+                        .token
+                        .lock()
+                        .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
+                    if previous_token.is_empty() {
+                        let _ = self.app.secure_storage().delete(REMOTE_TOKEN_STORAGE_KEY);
+                    } else {
+                        let _ = self
+                            .app
+                            .secure_storage()
+                            .store(REMOTE_TOKEN_STORAGE_KEY, previous_token.as_bytes());
+                    }
+                    return Err(error);
+                }
+            }
             set_json_string(&mut next, "/sync/relayEndpoint", &remote_endpoint);
-            set_json_string(&mut next, "/sync/accessToken", "");
+            // 令牌仅保留在当前进程内存中；持久化函数会再次从 JSON 副本中剔除。
+            set_json_string(&mut next, "/sync/accessToken", &access_token);
             set_json_bool(&mut next, "/sync/hasAccessToken", true);
             set_json_string(&mut next, "/rag/apiKey", "");
-            persist_settings(&self.settings_path, &next)?;
+            if let Err(error) = persist_settings(&self.settings_path, &next) {
+                *self
+                    .endpoint
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_endpoint;
+                *self
+                    .token
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token.clone();
+                #[cfg(target_os = "android")]
+                if previous_token.is_empty() {
+                    let _ = self.app.secure_storage().delete(REMOTE_TOKEN_STORAGE_KEY);
+                } else {
+                    let _ = self
+                        .app
+                        .secure_storage()
+                        .store(REMOTE_TOKEN_STORAGE_KEY, previous_token.as_bytes());
+                }
+                return Err(error);
+            }
             *self
                 .settings
                 .lock()
@@ -761,6 +840,43 @@ impl OrbitState {
                 .lock()
                 .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
             Ok(())
+        }
+    }
+
+    /// 断开 Android 远程连接，并清除 Keystore 令牌和本地加密缓存。
+    #[cfg(target_os = "android")]
+    fn disconnect_remote(&self) -> Result<(), String> {
+        let mut errors = Vec::new();
+        if let Err(error) = self.app.secure_storage().delete(REMOTE_TOKEN_STORAGE_KEY) {
+            errors.push(format!("删除访问令牌失败：{error}"));
+        }
+        if let Err(error) = self.cache.clear() {
+            errors.push(format!("清除离线缓存失败：{error}"));
+        }
+        // 即使磁盘清理部分失败，也必须立即终止当前进程继续使用旧连接。
+        *self
+            .endpoint
+            .lock()
+            .map_err(|_| "Orbit 连接状态不可用".to_owned())? = String::new();
+        *self
+            .token
+            .lock()
+            .map_err(|_| "Orbit 连接状态不可用".to_owned())? = String::new();
+        let mut settings = self
+            .settings
+            .lock()
+            .map_err(|_| "Orbit 设置状态不可用".to_owned())?;
+        set_json_string(&mut settings, "/sync/mode", "local");
+        set_json_string(&mut settings, "/sync/relayEndpoint", "");
+        set_json_string(&mut settings, "/sync/accessToken", "");
+        set_json_bool(&mut settings, "/sync/hasAccessToken", false);
+        if let Err(error) = persist_settings(&self.settings_path, &settings) {
+            errors.push(format!("保存断开状态失败：{error}"));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("；"))
         }
     }
 
@@ -811,7 +927,20 @@ impl OrbitState {
                 role: self.role,
                 endpoint,
                 available: false,
-                message: Some(format!("无法连接记忆服务：{error}")),
+                message: Some({
+                    #[cfg(target_os = "android")]
+                    {
+                        if self.cache.has_entries() {
+                            format!("无法连接记忆服务，正在使用加密离线缓存：{error}")
+                        } else {
+                            format!("无法连接记忆服务：{error}")
+                        }
+                    }
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        format!("无法连接记忆服务：{error}")
+                    }
+                }),
             },
         }
     }
@@ -822,22 +951,64 @@ impl OrbitState {
         request: reqwest::RequestBuilder,
         body: serde_json::Value,
     ) -> Result<T, String> {
-        let response = request
-            .bearer_auth(self.token()?)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|error| error.to_string())?;
+        #[cfg(target_os = "android")]
+        let cache_key = request
+            .try_clone()
+            .and_then(|request| request.build().ok())
+            .filter(|request| request.method() == reqwest::Method::GET)
+            .map(|request| {
+                let suffix = request
+                    .url()
+                    .query()
+                    .map(|query| format!("?{query}"))
+                    .unwrap_or_default();
+                format!(
+                    "GET:{}{}{suffix}",
+                    request.url().origin().ascii_serialization(),
+                    request.url().path()
+                )
+            });
+
+        let response = request.bearer_auth(self.token()?).json(&body).send().await;
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                #[cfg(target_os = "android")]
+                if let Some(cache_key) = cache_key.as_deref()
+                    && let Some(cached) = self.cache.get(cache_key)?
+                {
+                    return serde_json::from_str(&cached)
+                        .map_err(|parse_error| format!("离线缓存解析失败：{parse_error}"));
+                }
+                return Err(error.to_string());
+            }
+        };
         let status = response.status();
         if !status.is_success() {
             let message = response.text().await.unwrap_or_default();
+            #[cfg(target_os = "android")]
+            if status.is_server_error()
+                && let Some(cache_key) = cache_key.as_deref()
+                && let Some(cached) = self.cache.get(cache_key)?
+            {
+                return serde_json::from_str(&cached)
+                    .map_err(|parse_error| format!("离线缓存解析失败：{parse_error}"));
+            }
             return Err(format!("记忆服务返回 {status}: {message}"));
         }
         if status == reqwest::StatusCode::NO_CONTENT {
             return serde_json::from_value(serde_json::Value::Null)
                 .map_err(|error| error.to_string());
         }
-        response.json().await.map_err(|error| error.to_string())
+        let content = response.text().await.map_err(|error| error.to_string())?;
+        let parsed = serde_json::from_str(&content).map_err(|error| error.to_string())?;
+        #[cfg(target_os = "android")]
+        if let Some(cache_key) = cache_key
+            && let Err(error) = self.cache.put(cache_key, content)
+        {
+            eprintln!("更新 Android 加密离线缓存失败：{error}");
+        }
+        Ok(parsed)
     }
 }
 
@@ -1507,6 +1678,74 @@ async fn save_settings(
     state.save_settings(settings).await
 }
 
+/// 断开 Android 远程服务并删除本机凭据与离线缓存。
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn disconnect_remote(state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
+    state.disconnect_remote()
+}
+
+/// 桌面端不提供移动连接断开命令。
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn disconnect_remote(_state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
+    Err("当前平台没有 Android 远程连接".into())
+}
+
+/// 配置 Android 每日复习通知；关闭时同步取消既有调度。
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn configure_review_reminder(
+    enabled: bool,
+    reminder_time: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    const REMINDER_ID: i32 = 5_001;
+    let notification = app.notification();
+    let _ = notification.cancel(vec![REMINDER_ID]);
+    if !enabled {
+        return Ok(());
+    }
+    let (hour, minute) = reminder_time
+        .split_once(':')
+        .and_then(|(hour, minute)| Some((hour.parse::<u8>().ok()?, minute.parse::<u8>().ok()?)))
+        .filter(|(hour, minute)| *hour < 24 && *minute < 60)
+        .ok_or_else(|| "Android 复习提醒时间无效".to_owned())?;
+    let permission = notification
+        .request_permission()
+        .map_err(|error| error.to_string())?;
+    if permission != tauri::plugin::PermissionState::Granted {
+        return Err("需要通知权限才能启用 Android 复习提醒".into());
+    }
+    notification
+        .builder()
+        .id(REMINDER_ID)
+        .title("Orbit · 复习提醒")
+        .body("今天的记忆卡片正在等待复习")
+        .schedule(Schedule::Interval {
+            interval: ScheduleInterval {
+                hour: Some(hour),
+                minute: Some(minute),
+                ..Default::default()
+            },
+            allow_while_idle: true,
+        })
+        .auto_cancel()
+        .show()
+        .map_err(|error| error.to_string())
+}
+
+/// 桌面端继续使用常驻扫描，不注册 Android 系统调度。
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn configure_review_reminder(
+    _enabled: bool,
+    _reminder_time: String,
+    _app: tauri::AppHandle,
+) -> Result<(), String> {
+    Ok(())
+}
+
 /// 在 macOS 中让原生内容层按圆角裁切，使透明窗口不再露出矩形 WebView 边缘。
 #[cfg(target_os = "macos")]
 fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -1539,8 +1778,11 @@ fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn st
 /// 按桌面本地服务或 Android 远程客户端角色启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_notification::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_notification::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(nexus_platform_mobile::init());
+
+    builder
         .setup(|app| {
             #[cfg(target_os = "macos")]
             configure_macos_window_surface(app)?;
@@ -1564,18 +1806,56 @@ pub fn run() {
 
             #[cfg(mobile)]
             let state = {
-                let current_settings = settings
+                let mut current_settings = settings
                     .lock()
                     .map_err(|_| io::Error::other("Orbit 设置状态不可用"))?
                     .clone();
+                #[cfg(target_os = "android")]
+                let token = app
+                    .secure_storage()
+                    .load(REMOTE_TOKEN_STORAGE_KEY)
+                    .map_err(|error| io::Error::other(error.to_string()))?
+                    .map(String::from_utf8)
+                    .transpose()
+                    .map_err(|error| io::Error::other(error.to_string()))?
+                    .unwrap_or_default();
+                #[cfg(target_os = "android")]
+                let cache_key = match app
+                    .secure_storage()
+                    .load(CACHE_KEY_STORAGE_KEY)
+                    .map_err(|error| io::Error::other(error.to_string()))?
+                {
+                    Some(key) if key.len() == 32 => key,
+                    _ => {
+                        let key = EncryptedCache::generate_key().to_vec();
+                        app.secure_storage()
+                            .store(CACHE_KEY_STORAGE_KEY, &key)
+                            .map_err(|error| io::Error::other(error.to_string()))?;
+                        key
+                    }
+                };
+                #[cfg(target_os = "android")]
+                let cache = EncryptedCache::open(app_data_dir.join("orbit-cache.enc"), &cache_key)
+                    .map_err(io::Error::other)?;
+                #[cfg(not(target_os = "android"))]
+                let token = String::new();
+                set_json_string(&mut current_settings, "/sync/accessToken", &token);
+                *settings
+                    .lock()
+                    .map_err(|_| io::Error::other("Orbit 设置状态不可用"))? =
+                    current_settings.clone();
                 OrbitState {
                     client: reqwest::Client::new(),
                     endpoint: Mutex::new(json_string(&current_settings, "/sync/relayEndpoint")),
-                    token: Mutex::new(credentials::load_sync_token().unwrap_or_default()),
+                    token: Mutex::new(token),
                     role: ServiceRole::Remote,
                     shutdown: Mutex::new(None),
                     settings_path,
                     settings: Arc::clone(&settings),
+                    #[cfg(target_os = "android")]
+                    app: app.handle().clone(),
+                    #[cfg(target_os = "android")]
+                    cache,
                 }
             };
 
@@ -1729,7 +2009,9 @@ pub fn run() {
             ask_memory,
             ask_memory_stream,
             get_settings,
-            save_settings
+            save_settings,
+            disconnect_remote,
+            configure_review_reminder
         ])
         .run(tauri::generate_context!())
         .expect("Orbit Tauri 运行时启动失败");

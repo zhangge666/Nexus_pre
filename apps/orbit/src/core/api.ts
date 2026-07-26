@@ -180,3 +180,13 @@ export async function getSettings(): Promise<OrbitSettings> {
 export async function saveSettings(settings: Partial<OrbitSettings>): Promise<void> {
   return invoke<void>("save_settings", { settings });
 }
+
+/** 删除 Android 远程凭据和离线缓存，并恢复未连接状态。 */
+export async function disconnectRemote(): Promise<void> {
+  return invoke<void>("disconnect_remote");
+}
+
+/** 将复习提醒配置同步到 Android 系统通知调度器。 */
+export async function configureReviewReminder(enabled: boolean, reminderTime: string): Promise<void> {
+  return invoke<void>("configure_review_reminder", { enabled, reminderTime });
+}

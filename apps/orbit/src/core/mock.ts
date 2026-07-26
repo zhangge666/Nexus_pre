@@ -652,6 +652,16 @@ export async function createCollection(name: string): Promise<MemoryCollection> 
   return col;
 }
 
+/** 浏览器预览中模拟清除移动连接。 */
+export async function disconnectRemote(): Promise<void> {
+  await delay(100);
+}
+
+/** 浏览器预览中模拟保存系统复习提醒。 */
+export async function configureReviewReminder(_enabled: boolean, _reminderTime: string): Promise<void> {
+  await delay(100);
+}
+
 export async function addMemoryToCollection(collectionId: string, memoryId: string): Promise<void> {
   await delay(100);
   void collectionId; void memoryId; // mock: no-op

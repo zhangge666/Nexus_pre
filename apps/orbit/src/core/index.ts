@@ -43,6 +43,8 @@ import {
   saveSettings as _mockSaveSettings,
   createCard as _mockCreateCard,
   generateCards as _mockGenerateCards,
+  disconnectRemote as _mockDisconnectRemote,
+  configureReviewReminder as _mockConfigureReviewReminder,
 } from "./mock";
 
 // ===== 惰性路由包装 =====
@@ -87,6 +89,8 @@ export const getSettings        = makeFn("getSettings",        _mockGetSettings)
 export const saveSettings       = makeFn("saveSettings",       _mockSaveSettings);
 export const createCard         = makeFn("createCard",         _mockCreateCard);
 export const generateCards      = makeFn("generateCards",      _mockGenerateCards);
+export const disconnectRemote   = makeFn("disconnectRemote",   _mockDisconnectRemote);
+export const configureReviewReminder = makeFn("configureReviewReminder", _mockConfigureReviewReminder);
 
 /** 获取集合成员；浏览器预览将按现有 mock 列表返回，便于页面结构预览。 */
 export async function listCollectionMemories(collectionId: string): Promise<import("./types").MemorySummary[]> {

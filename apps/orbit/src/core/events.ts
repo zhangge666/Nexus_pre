@@ -5,6 +5,7 @@
 import { useEffect, useRef } from "react";
 import { isTauriRuntime } from "./index";
 import type { MemoryChangedEvent } from "./types";
+import { isAndroidPlatform } from "../platform";
 
 type Unlisten = () => void;
 
@@ -41,6 +42,14 @@ export function useMemoryChanges(
   useEffect(() => {
     let disposed = false;
     let unlisten: Unlisten | undefined;
+    let refreshTimer: number | undefined;
+
+    /** Android 回到前台、恢复网络或达到刷新周期时重新拉取远程数据。 */
+    const refreshRemote = (): void => {
+      if (document.visibilityState === "visible") {
+        changedRef.current({ type: "memory_updated", id: "remote-refresh", source: "orbit" });
+      }
+    };
 
     void subscribeToMemoryChanges(
       (event) => changedRef.current(event),
@@ -51,9 +60,18 @@ export function useMemoryChanges(
       else unlisten = cleanup;
     });
 
+    if (isAndroidPlatform()) {
+      window.addEventListener("online", refreshRemote);
+      document.addEventListener("visibilitychange", refreshRemote);
+      refreshTimer = window.setInterval(refreshRemote, 60_000);
+    }
+
     return () => {
       disposed = true;
       unlisten?.();
+      window.removeEventListener("online", refreshRemote);
+      document.removeEventListener("visibilitychange", refreshRemote);
+      if (refreshTimer !== undefined) window.clearInterval(refreshTimer);
     };
   }, []);
 }

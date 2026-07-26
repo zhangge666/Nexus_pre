@@ -1,4 +1,4 @@
-# 本文件定义移动平台能力适配 crate。
+# 本文件定义移动平台能力适配 crate，并为 Android 打包原生安全存储插件。
 
 [package]
 name = "nexus-platform-mobile"
@@ -7,9 +7,17 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 version.workspace = true
+build = "build.rs"
+links = "nexus-platform-mobile"
 
 [dependencies]
+base64 = "0.22"
 nexus-platform-api = { path = "../platform-api" }
+serde = { version = "1", features = ["derive"] }
+tauri = "2"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
 
 [lints]
 workspace = true

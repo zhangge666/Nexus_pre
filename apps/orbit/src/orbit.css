@@ -637,6 +637,7 @@ nav { display: grid; gap: 2px; }
 .settings-slider { width: 168px; accent-color: hsl(var(--primary)); }
 .settings-select, .settings-input { width: 240px; height: 32px; padding: 0 9px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); color: hsl(var(--foreground-secondary)); font-size: 12px; font: inherit; }
 .settings-input { color: hsl(var(--foreground)); }
+.danger-text { color: hsl(var(--danger)); }
 .settings-input.short { width: 96px; }
 .radio-group { --segment-count: 2; --active-segment: 0; position: relative; display: grid; grid-template-columns: repeat(var(--segment-count), minmax(0, 1fr)); align-items: center; gap: 0; padding: 2px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); background: hsl(var(--background)); isolation: isolate; overflow: hidden; }
 .radio-group.segments-3 { --segment-count: 3; }

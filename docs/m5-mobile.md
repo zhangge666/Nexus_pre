@@ -102,7 +102,13 @@ pnpm --filter @nexus/orbit android:dev
 - 完成状态栏、底部手势区安全边距、触摸目标、键盘焦点和 `prefers-reduced-motion` 适配。
 - Android 运行时不再启动本地 Memory Protocol、不参与桌面服务持有者仲裁、不打开桌面共享数据库，也不启动桌面常驻提醒扫描。
 - Android 仅通过远程 Memory Protocol 工作；发布构建强制 HTTPS，调试构建允许 HTTP，并在保存连接前调用 `/v1/capabilities` 校验端点和令牌。
-- 新增“移动连接”设置，支持端到端云、自托管地址、访问令牌和冲突处理；访问令牌不写入普通 JSON 设置文件。
+- 新增“移动连接”设置，支持托管云、自托管地址和访问令牌；尚未实现的冲突策略不再提前展示。
+- `nexus-platform-mobile` 已实现 Tauri Android 原生安全存储插件：访问令牌由 Android Keystore 中不可导出的 AES-256-GCM 密钥保护，密文仅写入应用私有 `SharedPreferences`，不写入普通 JSON 设置文件。
+- 新增 AES-256-GCM 加密离线响应缓存：缓存密钥由 Keystore 托管，缓存最多保留 256 条、30 天，并按远程服务来源隔离；网络错误或服务端 5xx 时可回退到只读缓存。
+- 保存远程连接会先验证能力与令牌；切换端点、断开设备或凭据失效时会清理对应令牌和缓存，避免跨服务串用数据。
+- Android 首次启动会按 Keystore 令牌状态进入工作台或移动连接设置；联网恢复、应用回到前台及每 60 秒会触发页面数据刷新。
+- Android 复习提醒已接入系统通知权限与每日调度；用户拒绝通知权限时，普通设置仍然保存并单独提示提醒未启用。
+- Android 设置页隐藏无效的本地 RAG Provider，提供“断开并清除本机数据”，并明确展示当前远程问答、Keystore 与加密缓存边界。
 - 将 `nexus-core`、`nexus-protocol`、SQLite 和本地嵌入相关依赖限制在桌面目标，Android 二进制不再链接本地数据库与协议服务实现。
 - 桌面入口仍挂载原 `App`/`WorkspaceShell`，Android 构建通过平台常量挂载 `MobileApp`，两套外壳保持边界隔离。
 
@@ -110,16 +116,18 @@ pnpm --filter @nexus/orbit android:dev
 
 - `cargo test -p orbit-app`：覆盖设置脱敏、远程端点规范化、本地协议读写、SSE 分片和桌面提醒等回归测试。
 - `cargo check -p orbit-app`：桌面 Rust 运行时检查通过。
+- `cargo check -p nexus-platform-mobile`：平台移动插件 Rust 检查通过。
+- `pnpm --filter @nexus/orbit check`：前端 TypeScript 检查通过。
 - `pnpm --filter @nexus/orbit build`：桌面前端构建通过。
 - `VITE_NEXUS_PLATFORM=android pnpm --filter @nexus/orbit build`：Android 外壳前端构建通过。
-- Android Rust `aarch64-linux-android` release 库已成功编译；本机已生成未签名 APK 和 AAB，正式分发仍需签名配置。
+- Android Rust `aarch64-linux-android` release 库、Kotlin Keystore 插件及 Gradle Android 工程已成功编译；本机已生成 `app-universal-release-unsigned.apk`，正式分发仍需签名配置。
 
 ### 7.3 M5 Android 后续内容
 
-- 接入 Android Keystore 支持的持久凭据实现，使远程访问令牌可跨重启恢复；当前令牌仅保证不落普通设置文件。
-- 实现受系统安全区保护的加密本地缓存、离线只读浏览、重连增量同步和缓存清理策略。
-- 完成设备配对、端到端加密密钥交换、撤销设备与冲突解决闭环。
-- 接入 Android 通知权限、复习提醒调度、应用前后台切换和省电策略。
+- 实现真正的 E2E 零知识同步协议与密文中继；当前远程 Memory Protocol 是 HTTPS 鉴权连接，不能等同于云端只存密文的 E2E 同步。
+- 完成设备身份、公钥注册、二维码/配对码密钥交换、BIP39 式恢复短语及设备撤销。
+- 定义并实现版本向量、冲突记录与合并协议，再恢复冲突策略界面；不得只在客户端增加无执行逻辑的选项。
+- 补齐远端增量游标、后台重连和可证删除；当前自动刷新与离线缓存只提供前台最终一致的只读降级。
 - 在真实手机与平板上完成返回手势、软键盘、长列表性能、弱网恢复、深色/亮色主题和无障碍验收。
 - 配置正式签名、版本号、渠道构建与发布流水线。
 

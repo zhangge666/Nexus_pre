@@ -92,6 +92,11 @@ core/协议    Orbit+库      完整闭环       Muse最小源    卡片/复习/
 - E2E 云同步（CRDT + 加密中继）、自托管中继选项。
 - 多设备配对、恢复短语、可证删除。
 
+> **Android 实施状态（2026-07-26）**：移动外壳、远程 HTTPS 客户端、Android Keystore 凭据、AES-GCM
+> 离线缓存、前台/联网定时刷新、系统复习通知及断开清理已完成，并已通过 arm64 未签名 APK 构建。
+> 真正的 E2E 密文中继、多设备配对与恢复短语仍属于 M5 后续协议/服务端阶段；当前 HTTPS 远程连接不得标记为
+> 已完成 E2E。真机交互验收与正式签名发布也尚未完成。详细状态见 [m5-mobile.md](m5-mobile.md#7-android-当前交付状态2026-07-26)。
+
 ### M6 · 外联
 - MCP Server：把记忆库暴露给任意 AI 助手。
 - `@nexus/sdk-ts`、`nexus-sdk`(Python)、`nexus` CLI。

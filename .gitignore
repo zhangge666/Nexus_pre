@@ -11,4 +11,7 @@ dist/
 apps/*/src-tauri/gen/*
 !apps/*/src-tauri/gen/android/
 !apps/*/src-tauri/gen/android/**
+# Tauri 移动插件的 Gradle 中间产物由构建脚本重建，不纳入源码。
+crates/platform/platform-mobile/android/.tauri/
+crates/platform/platform-mobile/android/build/
 .DS_Store

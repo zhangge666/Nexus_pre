@@ -1,10 +1,11 @@
 /** 本文件实现 Orbit Android 专用外壳，复用内容页并提供底部主导航与详情 Sheet。 */
 
 import type React from "react";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { BrainCircuit, House, MessageCircle, Search, Settings } from "lucide-react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { InspectorPanel, InspectorProvider } from "./components/Inspector";
+import { getSettings } from "./core";
 
 const TodayPage = lazy(() => import("./pages/TodayPage"));
 const SearchPage = lazy(() => import("./pages/SearchPage"));
@@ -25,6 +26,21 @@ const MOBILE_TABS = [
   { to: "/settings", label: "设置", icon: Settings },
 ] as const;
 
+/** 首次启动时根据 Keystore 中是否存在连接令牌选择工作台或连接设置。 */
+function MobileLanding(): React.JSX.Element {
+  const [target, setTarget] = useState<"/today" | "/settings" | null>(null);
+
+  useEffect(() => {
+    void getSettings()
+      .then((settings) => setTarget(settings.sync.hasAccessToken ? "/today" : "/settings"))
+      .catch(() => setTarget("/settings"));
+  }, []);
+
+  return target
+    ? <Navigate to={target} replace />
+    : <div className="page-loading"><span className="page-loading-spinner" />正在检查设备连接…</div>;
+}
+
 /** 渲染 Android 全屏工作区，并将常用入口固定在系统安全区上方。 */
 function MobileShell(): React.JSX.Element {
   return (
@@ -32,7 +48,7 @@ function MobileShell(): React.JSX.Element {
       <main className="mobile-workspace">
         <Suspense fallback={<div className="page-loading"><span className="page-loading-spinner" />加载中…</div>}>
           <Routes>
-            <Route path="/" element={<Navigate to="/today" replace />} />
+            <Route path="/" element={<MobileLanding />} />
             <Route path="/today" element={<TodayPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/timeline" element={<TimelinePage />} />

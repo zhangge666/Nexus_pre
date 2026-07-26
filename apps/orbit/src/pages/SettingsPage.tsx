@@ -2,7 +2,7 @@
 import type React from "react";
 import { useEffect, useState } from "react";
 import { BrainCircuit, Cloud, Info, Layers, Link2, MessageCircle, Palette, Search } from "lucide-react";
-import { getSettings, saveSettings } from "../core";
+import { configureReviewReminder, disconnectRemote, getSettings, saveSettings } from "../core";
 import type { OrbitSettings } from "../core";
 import { useInspector } from "../components/Inspector";
 import { PageLayout } from "../components/PageLayout";
@@ -30,7 +30,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
 };
 
 const SECTION_GROUPS: { label: string; items: SettingsSection[] }[] = [
-  { label: "智能", items: ["search", "rag"] },
+  { label: "智能", items: isAndroidPlatform() ? ["search"] : ["search", "rag"] },
   { label: "学习", items: ["cards", "review", "links"] },
   { label: "应用", items: isAndroidPlatform() ? ["sync", "appearance", "about"] : ["appearance", "about"] },
 ];
@@ -101,12 +101,40 @@ export default function SettingsPage(): React.JSX.Element {
     setError(null);
     try {
       await saveSettings(settings);
+      let reminderError: unknown = null;
+      if (isAndroidPlatform()) {
+        try {
+          await configureReviewReminder(settings.review.reminderEnabled, settings.review.reminderTime);
+        } catch (reason) {
+          reminderError = reason;
+        }
+      }
       setSettings(await getSettings());
       setSaved(true);
       setDirty(false);
+      if (reminderError) {
+        setError(`设置已保存，但复习提醒未启用：${String(reminderError)}`);
+      }
       window.setTimeout(() => setSaved(false), 2_000);
     } catch (reason) {
       setError(`保存失败：${String(reason)}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** 清除 Android Keystore 令牌和加密缓存，并恢复未连接状态。 */
+  async function handleDisconnect(): Promise<void> {
+    if (!settings || !window.confirm("断开后将清除本机访问令牌和离线缓存，是否继续？")) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await disconnectRemote();
+      setSettings(await getSettings());
+      setSaved(true);
+      setDirty(false);
+    } catch (reason) {
+      setError(`断开失败：${String(reason)}`);
     } finally {
       setSaving(false);
     }
@@ -171,7 +199,7 @@ export default function SettingsPage(): React.JSX.Element {
     if (section === "sync") return <SettingsSectionLayout meta={SECTIONS.sync}>
       <SettingRow label="连接方式" description="Android 不启动本地协议服务，只连接端到端云或自托管 HTTPS 服务。" id="sync-mode">
         <div className="radio-group segments-2">
-          <label className={`radio-option${settings.sync.mode === "e2e_cloud" ? " active" : ""}`}><input id="sync-mode" type="radio" name="sync-mode" checked={settings.sync.mode === "e2e_cloud"} onChange={() => update("sync", { mode: "e2e_cloud" })} />端到端云</label>
+          <label className={`radio-option${settings.sync.mode === "e2e_cloud" ? " active" : ""}`}><input id="sync-mode" type="radio" name="sync-mode" checked={settings.sync.mode === "e2e_cloud"} onChange={() => update("sync", { mode: "e2e_cloud" })} />托管云</label>
           <label className={`radio-option${settings.sync.mode === "self_hosted" ? " active" : ""}`}><input type="radio" name="sync-mode" checked={settings.sync.mode === "self_hosted"} onChange={() => update("sync", { mode: "self_hosted" })} />自托管</label>
         </div>
       </SettingRow>
@@ -181,12 +209,9 @@ export default function SettingsPage(): React.JSX.Element {
       <SettingRow label="访问令牌" description={settings.sync.hasAccessToken ? "令牌已载入当前安全会话；留空可继续使用。" : "由远程 Orbit 服务签发，不会写入普通设置文件。"} id="sync-access-token">
         <input id="sync-access-token" type="password" autoComplete="off" className="settings-input" value={settings.sync.accessToken} onChange={(event) => update("sync", { accessToken: event.target.value })} placeholder={settings.sync.hasAccessToken ? "已配置（不回显）" : "粘贴远程访问令牌"} />
       </SettingRow>
-      <SettingRow label="冲突处理" id="sync-conflict">
-        <select id="sync-conflict" className="settings-select" value={settings.sync.conflictStrategy} onChange={(event) => update("sync", { conflictStrategy: event.target.value as OrbitSettings["sync"]["conflictStrategy"] })}>
-          <option value="auto">自动合并</option>
-          <option value="manual">冲突时询问</option>
-        </select>
-      </SettingRow>
+      {settings.sync.hasAccessToken && <SettingRow label="设备连接" description="断开后会删除 Android Keystore 中的令牌和本机加密缓存。">
+        <button type="button" className="secondary-button danger-text" onClick={() => void handleDisconnect()} disabled={saving}>断开并清除本机数据</button>
+      </SettingRow>}
     </SettingsSectionLayout>;
 
     if (section === "appearance") return <SettingsSectionLayout meta={SECTIONS.appearance}>
@@ -196,9 +221,9 @@ export default function SettingsPage(): React.JSX.Element {
     return <SettingsSectionLayout meta={SECTIONS.about}>
       <div className="about-facts">
         <div><span>应用</span><strong>Orbit 0.1.0</strong></div>
-        <div><span>数据</span><strong>记忆与设置均存储在本机</strong></div>
-        <div><span>凭据</span><strong>API Key 使用系统凭据库存放</strong></div>
-        <div><span>问答</span><strong>默认使用本地抽取式回答</strong></div>
+        <div><span>数据</span><strong>{isAndroidPlatform() ? "远程记忆按需缓存到本机加密文件" : "记忆与设置均存储在本机"}</strong></div>
+        <div><span>凭据</span><strong>{isAndroidPlatform() ? "访问令牌由 Android Keystore 保护" : "API Key 使用系统凭据库存放"}</strong></div>
+        <div><span>问答</span><strong>{isAndroidPlatform() ? "由已连接的远程服务提供" : "默认使用本地抽取式回答"}</strong></div>
       </div>
     </SettingsSectionLayout>;
   }
