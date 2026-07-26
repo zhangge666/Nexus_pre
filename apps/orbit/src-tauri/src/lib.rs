@@ -1,5 +1,7 @@
 //! 本文件装配 Orbit 桌面本地服务、Android 远程客户端以及统一 HTTP 协议访问。
 
+#[cfg(target_os = "android")]
+mod android_background;
 mod credentials;
 #[cfg(not(mobile))]
 mod desktop_sync;
@@ -235,6 +237,24 @@ impl OrbitState {
             .lock()
             .map(|settings| json_string(&settings, "/sync/mode") == "e2e_cloud")
             .map_err(|_| "Orbit 设置状态不可用".to_owned())
+    }
+
+    /// 注册 Android 唯一周期同步，并立即排队一次不启动 WebView 的增量同步。
+    #[cfg(target_os = "android")]
+    fn schedule_background_sync(&self) -> Result<(), String> {
+        self.app
+            .secure_storage()
+            .schedule_background_sync(&self.settings_path, self.cache.path())
+            .map_err(|error| error.to_string())
+    }
+
+    /// 取消 Android 周期同步和尚未执行的即时同步。
+    #[cfg(target_os = "android")]
+    fn cancel_background_sync(&self) -> Result<(), String> {
+        self.app
+            .secure_storage()
+            .cancel_background_sync()
+            .map_err(|error| error.to_string())
     }
 
     /// 返回当前协议端点；Android 尚未配置远程地址时给出可操作错误。
@@ -906,6 +926,8 @@ impl OrbitState {
                     .settings
                     .lock()
                     .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
+                #[cfg(target_os = "android")]
+                self.cancel_background_sync()?;
                 return Ok(());
             }
             let remote_endpoint =
@@ -1030,6 +1052,12 @@ impl OrbitState {
                 .settings
                 .lock()
                 .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
+            #[cfg(target_os = "android")]
+            if mode == "e2e_cloud" {
+                self.schedule_background_sync()?;
+            } else {
+                self.cancel_background_sync()?;
+            }
             Ok(())
         }
 
@@ -1092,6 +1120,9 @@ impl OrbitState {
     #[cfg(target_os = "android")]
     fn disconnect_remote(&self) -> Result<(), String> {
         let mut errors = Vec::new();
+        if let Err(error) = self.cancel_background_sync() {
+            errors.push(format!("取消后台同步失败：{error}"));
+        }
         if let Err(error) = self.app.secure_storage().delete(REMOTE_TOKEN_STORAGE_KEY) {
             errors.push(format!("删除访问令牌失败：{error}"));
         }
@@ -2075,6 +2106,7 @@ async fn initialize_e2e(
             &device_name,
         )
         .await?;
+        state.schedule_background_sync()?;
         serde_json::to_value(status).map_err(|error| error.to_string())
     }
     #[cfg(not(target_os = "android"))]
@@ -2102,6 +2134,7 @@ async fn restore_e2e(
             &device_name,
         )
         .await?;
+        state.schedule_background_sync()?;
         serde_json::to_value(status).map_err(|error| error.to_string())
     }
     #[cfg(not(target_os = "android"))]
@@ -2244,6 +2277,7 @@ async fn complete_e2e_pairing(
             &state.token()?,
         )
         .await?;
+        state.schedule_background_sync()?;
         serde_json::to_value(status).map_err(|error| error.to_string())
     }
     #[cfg(not(target_os = "android"))]
@@ -2642,6 +2676,17 @@ pub fn run() {
             };
             let state = Arc::new(state);
 
+            #[cfg(target_os = "android")]
+            if let Err(error) = if state.uses_e2e_sync().unwrap_or(false)
+                && state.token().is_ok_and(|token| !token.is_empty())
+            {
+                state.schedule_background_sync()
+            } else {
+                state.cancel_background_sync()
+            } {
+                eprintln!("恢复 Android WorkManager 同步失败：{error}");
+            }
+
             #[cfg(not(mobile))]
             let restored_state = Arc::clone(&state);
 
@@ -2702,7 +2747,7 @@ pub fn run() {
         .expect("Orbit Tauri 运行时启动失败");
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(mobile)))]
 mod tests {
     use super::*;
     use tokio::net::TcpListener;

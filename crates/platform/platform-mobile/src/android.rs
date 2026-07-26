@@ -3,6 +3,7 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use nexus_platform_api::{PlatformError, PlatformResult, SecureStorage};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use std::path::Path;
 use tauri::{
     Manager, Runtime,
     plugin::{Builder, PluginApi, PluginHandle, TauriPlugin},
@@ -23,6 +24,13 @@ struct StoreRequest<'a> {
 #[derive(Serialize)]
 struct KeyRequest<'a> {
     key: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackgroundSyncRequest<'a> {
+    settings_path: &'a str,
+    cache_path: &'a str,
 }
 
 #[derive(Deserialize)]
@@ -78,6 +86,38 @@ impl<R: Runtime> SecureStorage for AndroidSecureStorage<R> {
         self.0
             .run_mobile_plugin::<DeleteResponse>("delete", KeyRequest { key })
             .map(|response| response.deleted)
+            .map_err(|error| PlatformError::Native(error.to_string()))
+    }
+}
+
+impl<R: Runtime> AndroidSecureStorage<R> {
+    /// 创建带联网约束的唯一周期同步任务，并立即排队一次增量同步。
+    pub fn schedule_background_sync(
+        &self,
+        settings_path: &Path,
+        cache_path: &Path,
+    ) -> PlatformResult<()> {
+        let settings_path = settings_path
+            .to_str()
+            .ok_or_else(|| PlatformError::Native("Android 设置路径不是有效 UTF-8".into()))?;
+        let cache_path = cache_path
+            .to_str()
+            .ok_or_else(|| PlatformError::Native("Android 缓存路径不是有效 UTF-8".into()))?;
+        self.0
+            .run_mobile_plugin::<()>(
+                "scheduleBackgroundSync",
+                BackgroundSyncRequest {
+                    settings_path,
+                    cache_path,
+                },
+            )
+            .map_err(|error| PlatformError::Native(error.to_string()))
+    }
+
+    /// 取消当前应用的周期同步和尚未执行的即时同步任务。
+    pub fn cancel_background_sync(&self) -> PlatformResult<()> {
+        self.0
+            .run_mobile_plugin::<()>("cancelBackgroundSync", ())
             .map_err(|error| PlatformError::Native(error.to_string()))
     }
 }

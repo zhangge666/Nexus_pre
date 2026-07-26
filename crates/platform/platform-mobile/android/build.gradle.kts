@@ -24,4 +24,5 @@ android {
 
 dependencies {
     implementation(project(":tauri-android"))
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
 }

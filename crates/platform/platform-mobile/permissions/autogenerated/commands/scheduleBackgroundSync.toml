@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-scheduleBackgroundSync"
+description = "Enables the scheduleBackgroundSync command without any pre-configured scope."
+commands.allow = ["scheduleBackgroundSync"]
+
+[[permission]]
+identifier = "deny-scheduleBackgroundSync"
+description = "Denies the scheduleBackgroundSync command without any pre-configured scope."
+commands.deny = ["scheduleBackgroundSync"]

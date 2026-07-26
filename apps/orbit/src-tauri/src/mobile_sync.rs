@@ -32,6 +32,9 @@ const REPLICA_CACHE_KEY: &str = "E2E:CONTENT-REPLICA";
 const REPLICA_VERSION: u8 = 1;
 const PULL_LIMIT: usize = 200;
 
+// 前台命令与 WorkManager JNI 入口共享同一副本，完整同步和本地排队必须按因果顺序串行。
+static CONTENT_SYNC_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// 表示 Android 当前 E2E 工作区和设备身份状态。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -643,8 +646,19 @@ pub async fn list_devices(
     token: &str,
 ) -> Result<Vec<SyncDevice>, String> {
     let (key, identity) = current_identity(app)?;
+    list_devices_with_identity(&key, &identity, client, endpoint, token).await
+}
+
+/// 使用已解锁的同步材料读取设备目录，供前台和 WorkManager 复用同一签名协议。
+async fn list_devices_with_identity(
+    key: &SyncKey,
+    identity: &DeviceIdentity,
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+) -> Result<Vec<SyncDevice>, String> {
     let action = format!("devices:list:{}", key.workspace_id());
-    let proof = create_proof(&identity, &action);
+    let proof = create_proof(identity, &action);
     send_json(
         client
             .get(relay_url(endpoint, "/v1/sync/devices")?)
@@ -696,13 +710,39 @@ pub async fn sync_content(
     endpoint: &str,
     token: &str,
 ) -> Result<ContentSyncStatus, String> {
+    let _sync_guard = CONTENT_SYNC_LOCK.lock().await;
     let (key, identity) = current_identity(app)?;
-    let devices = list_devices(app, client, endpoint, token).await?;
+    sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await
+}
+
+/// 使用 WorkManager 从 Keystore 临时解锁的材料执行同步，不依赖 Activity、WebView 或 Tauri IPC。
+pub async fn sync_content_with_material(
+    cache: &EncryptedCache,
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    key: &SyncKey,
+    identity: &DeviceIdentity,
+) -> Result<ContentSyncStatus, String> {
+    let _sync_guard = CONTENT_SYNC_LOCK.lock().await;
+    sync_content_with_identity(cache, client, endpoint, token, key, identity).await
+}
+
+/// 在已持有内容同步锁时完成上传、拉取、合并与游标确认。
+async fn sync_content_with_identity(
+    cache: &EncryptedCache,
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    key: &SyncKey,
+    identity: &DeviceIdentity,
+) -> Result<ContentSyncStatus, String> {
+    let devices = list_devices_with_identity(key, identity, client, endpoint, token).await?;
     let public_keys = devices
         .iter()
         .map(|device| (device.device_id.clone(), device.public_key.clone()))
         .collect::<HashMap<_, _>>();
-    let mut replica = load_replica(cache, &key)?;
+    let mut replica = load_replica(cache, key)?;
     if let Some(current) = devices
         .iter()
         .find(|device| device.device_id == identity.device_id())
@@ -734,7 +774,7 @@ pub async fn sync_content(
             replica.cursor,
             PULL_LIMIT
         );
-        let proof = create_proof(&identity, &action);
+        let proof = create_proof(identity, &action);
         let response: PullChangesResponse = send_json(
             client
                 .get(relay_url(endpoint, "/v1/sync/changes")?)
@@ -776,7 +816,7 @@ pub async fn sync_content(
                 .json(&AcknowledgeRequest {
                     workspace_id: key.workspace_id(),
                     cursor: replica.cursor,
-                    proof: create_proof(&identity, &action),
+                    proof: create_proof(identity, &action),
                 }),
         )
         .await?;
@@ -1146,8 +1186,9 @@ async fn queue_entity_change(
     entity_id: String,
     value: Option<SyncEntity>,
 ) -> Result<(), String> {
-    let _ = sync_content(app, cache, client, endpoint, token).await;
+    let _sync_guard = CONTENT_SYNC_LOCK.lock().await;
     let (key, identity) = current_identity(app)?;
+    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
     let mut replica = load_replica(cache, &key)?;
     replica.local_sequence = replica
         .local_sequence
@@ -1184,7 +1225,7 @@ async fn queue_entity_change(
     apply_operation(&mut replica, operation)?;
     replica.pending.push(envelope);
     persist_replica(cache, &replica)?;
-    let _ = sync_content(app, cache, client, endpoint, token).await;
+    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
     Ok(())
 }
 

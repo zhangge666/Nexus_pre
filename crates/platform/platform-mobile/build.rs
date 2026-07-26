@@ -1,6 +1,12 @@
 //! 本文件在构建阶段把 Android 原生安全存储模块打包为 Tauri 移动插件。
 
-const COMMANDS: &[&str] = &["store", "load", "delete"];
+const COMMANDS: &[&str] = &[
+    "store",
+    "load",
+    "delete",
+    "scheduleBackgroundSync",
+    "cancelBackgroundSync",
+];
 
 /// 生成 Android 插件绑定与 Gradle 工程接入信息。
 fn main() {

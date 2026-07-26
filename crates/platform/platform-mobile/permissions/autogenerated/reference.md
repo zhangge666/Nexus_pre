@@ -10,6 +10,32 @@
 <tr>
 <td>
 
+`nexus-platform-mobile:allow-cancelBackgroundSync`
+
+</td>
+<td>
+
+Enables the cancelBackgroundSync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`nexus-platform-mobile:deny-cancelBackgroundSync`
+
+</td>
+<td>
+
+Denies the cancelBackgroundSync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `nexus-platform-mobile:allow-delete`
 
 </td>
@@ -55,6 +81,32 @@ Enables the load command without any pre-configured scope.
 <td>
 
 Denies the load command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`nexus-platform-mobile:allow-scheduleBackgroundSync`
+
+</td>
+<td>
+
+Enables the scheduleBackgroundSync command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`nexus-platform-mobile:deny-scheduleBackgroundSync`
+
+</td>
+<td>
+
+Denies the scheduleBackgroundSync command without any pre-configured scope.
 
 </td>
 </tr>

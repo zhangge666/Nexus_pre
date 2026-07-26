@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the cancelBackgroundSync command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancelBackgroundSync",
+          "markdownDescription": "Enables the cancelBackgroundSync command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancelBackgroundSync command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancelBackgroundSync",
+          "markdownDescription": "Denies the cancelBackgroundSync command without any pre-configured scope."
+        },
+        {
           "description": "Enables the delete command without any pre-configured scope.",
           "type": "string",
           "const": "allow-delete",
@@ -317,6 +329,18 @@
           "type": "string",
           "const": "deny-load",
           "markdownDescription": "Denies the load command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the scheduleBackgroundSync command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-scheduleBackgroundSync",
+          "markdownDescription": "Enables the scheduleBackgroundSync command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the scheduleBackgroundSync command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-scheduleBackgroundSync",
+          "markdownDescription": "Denies the scheduleBackgroundSync command without any pre-configured scope."
         },
         {
           "description": "Enables the store command without any pre-configured scope.",

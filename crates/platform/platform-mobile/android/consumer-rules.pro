@@ -3,3 +3,7 @@
 -keepclassmembers class * {
     @app.tauri.annotation.Command <methods>;
 }
+
+# WorkManager 按持久化类名恢复任务，JNI 符号也依赖桥接类与方法名保持不变。
+-keep class com.nexus.platform.mobile.OrbitBackgroundSyncWorker { *; }
+-keep class com.nexus.platform.mobile.BackgroundSyncNative { *; }

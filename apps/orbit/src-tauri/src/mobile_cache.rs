@@ -22,6 +22,9 @@ const CACHE_NONCE_LENGTH: usize = 12;
 const MAX_CACHE_ENTRIES: usize = 256;
 const MAX_CACHE_AGE_MILLIS: i64 = 30 * 24 * 60 * 60 * 1_000;
 
+// 前台 Tauri 状态与 WorkManager JNI 入口会各自打开缓存，所有磁盘读改写必须串行。
+static CACHE_FILE_LOCK: Mutex<()> = Mutex::new(());
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct CacheEntry {
     body: String,
@@ -42,6 +45,13 @@ pub struct EncryptedCache {
     entries: Mutex<HashMap<String, CacheEntry>>,
 }
 
+impl Drop for EncryptedCache {
+    /// 释放后台或前台缓存句柄时清零从 Keystore 解封的缓存密钥。
+    fn drop(&mut self) {
+        self.key.fill(0);
+    }
+}
+
 impl EncryptedCache {
     /// 生成新的随机缓存主密钥；调用方必须将其保存到 Android Keystore。
     pub fn generate_key() -> [u8; CACHE_KEY_LENGTH] {
@@ -55,6 +65,9 @@ impl EncryptedCache {
         let key: [u8; CACHE_KEY_LENGTH] = key
             .try_into()
             .map_err(|_| "Android 离线缓存密钥长度无效".to_owned())?;
+        let _file_guard = CACHE_FILE_LOCK
+            .lock()
+            .map_err(|_| "Android 离线缓存文件锁不可用".to_owned())?;
         let entries = match Self::decrypt_file(&path, &key) {
             Ok(entries) => entries,
             Err(error) => {
@@ -75,18 +88,27 @@ impl EncryptedCache {
 
     /// 返回缓存的协议响应正文。
     pub fn get(&self, key: &str) -> Result<Option<String>, String> {
-        self.entries
+        let _file_guard = CACHE_FILE_LOCK
             .lock()
-            .map(|entries| entries.get(key).map(|entry| entry.body.clone()))
-            .map_err(|_| "Android 离线缓存状态不可用".to_owned())
-    }
-
-    /// 写入最新协议响应，并按时间和数量边界清理旧条目。
-    pub fn put(&self, key: String, body: String) -> Result<(), String> {
+            .map_err(|_| "Android 离线缓存文件锁不可用".to_owned())?;
         let mut entries = self
             .entries
             .lock()
             .map_err(|_| "Android 离线缓存状态不可用".to_owned())?;
+        self.reload(&mut entries)?;
+        Ok(entries.get(key).map(|entry| entry.body.clone()))
+    }
+
+    /// 写入最新协议响应，并按时间和数量边界清理旧条目。
+    pub fn put(&self, key: String, body: String) -> Result<(), String> {
+        let _file_guard = CACHE_FILE_LOCK
+            .lock()
+            .map_err(|_| "Android 离线缓存文件锁不可用".to_owned())?;
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| "Android 离线缓存状态不可用".to_owned())?;
+        self.reload(&mut entries)?;
         let now = unix_millis();
         entries.insert(
             key,
@@ -111,14 +133,20 @@ impl EncryptedCache {
 
     /// 返回是否存在至少一条可供离线展示的协议响应。
     pub fn has_entries(&self) -> bool {
-        self.entries
-            .lock()
-            .map(|entries| !entries.is_empty())
-            .unwrap_or(false)
+        let Ok(_file_guard) = CACHE_FILE_LOCK.lock() else {
+            return false;
+        };
+        let Ok(mut entries) = self.entries.lock() else {
+            return false;
+        };
+        self.reload(&mut entries).is_ok() && !entries.is_empty()
     }
 
     /// 清除内存与磁盘中的全部离线响应，用于断开设备连接。
     pub fn clear(&self) -> Result<(), String> {
+        let _file_guard = CACHE_FILE_LOCK
+            .lock()
+            .map_err(|_| "Android 离线缓存文件锁不可用".to_owned())?;
         self.entries
             .lock()
             .map_err(|_| "Android 离线缓存状态不可用".to_owned())?
@@ -126,6 +154,17 @@ impl EncryptedCache {
         if self.path.exists() {
             fs::remove_file(&self.path).map_err(|error| error.to_string())?;
         }
+        Ok(())
+    }
+
+    /// 返回缓存密文文件路径，供 WorkManager 与前台进程打开同一份副本。
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// 在每次读取或改写前吸收另一入口写入的最新磁盘状态。
+    fn reload(&self, entries: &mut HashMap<String, CacheEntry>) -> Result<(), String> {
+        *entries = Self::decrypt_file(&self.path, &self.key)?;
         Ok(())
     }
 
@@ -208,6 +247,32 @@ mod tests {
         assert_eq!(
             reopened.get("GET:/v1/memories").unwrap().as_deref(),
             Some("sensitive-memory")
+        );
+    }
+
+    /// 验证前台与 WorkManager 各自持有缓存句柄时会在每次操作前吸收对方写入。
+    #[test]
+    fn keeps_foreground_and_background_handles_coherent() {
+        let directory = tempfile::tempdir().expect("应创建缓存临时目录");
+        let path = directory.path().join("cache.enc");
+        let key = EncryptedCache::generate_key();
+        let foreground = EncryptedCache::open(path.clone(), &key).expect("应打开前台缓存");
+        let background = EncryptedCache::open(path, &key).expect("应打开后台缓存");
+
+        foreground
+            .put("foreground".into(), "first".into())
+            .expect("前台应写入缓存");
+        assert_eq!(
+            background.get("foreground").unwrap().as_deref(),
+            Some("first")
+        );
+
+        background
+            .put("background".into(), "second".into())
+            .expect("后台应写入缓存");
+        assert_eq!(
+            foreground.get("background").unwrap().as_deref(),
+            Some("second")
         );
     }
 }
