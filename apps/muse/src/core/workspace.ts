@@ -137,6 +137,21 @@ export function useMuseWorkspace() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
   }, [workspace]);
 
+  useEffect(() => {
+    /** 接收其他 Muse WebView 的写入，让主窗口与快捷工具窗保持同步。 */
+    function handleStorageChange(event: StorageEvent): void {
+      if (event.key !== STORAGE_KEY || !event.newValue) return;
+      try {
+        setWorkspace(JSON.parse(event.newValue) as MuseWorkspace);
+      } catch {
+        // 忽略其他窗口写入的损坏数据，保留当前窗口中的可用状态。
+      }
+    }
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
   /** 新增一条本地灵感，并返回新对象供可选同步使用。 */
   function addIdea(content: string): MuseIdea {
     const idea: MuseIdea = {
@@ -158,7 +173,11 @@ export function useMuseWorkspace() {
   }
 
   /** 创建一个带首条来源活动的本地任务。 */
-  function addTask(title: string, sourceText?: string): MuseTask {
+  function addTask(
+    title: string,
+    sourceText?: string,
+    options?: { dueLabel?: string; requester?: string; project?: string },
+  ): MuseTask {
     const activities: TaskActivity[] = sourceText?.trim()
       ? [
           {
@@ -175,10 +194,10 @@ export function useMuseWorkspace() {
       title: title.trim(),
       description: "",
       status: "todo",
-      dueLabel: "未设置",
-      requester: "未填写",
+      dueLabel: options?.dueLabel?.trim() || "未设置",
+      requester: options?.requester?.trim() || "未填写",
       source: sourceText ? "手动粘贴" : "Muse",
-      project: "未分类",
+      project: options?.project?.trim() || "未分类",
       activities,
     };
     setWorkspace((current) => ({ ...current, tasks: [task, ...current.tasks] }));
@@ -242,6 +261,37 @@ export function useMuseWorkspace() {
     setWorkspace((current) => ({ ...current, clipboard: current.clipboard.filter((item) => item.pinned) }));
   }
 
+  /** 把当前复制内容追加到本地剪贴板历史，并避免连续重复。 */
+  function addClipboardItem(content: string, source = "系统剪贴板"): MuseClipboardItem | null {
+    const value = content.trim();
+    if (!value) return null;
+    if (workspace.clipboard[0]?.content === value) return null;
+    const item: MuseClipboardItem = {
+      id: createId("clip"),
+      title: value.split(/\r?\n/, 1)[0].slice(0, 32) || "未命名片段",
+      content: value,
+      source,
+      copiedAt: Date.now(),
+      pinned: false,
+    };
+    setWorkspace((current) => ({ ...current, clipboard: [item, ...current.clipboard].slice(0, 50) }));
+    return item;
+  }
+
+  /** 保存一场由专用会议窗口结束的本地会议。 */
+  function addMeeting(title: string, durationLabel: string, summary: string): MuseMeeting {
+    const meeting: MuseMeeting = {
+      id: createId("meeting"),
+      title: title.trim() || "未命名会议",
+      summary: summary.trim() || "会议记录已保存，等待补充摘要。",
+      recordedAt: Date.now(),
+      durationLabel,
+      actionItems: [],
+    };
+    setWorkspace((current) => ({ ...current, meetings: [meeting, ...current.meetings] }));
+    return meeting;
+  }
+
   return useMemo(
     () => ({
       workspace,
@@ -252,6 +302,8 @@ export function useMuseWorkspace() {
       addTaskActivity,
       toggleClipboardPin,
       clearUnpinnedClipboard,
+      addClipboardItem,
+      addMeeting,
     }),
     [workspace],
   );

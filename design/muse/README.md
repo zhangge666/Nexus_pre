@@ -4,7 +4,7 @@
 
 对应功能说明见 [`docs/apps/muse.md`](../../docs/apps/muse.md)。
 
-> `index.html` 只是方便评审时切换全部状态的设计展板，不是正式应用的信息架构。正式实现已经在 `apps/muse/src/pages` 按今天、灵感、任务、会议、剪贴板和设置拆分为独立页面。
+> `index.html` 只是方便评审时切换全部状态的设计展板，不是正式应用的信息架构。正式应用的 `apps/muse/src/pages` 只承担主窗口中的聚合、回看与设置；`apps/muse/src/tool-windows` 才是四个快捷键直接唤起的专用功能界面。
 
 ## 1. 设计主张
 
@@ -114,15 +114,16 @@ http://127.0.0.1:4178/
 
 ## 5. 实现映射
 
-原型进入 `apps/muse` 时建议按窗口而不是页面路由拆分：
+正式应用已经拆成一个主窗口和四个独立工具窗：
 
-| 原型 | 建议窗口/路由 | 首要能力 |
+| 区域 | Tauri 窗口 / React 入口 | 当前首要能力 |
 |---|---|---|
-| 启动条 | `launcher` | 热键路由与焦点管理 |
-| 灵感 | `capture/idea` | 草稿、本地队列、Memory 写入 |
-| 任务 | `work/tasks` | 任务根记录、来源绑定、活动时间线 |
-| 会议 | `meeting/live`、`meeting/summary` | 录音、转写、摘要与行动项 |
-| 剪贴板 | `clipboard/compare` | 本地历史、置顶、差异比较 |
-| 快捷键 | `settings/hotkeys` | 冲突检测与重新绑定 |
+| 聚合与设置 | `main` / `src/App.tsx` | 今日聚合、历史查看、详细管理、可选 Orbit 连接 |
+| 灵感 | `idea` / `IdeaToolWindow.tsx` | 自动聚焦、本地保存、失焦隐藏 |
+| 任务 | `task` / `TaskToolWindow.tsx` | 标题与原始要求一次绑定、生成来源留痕 |
+| 会议 | `meeting` / `MeetingToolWindow.tsx` | 计时、文字记录、重点标记；真实录音待接入 |
+| 剪贴板 | `clipboard` / `ClipboardToolWindow.tsx` | 主动读取、固定、双栏逐行比较 |
 
-界面实现时继续复用 `@nexus/ui` token；原型中的业务文案与数据仅用于展示，不代表后端能力已经完成。
+四个窗口分别使用 `?window=idea|task|meeting|clipboard` 进入专用 React 根组件。Tauri 在启动时预创建窗口并用系统级快捷键执行 `show + focus`，工具窗关闭时只隐藏，不再回退到主窗口页面切换。
+
+界面实现继续复用 `@nexus/ui` token；原型中的业务文案与数据仅用于展示，不代表尚未接入的录音、转写或后台剪贴板监听能力已经完成。

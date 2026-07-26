@@ -56,20 +56,6 @@ export function App(): React.JSX.Element {
       });
   }, []);
 
-  /** 注册应用内快捷键预览；系统级全局热键由后续 Tauri 阶段接入。 */
-  useEffect(() => {
-    const mappings: Record<string, MuseView> = { i: "ideas", t: "tasks", r: "meetings", v: "clipboard" };
-    const listener = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || !event.shiftKey) return;
-      const view = mappings[event.key.toLowerCase()];
-      if (!view) return;
-      event.preventDefault();
-      setActiveView(view);
-    };
-    window.addEventListener("keydown", listener);
-    return () => window.removeEventListener("keydown", listener);
-  }, []);
-
   /** 连接可选 Orbit 服务，失败时不影响本机数据。 */
   async function handleConnect(): Promise<void> {
     if (!isTauriRuntime()) {

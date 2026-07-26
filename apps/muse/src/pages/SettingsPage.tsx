@@ -1,7 +1,7 @@
 /** 本文件实现 Muse 快捷键、本地模式与可选 Orbit 连接设置。 */
 
 import React from "react";
-import { Check, Cloud, Database, Keyboard, Link2, Shield, Unplug } from "lucide-react";
+import { Cloud, Database, Info, Keyboard, Link2, Shield, Unplug } from "lucide-react";
 import { PageHeader } from "../components/PageHeader";
 import type { ConnectionStatus } from "../api";
 
@@ -14,8 +14,8 @@ interface SettingsPageProps {
 const hotkeys = [
   { label: "打开 Muse", detail: "显示快捷入口", keys: ["Ctrl", "Shift", "Space"] },
   { label: "记录灵感", detail: "直接聚焦输入框", keys: ["Ctrl", "Shift", "I"] },
-  { label: "新建任务", detail: "带入当前剪贴板", keys: ["Ctrl", "Shift", "T"] },
-  { label: "开始 / 停止会议", detail: "再次按下即停止", keys: ["Ctrl", "Shift", "R"] },
+  { label: "新建任务", detail: "可读取当前剪贴板", keys: ["Ctrl", "Shift", "T"] },
+  { label: "会议记录", detail: "打开计时与文字记录窗", keys: ["Ctrl", "Shift", "R"] },
   { label: "剪贴板比较", detail: "显示并置顶窗口", keys: ["Ctrl", "Shift", "V"] },
 ];
 
@@ -33,18 +33,18 @@ export function SettingsPage({ connection, connecting, onConnect }: SettingsPage
 
       <div className="settings-columns">
         <section className="settings-section">
-          <header><Keyboard size={15} /><div><h2>功能快捷键</h2><p>每个高频动作都能一步直达。</p></div><button className="secondary-button" type="button">恢复默认</button></header>
+          <header><Keyboard size={15} /><div><h2>功能快捷键</h2><p>每个高频动作都能一步直达。</p></div><button className="secondary-button" type="button" disabled>自定义即将接入</button></header>
           <div className="hotkey-list">
             {hotkeys.map((hotkey) => (
               <div className="hotkey-row" key={hotkey.label}>
                 <span><strong>{hotkey.label}</strong><small>{hotkey.detail}</small></span>
-                <button type="button">
+                <button type="button" disabled title="当前版本使用桌面壳默认快捷键">
                   {hotkey.keys.map((key) => <kbd key={key}>{key}</kbd>)}
                 </button>
               </div>
             ))}
           </div>
-          <footer className="settings-state"><Check size={12} /> 未发现快捷键冲突</footer>
+          <footer className="settings-state"><Info size={12} /> 默认快捷键由桌面壳注册；单个冲突不会阻止 Muse 启动</footer>
         </section>
 
         <div className="settings-stack">

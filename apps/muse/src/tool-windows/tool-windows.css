@@ -1,0 +1,643 @@
+/** 本文件定义 Muse 四类快捷工具窗的紧凑布局、状态与响应式视觉。 */
+
+.tool-window {
+  display: grid;
+  width: 100vw;
+  height: 100vh;
+  grid-template-rows: 40px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid hsl(var(--border-strong));
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+}
+
+.tool-titlebar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+  user-select: none;
+}
+
+.tool-titlebar > img {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius);
+}
+
+.tool-symbol {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid hsl(var(--primary) / 0.18);
+  border-radius: var(--radius);
+  color: hsl(var(--primary-hover));
+  background: hsl(var(--primary) / 0.06);
+}
+
+.tool-window--recording .tool-symbol {
+  border-color: hsl(var(--danger) / 0.22);
+  color: hsl(var(--danger));
+  background: hsl(var(--danger) / 0.06);
+}
+
+.tool-title-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 1px;
+}
+
+.tool-title-copy strong {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.tool-title-copy span {
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-titlebar > kbd {
+  margin-right: 4px;
+}
+
+.tool-titlebar > button {
+  display: grid;
+  width: 40px;
+  height: 39px;
+  place-items: center;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.tool-titlebar > button:hover {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--danger));
+}
+
+.tool-content {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tool-primary-button,
+.tool-secondary-button,
+.tool-stop-button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  font-size: 10px;
+  font-weight: 600;
+  transition: color 120ms ease-out, background 120ms ease-out, border-color 120ms ease-out;
+}
+
+.tool-primary-button {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+}
+
+.tool-primary-button:hover:not(:disabled) {
+  background: hsl(var(--primary-hover));
+}
+
+.tool-secondary-button {
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface));
+}
+
+.tool-secondary-button:hover:not(:disabled) {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.tool-stop-button {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--danger));
+}
+
+.tool-primary-button:disabled,
+.tool-secondary-button:disabled,
+.quiet-tools button:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+}
+
+.tool-footer {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+}
+
+.tool-feedback {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 灵感窗口 */
+
+.idea-tool-form {
+  display: grid;
+  height: 100%;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.idea-tool-form textarea {
+  width: 100%;
+  min-height: 0;
+  resize: none;
+  padding: 14px 16px;
+  border: 0;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  caret-color: hsl(var(--primary));
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.idea-tool-form textarea::placeholder,
+.tool-field input::placeholder,
+.tool-field textarea::placeholder,
+.meeting-title-input::placeholder,
+.meeting-notes::placeholder {
+  color: hsl(var(--foreground-muted));
+}
+
+.idea-tool-form textarea:focus,
+.tool-field input:focus,
+.tool-field textarea:focus,
+.meeting-title-input:focus,
+.meeting-notes:focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.quiet-tools {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 3px;
+}
+
+.quiet-tools button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.quiet-tools button:hover:not(:disabled) {
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.quiet-tools span {
+  margin-left: 5px;
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 任务窗口 */
+
+.task-tool-form {
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.tool-field {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.tool-field > span {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+  font-weight: 550;
+}
+
+.tool-field > span > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  color: hsl(var(--primary-hover));
+  background: transparent;
+  font-size: 9px;
+}
+
+.tool-field input,
+.tool-field textarea,
+.meeting-title-input,
+.meeting-notes {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface));
+  font-size: 11px;
+}
+
+.tool-field input,
+.meeting-title-input {
+  height: 32px;
+  padding: 0 9px;
+}
+
+.tool-field textarea {
+  height: 100%;
+  min-height: 72px;
+  resize: none;
+  padding: 8px 9px;
+  line-height: 1.5;
+}
+
+.tool-field--title {
+  padding: 10px 12px 0;
+}
+
+.tool-field--source {
+  min-height: 0;
+  padding: 8px 12px;
+}
+
+.task-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 12px 9px;
+}
+
+/* 会议窗口 */
+
+.meeting-tool {
+  display: grid;
+  height: 100%;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.meeting-status-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 7px;
+}
+
+.meeting-status-row time {
+  color: hsl(var(--foreground));
+  font: 650 22px/1 "Geist Mono", "JetBrains Mono", Consolas, monospace;
+  letter-spacing: -0.03em;
+}
+
+.meeting-status-row > span {
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.meeting-status-row .phase-chip {
+  margin-left: auto;
+  padding: 3px 6px;
+  border: 1px solid hsl(var(--warning) / 0.2);
+  border-radius: var(--radius-sm);
+  color: hsl(var(--warning));
+  background: hsl(var(--warning) / 0.05);
+}
+
+.meeting-pulse {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface));
+  font-size: 9px;
+}
+
+.meeting-pulse.is-recording {
+  border-color: hsl(var(--danger) / 0.22);
+  color: hsl(var(--danger));
+  background: hsl(var(--danger) / 0.05);
+}
+
+.meeting-title-input {
+  width: calc(100% - 24px);
+  margin: 0 12px 7px;
+}
+
+.meeting-notes {
+  width: calc(100% - 24px);
+  height: calc(100% - 8px);
+  min-height: 0;
+  margin: 0 12px 8px;
+  resize: none;
+  padding: 9px 10px;
+  line-height: 1.5;
+}
+
+.meeting-notes:disabled {
+  color: hsl(var(--foreground-disabled));
+  background: hsl(var(--surface) / 0.62);
+}
+
+.meeting-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* 剪贴板窗口 */
+
+.clipboard-tool {
+  display: grid;
+  height: 100%;
+  grid-template-columns: 254px minmax(0, 1fr);
+}
+
+.clipboard-history {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+}
+
+.clipboard-toolbar {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 8px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.clipboard-toolbar > span {
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.clipboard-list {
+  height: calc(100% - 46px);
+  overflow: auto;
+}
+
+.clipboard-list article {
+  display: grid;
+  min-height: 56px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.clipboard-list article:hover {
+  background: hsl(var(--surface-hover) / 0.64);
+}
+
+.clipboard-list article.is-selected {
+  background: hsl(var(--surface-active));
+}
+
+.clip-select {
+  display: grid;
+  min-width: 0;
+  height: 100%;
+  grid-template-columns: 17px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 7px 4px 7px 9px;
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+  text-align: left;
+}
+
+.clip-select > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.clip-select strong,
+.clip-select small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-select strong {
+  font-size: 10px;
+  font-weight: 550;
+}
+
+.clip-select small {
+  color: hsl(var(--foreground-muted));
+  font-size: 8px;
+}
+
+.clip-check {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-sm);
+  color: hsl(var(--primary-foreground));
+}
+
+.is-selected .clip-check {
+  border-color: hsl(var(--primary));
+  background: hsl(var(--primary));
+}
+
+.clip-row-actions {
+  display: flex;
+  gap: 1px;
+  padding-right: 6px;
+  opacity: 0.35;
+}
+
+.clipboard-list article:hover .clip-row-actions,
+.clipboard-list article:focus-within .clip-row-actions {
+  opacity: 1;
+}
+
+.clip-row-actions button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.clip-row-actions button:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.clipboard-compare {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 46px 32px minmax(0, 1fr) 30px;
+  background: hsl(var(--background));
+}
+
+.clipboard-compare > header,
+.clipboard-compare > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.clipboard-compare > header > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--foreground-secondary));
+}
+
+.clipboard-compare > header strong {
+  font-size: 10px;
+}
+
+.clipboard-compare > header span,
+.clipboard-compare > footer {
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.clipboard-compare > footer {
+  border-top: 1px solid hsl(var(--border));
+  border-bottom: 0;
+  background: hsl(var(--surface));
+}
+
+.compare-headings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--surface));
+}
+
+.compare-headings strong {
+  overflow: hidden;
+  padding: 7px 9px;
+  color: hsl(var(--foreground-secondary));
+  font-size: 9px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-headings strong + strong {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.compare-grid {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  overflow: auto;
+}
+
+.compare-grid pre {
+  min-height: 29px;
+  margin: 0;
+  overflow: hidden;
+  padding: 6px 9px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+  font: 400 9px/1.7 "Geist Mono", "JetBrains Mono", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.compare-grid pre:nth-child(even) {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.compare-grid pre.is-removed {
+  color: hsl(var(--danger));
+  background: hsl(var(--danger) / 0.055);
+}
+
+.compare-grid pre.is-added {
+  color: hsl(var(--success));
+  background: hsl(var(--success) / 0.055);
+}
+
+.compare-empty {
+  grid-column: 1 / -1;
+  padding: 40px 16px;
+  color: hsl(var(--foreground-muted));
+  font-size: 10px;
+  text-align: center;
+}
+
+@media (max-width: 540px) {
+  .clipboard-tool {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .task-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .task-meta-grid .tool-field:last-child {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-primary-button,
+  .tool-secondary-button,
+  .tool-stop-button {
+    transition: none;
+  }
+}

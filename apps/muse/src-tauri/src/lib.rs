@@ -1,10 +1,18 @@
-//! 本文件实现 Muse 可选 Orbit 服务的发现、授权登记与灵感同步命令。
+//! 本文件实现 Muse 多窗口快捷唤起，以及可选 Orbit 服务的发现、授权登记与灵感同步命令。
 
 use std::{path::PathBuf, sync::Mutex};
 
 use nexus_protocol::{ServiceDiscovery, discover_local_service, shared_nexus_data_dir};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::{Manager, State};
+
+#[cfg(desktop)]
+use tauri::WindowEvent;
+#[cfg(desktop)]
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
+
+#[cfg(desktop)]
+const TOOL_WINDOW_LABELS: [&str; 4] = ["idea", "task", "meeting", "clipboard"];
 
 /// 保存 Muse 当前进程获授的可选 Orbit capability token。
 #[derive(Clone)]
@@ -196,19 +204,99 @@ async fn submit_idea(
     state.submit(content).await
 }
 
-/// 初始化 Muse 最小客户端并启动 Tauri 运行时。
+/// 显示并聚焦指定窗口，让已创建的快捷工具窗可以重复使用。
+#[cfg(desktop)]
+fn reveal_window(app: &tauri::AppHandle, label: &str) {
+    if let Some(window) = app.get_webview_window(label) {
+        if let Err(error) = window.show() {
+            eprintln!("Muse 无法显示 {label} 窗口：{error}");
+            return;
+        }
+        if let Err(error) = window.set_focus() {
+            eprintln!("Muse 无法聚焦 {label} 窗口：{error}");
+        }
+    }
+}
+
+/// 注册默认全局快捷键；单个按键冲突只记录诊断，不阻止 Muse 启动。
+#[cfg(desktop)]
+fn register_global_shortcuts(app: &tauri::App) {
+    for shortcut in [
+        "ctrl+shift+space",
+        "ctrl+shift+i",
+        "ctrl+shift+t",
+        "ctrl+shift+r",
+        "ctrl+shift+v",
+    ] {
+        if let Err(error) = app.global_shortcut().register(shortcut) {
+            eprintln!("Muse 全局快捷键 {shortcut} 注册失败：{error}");
+        }
+    }
+}
+
+/// 初始化 Muse 多窗口客户端并启动 Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .setup(|app| {
-            let data_dir = shared_nexus_data_dir(app.path().app_data_dir()?);
-            app.manage(MuseState {
-                client: reqwest::Client::new(),
-                data_dir,
-                connection: Mutex::new(None),
-            });
-            Ok(())
-        })
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder.plugin(
+        tauri_plugin_global_shortcut::Builder::new()
+            .with_handler(|app, shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                let label = if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::Space)
+                {
+                    Some("main")
+                } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyI) {
+                    Some("idea")
+                } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyT) {
+                    Some("task")
+                } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyR) {
+                    Some("meeting")
+                } else if shortcut.matches(Modifiers::CONTROL | Modifiers::SHIFT, Code::KeyV) {
+                    Some("clipboard")
+                } else {
+                    None
+                };
+                if let Some(label) = label {
+                    reveal_window(app, label);
+                }
+            })
+            .build(),
+    );
+
+    let builder = builder.setup(|app| {
+        let data_dir = shared_nexus_data_dir(app.path().app_data_dir()?);
+        app.manage(MuseState {
+            client: reqwest::Client::new(),
+            data_dir,
+            connection: Mutex::new(None),
+        });
+
+        #[cfg(desktop)]
+        register_global_shortcuts(app);
+
+        Ok(())
+    });
+
+    #[cfg(desktop)]
+    let builder = builder.on_window_event(|window, event| {
+        if let WindowEvent::CloseRequested { api, .. } = event
+            && TOOL_WINDOW_LABELS.contains(&window.label())
+        {
+            api.prevent_close();
+            if let Err(error) = window.hide() {
+                eprintln!("Muse 无法隐藏 {} 窗口：{error}", window.label());
+            }
+        } else if matches!(event, WindowEvent::CloseRequested { .. }) && window.label() == "main" {
+            // 当前阶段尚未提供托盘退出入口，因此主窗口关闭即结束整个 Muse 进程。
+            window.app_handle().exit(0);
+        }
+    });
+
+    builder
         .invoke_handler(tauri::generate_handler![
             connect_service,
             get_connection_status,

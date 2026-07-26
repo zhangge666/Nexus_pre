@@ -12,6 +12,13 @@ export function formatCompactTime(timestamp: number): string {
   return date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
+/** 把秒数格式化为会议窗口使用的两段式计时。 */
+export function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
+  const seconds = Math.max(0, totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
 /** 返回用户可读的任务状态。 */
 export function taskStatusLabel(status: TaskStatus): string {
   return { todo: "待处理", doing: "进行中", waiting: "等待", done: "已完成" }[status];

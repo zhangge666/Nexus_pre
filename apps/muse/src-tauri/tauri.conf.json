@@ -10,18 +10,83 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{
-      "title": "Muse",
-      "width": 1020,
-      "height": 680,
-      "minWidth": 720,
-      "minHeight": 520,
-      "center": true,
-      "decorations": false,
-      "resizable": true,
-      "shadow": true,
-      "theme": "Dark"
-    }],
+    "windows": [
+      {
+        "label": "main",
+        "title": "Muse",
+        "width": 1020,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "decorations": false,
+        "resizable": true,
+        "shadow": true,
+        "theme": "Dark"
+      },
+      {
+        "label": "idea",
+        "title": "Muse · 记下灵感",
+        "url": "index.html?window=idea",
+        "width": 560,
+        "height": 220,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true,
+        "theme": "Dark"
+      },
+      {
+        "label": "task",
+        "title": "Muse · 新建任务",
+        "url": "index.html?window=task",
+        "width": 620,
+        "height": 390,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true,
+        "theme": "Dark"
+      },
+      {
+        "label": "meeting",
+        "title": "Muse · 会议记录",
+        "url": "index.html?window=meeting",
+        "width": 620,
+        "height": 320,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true,
+        "theme": "Dark"
+      },
+      {
+        "label": "clipboard",
+        "title": "Muse · 剪贴板比较",
+        "url": "index.html?window=clipboard",
+        "width": 820,
+        "height": 520,
+        "minWidth": 620,
+        "minHeight": 380,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "resizable": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": true,
+        "theme": "Dark"
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
     }
