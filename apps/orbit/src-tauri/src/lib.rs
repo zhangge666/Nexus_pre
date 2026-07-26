@@ -2020,7 +2020,7 @@ fn get_e2e_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value
     }
 }
 
-/// 立即执行一次 Android E2E 密文上传、拉取、合并和游标确认。
+/// 立即执行一次当前设备的 E2E 密文上传、拉取、合并和游标确认。
 #[tauri::command]
 async fn sync_e2e_content(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
@@ -2037,14 +2037,16 @@ async fn sync_e2e_content(state: State<'_, Arc<OrbitState>>) -> Result<serde_jso
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 内容副本".into())
+        serde_json::to_value(state.desktop_sync.sync_content().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
-/// 返回 Android E2E 本地副本的游标、待上传操作和冲突留痕数量。
+/// 返回当前设备 E2E 副本的游标、待上传操作和冲突留痕数量。
 #[tauri::command]
-fn get_e2e_content_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
+async fn get_e2e_content_status(
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
     {
         serde_json::to_value(mobile_sync::content_status(&state.app, &state.cache)?)
@@ -2052,8 +2054,8 @@ fn get_e2e_content_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_jso
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 内容副本".into())
+        serde_json::to_value(state.desktop_sync.content_status().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -2489,6 +2491,13 @@ pub fn run() {
                                 .map_err(|error| std::io::Error::other(error.to_string()))?,
                         );
                         let embedder = Arc::new(HashEmbedder::default());
+                        desktop_sync
+                            .attach_store(
+                                Arc::clone(&store),
+                                Arc::clone(&embedder),
+                                data_dir.join("desktop-sync-replica.enc"),
+                            )
+                            .map_err(io::Error::other)?;
                         let event_subscription = store
                             .subscribe()
                             .map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -2498,6 +2507,44 @@ pub fn run() {
                             while let Some(event) = event_subscription.recv() {
                                 if event_app.emit("memory-changed", event).is_err() {
                                     break;
+                                }
+                            }
+                        });
+                        let sync_subscription = store
+                            .subscribe()
+                            .map_err(|error| std::io::Error::other(error.to_string()))?;
+                        let sync_bridge = Arc::clone(&desktop_sync);
+                        let sync_notify = Arc::new(tokio::sync::Notify::new());
+                        let event_sync_notify = Arc::clone(&sync_notify);
+                        // 同步订阅严格按核心提交顺序生成本地 oplog，远端回写事件由桥接层消费防回环标记。
+                        tauri::async_runtime::spawn_blocking(move || {
+                            while let Some(event) = sync_subscription.recv() {
+                                match tauri::async_runtime::block_on(
+                                    sync_bridge.handle_local_event(event),
+                                ) {
+                                    Ok(true) => event_sync_notify.notify_one(),
+                                    Ok(false) => {}
+                                    Err(error) => eprintln!("桌面同步记录本地提交失败：{error}"),
+                                }
+                            }
+                        });
+                        let periodic_sync = Arc::clone(&desktop_sync);
+                        // 本地提交以短延迟合并上传，同时每分钟兜底拉取 Android 远端操作。
+                        tauri::async_runtime::spawn(async move {
+                            let mut interval =
+                                tokio::time::interval(std::time::Duration::from_secs(60));
+                            loop {
+                                tokio::select! {
+                                    _ = sync_notify.notified() => {
+                                        tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+                                    }
+                                    _ = interval.tick() => {}
+                                }
+                                if periodic_sync.is_enabled()
+                                    && periodic_sync.status().is_ok_and(|status| status.configured)
+                                    && let Err(error) = periodic_sync.sync_content().await
+                                {
+                                    eprintln!("桌面端到端增量同步失败：{error}");
                                 }
                             }
                         });

@@ -1,20 +1,36 @@
 //! 本文件实现 Orbit 桌面端 E2E 中继配置、系统凭据库身份、恢复、配对与设备治理。
 
 use std::{
+    collections::{BTreeMap, HashMap},
+    fs,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use aes_gcm::{
+    Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
+};
 use base64::{
     Engine as _,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
 };
 use keyring::Entry;
-use nexus_sync::{DeviceIdentity, PairingOffer, SealedPairingKey, SyncKey};
+use nexus_core::{
+    Collection as CoreCollection, CoreEvent, HashEmbedder, ListQuery, Memory, MemoryFilters,
+    MemorySource, MemoryStore,
+};
+use nexus_sync::{
+    DeviceIdentity, EncryptedSyncEnvelope, OperationKind, PairingOffer, PlainSyncOperation,
+    SealedPairingKey, SyncKey, VersionVector, VersionedRecord,
+};
 use qrcode::{QrCode, render::svg};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
+
+use crate::{Collection, MemorySummary};
 
 const CREDENTIAL_SERVICE: &str = "com.nexus.orbit.sync";
 const ACCESS_TOKEN_STORAGE_KEY: &str = "relay-access-token";
@@ -23,6 +39,24 @@ const DEVICE_ID_STORAGE_KEY: &str = "e2e-device-id";
 const DEVICE_IDENTITY_STORAGE_KEY: &str = "e2e-device-identity";
 const OUTGOING_PAIRING_STORAGE_KEY: &str = "e2e-outgoing-pairing";
 const PENDING_JOIN_STORAGE_KEY: &str = "e2e-pending-join";
+const REPLICA_VERSION: u8 = 1;
+const REPLICA_ENVELOPE_VERSION: u8 = 1;
+const REPLICA_NONCE_LENGTH: usize = 12;
+const PULL_LIMIT: usize = 200;
+
+/// 表示一次桌面增量同步后可供设置页展示的状态。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentSyncStatus {
+    /// 已完整应用并确认的中继游标。
+    pub cursor: u64,
+    /// 因离线或中继失败仍等待上传的本地操作数量。
+    pub pending_changes: usize,
+    /// 当前副本保留的并发失败版本数量。
+    pub conflict_count: usize,
+    /// 最近一次完整上传、拉取并确认成功的 Unix 毫秒时间。
+    pub last_sync_at: Option<i64>,
+}
 
 /// 表示桌面端当前 E2E 工作区和设备身份状态。
 #[derive(Debug, Serialize)]
@@ -108,6 +142,99 @@ pub struct SyncDevice {
     pub acknowledged_cursor: u64,
 }
 
+/// 表示 Android 与桌面同步密文共同承载的内容实体。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(tag = "entityType", content = "data", rename_all = "snake_case")]
+enum SyncEntity {
+    /// 一条完整记忆快照。
+    Memory(MemorySummary),
+    /// 一个集合及其层级、排序信息。
+    Collection(Collection),
+    /// 记忆与集合之间的幂等成员关系。
+    Membership(CollectionMembership),
+}
+
+/// 表示一条集合成员关系。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CollectionMembership {
+    collection_id: String,
+    memory_id: String,
+}
+
+/// 表示桌面加密同步元数据、确定性合并状态与可靠待上传队列。
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalReplica {
+    version: u8,
+    workspace_id: String,
+    cursor: u64,
+    local_sequence: u64,
+    last_sync_at: Option<i64>,
+    records: BTreeMap<String, VersionedRecord<SyncEntity>>,
+    pending: Vec<EncryptedSyncEnvelope>,
+}
+
+impl LocalReplica {
+    /// 为当前工作区创建空的同步元数据副本。
+    fn empty(key: &SyncKey) -> Self {
+        Self {
+            version: REPLICA_VERSION,
+            workspace_id: key.workspace_id(),
+            cursor: 0,
+            local_sequence: 0,
+            last_sync_at: None,
+            records: BTreeMap::new(),
+            pending: Vec::new(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReplicaEnvelope {
+    version: u8,
+    nonce: String,
+    ciphertext: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredEnvelope {
+    cursor: u64,
+    envelope: EncryptedSyncEnvelope,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PullChangesResponse {
+    changes: Vec<StoredEnvelope>,
+    next_cursor: u64,
+    has_more: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PushChangeResponse {
+    cursor: u64,
+    duplicate: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcknowledgeRequest {
+    workspace_id: String,
+    cursor: u64,
+    proof: DeviceProof,
+}
+
+#[derive(Clone)]
+struct StoreContext {
+    store: Arc<MemoryStore>,
+    embedder: Arc<HashEmbedder>,
+    replica_path: PathBuf,
+}
+
 #[derive(Clone)]
 struct RelayConfig {
     endpoint: String,
@@ -162,6 +289,10 @@ pub struct DesktopSync {
     client: reqwest::Client,
     config: Mutex<RelayConfig>,
     secrets: Arc<dyn SecretStore>,
+    store: Mutex<Option<StoreContext>>,
+    state_gate: tokio::sync::Mutex<()>,
+    network_gate: tokio::sync::Mutex<()>,
+    suppressed_events: Mutex<HashMap<String, usize>>,
 }
 
 impl DesktopSync {
@@ -189,7 +320,29 @@ impl DesktopSync {
                 enabled,
             }),
             secrets,
+            store: Mutex::new(None),
+            state_gate: tokio::sync::Mutex::new(()),
+            network_gate: tokio::sync::Mutex::new(()),
+            suppressed_events: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// 绑定当前本地服务持有者的数据库、嵌入器和加密同步元数据路径。
+    pub fn attach_store(
+        &self,
+        store: Arc<MemoryStore>,
+        embedder: Arc<HashEmbedder>,
+        replica_path: PathBuf,
+    ) -> Result<(), String> {
+        *self
+            .store
+            .lock()
+            .map_err(|_| "桌面同步存储状态不可用".to_owned())? = Some(StoreContext {
+            store,
+            embedder,
+            replica_path,
+        });
+        Ok(())
     }
 
     /// 返回系统凭据库是否已经保存 Relay 访问令牌。
@@ -293,6 +446,10 @@ impl DesktopSync {
         )
         .await?;
         self.persist_current_identity(&key, &identity)?;
+        self.reset_and_seed_replica(&key).await?;
+        if self.store_context().is_ok() {
+            self.sync_content().await?;
+        }
         self.status()
     }
 
@@ -325,6 +482,10 @@ impl DesktopSync {
         )
         .await?;
         self.persist_current_identity(&key, &identity)?;
+        self.reset_and_seed_replica(&key).await?;
+        if self.store_context().is_ok() {
+            self.sync_content().await?;
+        }
         self.status()
     }
 
@@ -536,6 +697,10 @@ impl DesktopSync {
             .map_err(|error| error.to_string())?;
         self.persist_current_identity(&key, &identity)?;
         self.secrets.delete(PENDING_JOIN_STORAGE_KEY)?;
+        self.reset_and_seed_replica(&key).await?;
+        if self.store_context().is_ok() {
+            self.sync_content().await?;
+        }
         self.status()
     }
 
@@ -583,6 +748,513 @@ impl DesktopSync {
         .await
     }
 
+    /// 将一条本地数据库提交事件转换为加密待上传操作；远端回写事件会被防回环标记消费。
+    pub async fn handle_local_event(&self, event: CoreEvent) -> Result<bool, String> {
+        if !self.is_enabled() || !self.status()?.configured {
+            return Ok(false);
+        }
+        let Some(entity_id) = event_entity_id(&event) else {
+            return Ok(false);
+        };
+        if self.take_suppressed_event(&entity_id)? {
+            return Ok(false);
+        }
+        let deleted_memory_id = match &event {
+            CoreEvent::MemoryDeleted { id, .. } => Some(id.to_string()),
+            _ => None,
+        };
+        let deleted_collection_id = match &event {
+            CoreEvent::CollectionDeleted { id } => Some(id.to_string()),
+            _ => None,
+        };
+        let context = self.store_context()?;
+        let value = match event {
+            CoreEvent::MemoryCreated { id, .. } | CoreEvent::MemoryUpdated { id, .. } => {
+                let memory = context
+                    .store
+                    .get(&id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "本地提交事件对应的记忆不存在".to_owned())?;
+                Some(SyncEntity::Memory(memory_to_summary(memory)?))
+            }
+            CoreEvent::MemoryDeleted { .. } | CoreEvent::CollectionDeleted { .. } => None,
+            CoreEvent::CollectionCreated { id } | CoreEvent::CollectionUpdated { id } => {
+                let collection = context
+                    .store
+                    .get_collection(id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "本地提交事件对应的集合不存在".to_owned())?;
+                Some(SyncEntity::Collection(collection_to_summary(collection)))
+            }
+            CoreEvent::CollectionMembershipAdded {
+                collection_id,
+                memory_id,
+            } => Some(SyncEntity::Membership(CollectionMembership {
+                collection_id: collection_id.to_string(),
+                memory_id: memory_id.to_string(),
+            })),
+            CoreEvent::CollectionMembershipRemoved { .. } => None,
+            CoreEvent::ReviewDue { .. } | CoreEvent::ReviewGraded { .. } => return Ok(false),
+        };
+        let (key, identity) = self.current_identity()?;
+        let _state = self.state_gate.lock().await;
+        let mut replica = load_replica(&context.replica_path, &key)?;
+        queue_entity_change(&mut replica, &key, &identity, entity_id, value)?;
+        let related_memberships = replica
+            .records
+            .iter()
+            .filter_map(|(entity_id, record)| match record.value.as_ref() {
+                Some(SyncEntity::Membership(membership))
+                    if deleted_memory_id.as_ref().is_some_and(|memory_id| {
+                        membership.memory_id.as_str() == memory_id.as_str()
+                    }) || deleted_collection_id.as_ref().is_some_and(|collection_id| {
+                        membership.collection_id.as_str() == collection_id.as_str()
+                    }) =>
+                {
+                    Some(entity_id.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for membership_id in related_memberships {
+            queue_entity_change(&mut replica, &key, &identity, membership_id, None)?;
+        }
+        persist_replica(&context.replica_path, &key, &replica)?;
+        Ok(true)
+    }
+
+    /// 上传桌面待处理操作、拉取远端密文、写回本地数据库并确认最新游标。
+    pub async fn sync_content(&self) -> Result<ContentSyncStatus, String> {
+        if !self.is_enabled() {
+            return Err("桌面端到端同步尚未启用".into());
+        }
+        let _network = self.network_gate.lock().await;
+        let config = self.connection()?;
+        let context = self.store_context()?;
+        let (key, identity) = self.current_identity()?;
+        let devices = self.list_devices().await?;
+        let public_keys = devices
+            .iter()
+            .map(|device| (device.device_id.clone(), device.public_key.clone()))
+            .collect::<HashMap<_, _>>();
+        {
+            let _state = self.state_gate.lock().await;
+            let mut replica = load_replica(&context.replica_path, &key)?;
+            if let Some(current) = devices
+                .iter()
+                .find(|device| device.device_id == identity.device_id())
+            {
+                replica.local_sequence = replica.local_sequence.max(current.last_sequence);
+            }
+            persist_replica(&context.replica_path, &key, &replica)?;
+        }
+        // 启动时补扫订阅建立前已经存在的本地数据；已有记录或墓碑不会被重复排队。
+        self.seed_current_store(&key).await?;
+
+        loop {
+            let envelope = {
+                let _state = self.state_gate.lock().await;
+                load_replica(&context.replica_path, &key)?
+                    .pending
+                    .first()
+                    .cloned()
+            };
+            let Some(envelope) = envelope else {
+                break;
+            };
+            let response: PushChangeResponse = send_json(
+                self.client
+                    .post(relay_url(&config.endpoint, "/v1/sync/changes")?)
+                    .bearer_auth(&config.token)
+                    .json(&envelope),
+            )
+            .await?;
+            if response.cursor == 0 {
+                return Err("E2E 中继返回了无效上传游标".into());
+            }
+            let _was_duplicate = response.duplicate;
+            let _state = self.state_gate.lock().await;
+            let mut replica = load_replica(&context.replica_path, &key)?;
+            if replica
+                .pending
+                .first()
+                .is_some_and(|pending| pending.operation_id == envelope.operation_id)
+            {
+                replica.pending.remove(0);
+            } else {
+                replica
+                    .pending
+                    .retain(|pending| pending.operation_id != envelope.operation_id);
+            }
+            persist_replica(&context.replica_path, &key, &replica)?;
+        }
+
+        loop {
+            let cursor = {
+                let _state = self.state_gate.lock().await;
+                load_replica(&context.replica_path, &key)?.cursor
+            };
+            let action = format!(
+                "changes:pull:{}:{}:{}",
+                key.workspace_id(),
+                cursor,
+                PULL_LIMIT
+            );
+            let proof = create_proof(&identity, &action);
+            let response: PullChangesResponse = send_json(
+                self.client
+                    .get(relay_url(&config.endpoint, "/v1/sync/changes")?)
+                    .bearer_auth(&config.token)
+                    .query(&[
+                        ("workspaceId", key.workspace_id()),
+                        ("after", cursor.to_string()),
+                        ("limit", PULL_LIMIT.to_string()),
+                        ("deviceId", proof.device_id),
+                        ("timestamp", proof.timestamp.to_string()),
+                        ("nonce", proof.nonce),
+                        ("signature", proof.signature),
+                    ]),
+            )
+            .await?;
+            let mut operations = Vec::with_capacity(response.changes.len());
+            for stored in response.changes {
+                let public_key = public_keys
+                    .get(&stored.envelope.device_id)
+                    .ok_or_else(|| "同步信封来源设备未登记，已拒绝解密".to_owned())?;
+                let operation = key
+                    .decrypt_operation(&stored.envelope, public_key)
+                    .map_err(|error| error.to_string())?;
+                operations.push((stored.cursor, operation));
+            }
+            {
+                let _state = self.state_gate.lock().await;
+                let mut replica = load_replica(&context.replica_path, &key)?;
+                for (stored_cursor, operation) in operations {
+                    if let Some((entity_id, record)) = apply_operation(&mut replica, operation)? {
+                        self.apply_record_to_store(&context, &entity_id, &record)?;
+                    }
+                    replica.cursor = replica.cursor.max(stored_cursor);
+                }
+                replica.cursor = replica.cursor.max(response.next_cursor);
+                persist_replica(&context.replica_path, &key, &replica)?;
+            }
+            if !response.has_more {
+                break;
+            }
+        }
+
+        let cursor = {
+            let _state = self.state_gate.lock().await;
+            load_replica(&context.replica_path, &key)?.cursor
+        };
+        if cursor > 0 {
+            let action = format!("changes:ack:{}:{cursor}", key.workspace_id());
+            let _: serde_json::Value = send_json(
+                self.client
+                    .post(relay_url(&config.endpoint, "/v1/sync/ack")?)
+                    .bearer_auth(&config.token)
+                    .json(&AcknowledgeRequest {
+                        workspace_id: key.workspace_id(),
+                        cursor,
+                        proof: create_proof(&identity, &action),
+                    }),
+            )
+            .await?;
+        }
+        let _state = self.state_gate.lock().await;
+        let mut replica = load_replica(&context.replica_path, &key)?;
+        replica.last_sync_at = Some(unix_millis());
+        persist_replica(&context.replica_path, &key, &replica)?;
+        Ok(replica_status(&replica))
+    }
+
+    /// 返回桌面加密同步元数据中的游标、待上传数与冲突留痕数。
+    pub async fn content_status(&self) -> Result<ContentSyncStatus, String> {
+        let context = self.store_context()?;
+        let (key, _) = self.current_identity()?;
+        let _state = self.state_gate.lock().await;
+        Ok(replica_status(&load_replica(&context.replica_path, &key)?))
+    }
+
+    /// 将当前桌面库中尚未进入工作区的记忆、集合与成员关系加入可靠队列。
+    async fn seed_current_store(&self, key: &SyncKey) -> Result<(), String> {
+        let context = match self.store_context() {
+            Ok(context) => context,
+            Err(_) => return Ok(()),
+        };
+        let (_, identity) = self.current_identity()?;
+        let _state = self.state_gate.lock().await;
+        let mut replica = load_replica(&context.replica_path, key)?;
+        for collection in context
+            .store
+            .list_collections()
+            .map_err(|error| error.to_string())?
+        {
+            let summary = collection_to_summary(collection);
+            let entity_id = collection_entity_id(&summary.id);
+            if !replica.records.contains_key(&entity_id) {
+                queue_entity_change(
+                    &mut replica,
+                    key,
+                    &identity,
+                    entity_id,
+                    Some(SyncEntity::Collection(summary)),
+                )?;
+            }
+        }
+        let mut offset = 0;
+        loop {
+            let page = context
+                .store
+                .list(&ListQuery {
+                    filters: MemoryFilters::default(),
+                    limit: 100,
+                    offset,
+                })
+                .map_err(|error| error.to_string())?;
+            for memory in page.items {
+                let summary = memory_to_summary(memory)?;
+                let entity_id = memory_entity_id(&summary.id);
+                if !replica.records.contains_key(&entity_id) {
+                    queue_entity_change(
+                        &mut replica,
+                        key,
+                        &identity,
+                        entity_id,
+                        Some(SyncEntity::Memory(summary)),
+                    )?;
+                }
+            }
+            let Some(next_offset) = page.next_offset else {
+                break;
+            };
+            offset = next_offset;
+        }
+        for collection in context
+            .store
+            .list_collections()
+            .map_err(|error| error.to_string())?
+        {
+            for memory_id in context
+                .store
+                .list_collection_memory_ids(collection.id)
+                .map_err(|error| error.to_string())?
+            {
+                let entity_id =
+                    membership_entity_id(&collection.id.to_string(), &memory_id.to_string());
+                if !replica.records.contains_key(&entity_id) {
+                    queue_entity_change(
+                        &mut replica,
+                        key,
+                        &identity,
+                        entity_id,
+                        Some(SyncEntity::Membership(CollectionMembership {
+                            collection_id: collection.id.to_string(),
+                            memory_id: memory_id.to_string(),
+                        })),
+                    )?;
+                }
+            }
+        }
+        persist_replica(&context.replica_path, key, &replica)
+    }
+
+    /// 重置工作区同步元数据并扫描当前桌面库建立首批待上传操作。
+    async fn reset_and_seed_replica(&self, key: &SyncKey) -> Result<(), String> {
+        let context = match self.store_context() {
+            Ok(context) => context,
+            Err(_) => return Ok(()),
+        };
+        {
+            let _state = self.state_gate.lock().await;
+            persist_replica(&context.replica_path, key, &LocalReplica::empty(key))?;
+        }
+        self.seed_current_store(key).await
+    }
+
+    /// 将收敛后的可见记录幂等物化到桌面数据库。
+    fn apply_record_to_store(
+        &self,
+        context: &StoreContext,
+        entity_id: &str,
+        record: &VersionedRecord<SyncEntity>,
+    ) -> Result<(), String> {
+        match record.value.as_ref() {
+            Some(SyncEntity::Memory(summary)) => {
+                let id = parse_uuid(&summary.id, "记忆")?;
+                self.suppress_event(entity_id)?;
+                let result = context.store.upsert_synced_memory(
+                    summary_to_memory(summary, record.device_id.clone())?,
+                    context.embedder.as_ref(),
+                );
+                if let Err(error) = result {
+                    self.cancel_suppressed_event(entity_id)?;
+                    return Err(error.to_string());
+                }
+                let stored = context
+                    .store
+                    .get(&id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| "同步记忆写回后不可见".to_owned())?;
+                if stored.updated_at != summary.updated_at {
+                    return Err("同步记忆写回时间戳不一致".into());
+                }
+            }
+            Some(SyncEntity::Collection(summary)) => {
+                let id = parse_uuid(&summary.id, "集合")?;
+                let parent_id = summary
+                    .parent_id
+                    .as_deref()
+                    .map(|value| parse_uuid(value, "父集合"))
+                    .transpose()?
+                    .filter(|parent_id| {
+                        context
+                            .store
+                            .get_collection(*parent_id)
+                            .ok()
+                            .flatten()
+                            .is_some()
+                    });
+                let existed = context
+                    .store
+                    .get_collection(id)
+                    .map_err(|error| error.to_string())?
+                    .is_some();
+                let created_at = if existed {
+                    context
+                        .store
+                        .get_collection(id)
+                        .map_err(|error| error.to_string())?
+                        .map_or(record.modified_at, |collection| collection.created_at)
+                } else {
+                    record.modified_at
+                };
+                self.suppress_event(entity_id)?;
+                if let Err(error) = context.store.upsert_synced_collection(CoreCollection {
+                    id,
+                    name: summary.name.clone(),
+                    icon: summary.icon.clone(),
+                    parent_id,
+                    sort: summary.sort,
+                    created_at,
+                    updated_at: record.modified_at.max(created_at),
+                }) {
+                    self.cancel_suppressed_event(entity_id)?;
+                    return Err(error.to_string());
+                }
+            }
+            Some(SyncEntity::Membership(membership)) => {
+                let collection_id = parse_uuid(&membership.collection_id, "集合")?;
+                let memory_id = parse_uuid(&membership.memory_id, "记忆")?;
+                let already_exists = context
+                    .store
+                    .list_collection_memory_ids(collection_id)
+                    .map_err(|error| error.to_string())?
+                    .contains(&memory_id);
+                if !already_exists {
+                    self.suppress_event(entity_id)?;
+                    if let Err(error) = context
+                        .store
+                        .add_memory_to_collection(collection_id, memory_id)
+                    {
+                        self.cancel_suppressed_event(entity_id)?;
+                        return Err(error.to_string());
+                    }
+                }
+            }
+            None if entity_id.starts_with("memory:") => {
+                let id = parse_uuid(entity_id.trim_start_matches("memory:"), "记忆")?;
+                if context
+                    .store
+                    .get(&id)
+                    .map_err(|error| error.to_string())?
+                    .is_some()
+                {
+                    self.suppress_event(entity_id)?;
+                    if let Err(error) = context.store.delete(&id) {
+                        self.cancel_suppressed_event(entity_id)?;
+                        return Err(error.to_string());
+                    }
+                }
+            }
+            None if entity_id.starts_with("collection:") => {
+                let id = parse_uuid(entity_id.trim_start_matches("collection:"), "集合")?;
+                if context
+                    .store
+                    .get_collection(id)
+                    .map_err(|error| error.to_string())?
+                    .is_some()
+                {
+                    self.suppress_event(entity_id)?;
+                    if let Err(error) = context.store.delete_collection(id) {
+                        self.cancel_suppressed_event(entity_id)?;
+                        return Err(error.to_string());
+                    }
+                }
+            }
+            None if entity_id.starts_with("membership:") => {
+                let (collection_id, memory_id) = parse_membership_entity_id(entity_id)?;
+                let exists = context
+                    .store
+                    .list_collection_memory_ids(collection_id)
+                    .map(|members| members.contains(&memory_id))
+                    .unwrap_or(false);
+                if exists {
+                    self.suppress_event(entity_id)?;
+                    if let Err(error) = context
+                        .store
+                        .remove_memory_from_collection(collection_id, memory_id)
+                    {
+                        self.cancel_suppressed_event(entity_id)?;
+                        return Err(error.to_string());
+                    }
+                }
+            }
+            None => return Err("同步墓碑实体命名空间无效".into()),
+        }
+        Ok(())
+    }
+
+    /// 返回当前持有者绑定的本地数据库上下文。
+    fn store_context(&self) -> Result<StoreContext, String> {
+        self.store
+            .lock()
+            .map_err(|_| "桌面同步存储状态不可用".to_owned())?
+            .clone()
+            .ok_or_else(|| "当前 Orbit 实例不是本地记忆服务持有者".into())
+    }
+
+    /// 为即将发生的远端数据库回写登记一次事件抑制。
+    fn suppress_event(&self, entity_id: &str) -> Result<(), String> {
+        let mut suppressed = self
+            .suppressed_events
+            .lock()
+            .map_err(|_| "桌面同步防回环状态不可用".to_owned())?;
+        *suppressed.entry(entity_id.into()).or_default() += 1;
+        Ok(())
+    }
+
+    /// 远端数据库写回失败时撤销未消费的事件抑制。
+    fn cancel_suppressed_event(&self, entity_id: &str) -> Result<(), String> {
+        self.take_suppressed_event(entity_id).map(|_| ())
+    }
+
+    /// 消费一个与远端回写对应的本地提交事件。
+    fn take_suppressed_event(&self, entity_id: &str) -> Result<bool, String> {
+        let mut suppressed = self
+            .suppressed_events
+            .lock()
+            .map_err(|_| "桌面同步防回环状态不可用".to_owned())?;
+        let Some(count) = suppressed.get_mut(entity_id) else {
+            return Ok(false);
+        };
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            suppressed.remove(entity_id);
+        }
+        Ok(true)
+    }
+
     /// 清除桌面 Relay 令牌、E2E 根密钥、设备身份和未完成配对材料。
     pub fn clear(&self) -> Result<(), String> {
         let mut errors = Vec::new();
@@ -602,6 +1274,15 @@ impl DesktopSync {
             config.endpoint.clear();
             config.token.clear();
             config.enabled = false;
+        }
+        if let Ok(Some(context)) = self.store.lock().map(|store| store.clone()) {
+            for path in replica_related_paths(&context.replica_path) {
+                if path.exists()
+                    && let Err(error) = fs::remove_file(&path)
+                {
+                    errors.push(format!("删除桌面同步元数据失败：{error}"));
+                }
+            }
         }
         if errors.is_empty() {
             Ok(())
@@ -715,6 +1396,350 @@ impl DesktopSync {
             .map(|value| serde_json::from_slice(&value).map_err(|error| error.to_string()))
             .transpose()
     }
+}
+
+/// 将核心提交事件映射为同步实体标识；复习调度事件不进入内容同步。
+fn event_entity_id(event: &CoreEvent) -> Option<String> {
+    match event {
+        CoreEvent::MemoryCreated { id, .. }
+        | CoreEvent::MemoryUpdated { id, .. }
+        | CoreEvent::MemoryDeleted { id, .. } => Some(memory_entity_id(&id.to_string())),
+        CoreEvent::CollectionCreated { id }
+        | CoreEvent::CollectionUpdated { id }
+        | CoreEvent::CollectionDeleted { id } => Some(collection_entity_id(&id.to_string())),
+        CoreEvent::CollectionMembershipAdded {
+            collection_id,
+            memory_id,
+        }
+        | CoreEvent::CollectionMembershipRemoved {
+            collection_id,
+            memory_id,
+        } => Some(membership_entity_id(
+            &collection_id.to_string(),
+            &memory_id.to_string(),
+        )),
+        CoreEvent::ReviewDue { .. } | CoreEvent::ReviewGraded { .. } => None,
+    }
+}
+
+/// 将核心记忆模型转换为 Android 已使用的稳定同步载荷。
+fn memory_to_summary(memory: Memory) -> Result<MemorySummary, String> {
+    Ok(MemorySummary {
+        id: memory.id.to_string(),
+        source: memory.source.as_storage_value(),
+        kind: enum_name(&memory.kind)?,
+        title: memory.title,
+        content: memory.content,
+        content_format: enum_name(&memory.content_format)?,
+        tags: memory.tags,
+        pinned: memory.pinned,
+        archived: memory.archived,
+        created_at: memory.created_at,
+        updated_at: memory.updated_at,
+        captured_at: memory.captured_at,
+        links: Vec::new(),
+        conflict_count: 0,
+    })
+}
+
+/// 将同步记忆载荷恢复为可由核心存储重建索引的完整模型。
+fn summary_to_memory(summary: &MemorySummary, winning_device_id: String) -> Result<Memory, String> {
+    Ok(Memory {
+        id: parse_uuid(&summary.id, "记忆")?,
+        source: MemorySource::from_storage_value(&summary.source)
+            .ok_or_else(|| "同步记忆来源无效".to_owned())?,
+        kind: parse_enum_name(&summary.kind, "同步记忆类别")?,
+        title: summary.title.clone(),
+        content: summary.content.clone(),
+        content_format: parse_enum_name(&summary.content_format, "同步正文格式")?,
+        blocks: Vec::new(),
+        tags: summary.tags.clone(),
+        pinned: summary.pinned,
+        archived: summary.archived,
+        created_at: summary.created_at,
+        updated_at: summary.updated_at,
+        captured_at: summary.captured_at,
+        device_id: winning_device_id.clone(),
+        meta: serde_json::json!({
+            "sync": {
+                "sourceDeviceId": winning_device_id
+            }
+        }),
+    })
+}
+
+/// 将核心集合模型转换为移动端既有同步载荷。
+fn collection_to_summary(collection: CoreCollection) -> Collection {
+    Collection {
+        id: collection.id.to_string(),
+        name: collection.name,
+        icon: collection.icon,
+        parent_id: collection.parent_id.map(|id| id.to_string()),
+        sort: collection.sort,
+    }
+}
+
+/// 将 serde snake_case 枚举编码为数据库与同步协议共用的稳定名称。
+fn enum_name<T: Serialize>(value: &T) -> Result<String, String> {
+    serde_json::to_value(value)
+        .map_err(|error| error.to_string())?
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "同步枚举无法编码为字符串".to_owned())
+}
+
+/// 从稳定 snake_case 名称恢复 serde 枚举。
+fn parse_enum_name<T: DeserializeOwned>(value: &str, field: &str) -> Result<T, String> {
+    serde_json::from_value(serde_json::Value::String(value.into()))
+        .map_err(|error| format!("{field}无效：{error}"))
+}
+
+/// 将本地实体变更加密、合并到副本并加入可靠上传队列。
+fn queue_entity_change(
+    replica: &mut LocalReplica,
+    key: &SyncKey,
+    identity: &DeviceIdentity,
+    entity_id: String,
+    value: Option<SyncEntity>,
+) -> Result<(), String> {
+    replica.local_sequence = replica
+        .local_sequence
+        .checked_add(1)
+        .ok_or_else(|| "桌面设备同步序号已溢出".to_owned())?;
+    let mut version = replica
+        .records
+        .get(&entity_id)
+        .map_or_else(VersionVector::default, |record| record.version.clone());
+    version
+        .observe(identity.device_id(), replica.local_sequence)
+        .map_err(|error| error.to_string())?;
+    let operation = PlainSyncOperation {
+        operation_id: Uuid::now_v7(),
+        entity_id,
+        device_id: identity.device_id().into(),
+        device_sequence: replica.local_sequence,
+        version,
+        kind: if value.is_some() {
+            OperationKind::Upsert
+        } else {
+            OperationKind::Tombstone
+        },
+        payload: value
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| error.to_string())?,
+        created_at: unix_millis(),
+    };
+    let envelope = key
+        .encrypt_operation(&operation, identity)
+        .map_err(|error| error.to_string())?;
+    let _ = apply_operation(replica, operation)?;
+    replica.pending.push(envelope);
+    Ok(())
+}
+
+/// 将一条认证操作确定性合并进桌面副本，并返回需要物化的可见记录。
+fn apply_operation(
+    replica: &mut LocalReplica,
+    operation: PlainSyncOperation,
+) -> Result<Option<(String, VersionedRecord<SyncEntity>)>, String> {
+    let value = operation
+        .payload
+        .map(serde_json::from_value::<SyncEntity>)
+        .transpose()
+        .map_err(|error| format!("同步实体载荷无效：{error}"))?;
+    validate_entity_payload(&operation.entity_id, value.as_ref())?;
+    let incoming = VersionedRecord {
+        value,
+        version: operation.version,
+        device_id: operation.device_id,
+        modified_at: operation.created_at,
+        conflicts: Vec::new(),
+    };
+    let entity_id = operation.entity_id;
+    let previous = replica.records.remove(&entity_id);
+    let merged = if let Some(existing) = previous.clone() {
+        existing.merge(incoming).record
+    } else {
+        incoming
+    };
+    let changed = previous.as_ref() != Some(&merged);
+    replica.records.insert(entity_id.clone(), merged.clone());
+    Ok(changed.then_some((entity_id, merged)))
+}
+
+/// 校验实体命名空间与解密载荷类型一致。
+fn validate_entity_payload(entity_id: &str, value: Option<&SyncEntity>) -> Result<(), String> {
+    let valid = match value {
+        Some(SyncEntity::Memory(memory)) => entity_id == memory_entity_id(&memory.id),
+        Some(SyncEntity::Collection(collection)) => {
+            entity_id == collection_entity_id(&collection.id)
+        }
+        Some(SyncEntity::Membership(membership)) => {
+            entity_id == membership_entity_id(&membership.collection_id, &membership.memory_id)
+        }
+        None => {
+            entity_id.starts_with("memory:")
+                || entity_id.starts_with("collection:")
+                || entity_id.starts_with("membership:")
+        }
+    };
+    valid
+        .then_some(())
+        .ok_or_else(|| "同步实体标识与载荷类型不一致".to_owned())
+}
+
+/// 汇总副本游标、待上传操作和并发失败版本数量。
+fn replica_status(replica: &LocalReplica) -> ContentSyncStatus {
+    ContentSyncStatus {
+        cursor: replica.cursor,
+        pending_changes: replica.pending.len(),
+        conflict_count: replica
+            .records
+            .values()
+            .map(|record| record.conflicts.len())
+            .sum(),
+        last_sync_at: replica.last_sync_at,
+    }
+}
+
+/// 从根密钥域分离桌面同步元数据加密密钥。
+fn replica_encryption_key(key: &SyncKey) -> [u8; 32] {
+    *blake3::keyed_hash(&key.to_bytes(), b"nexus-desktop-replica-v1").as_bytes()
+}
+
+/// 读取并认证桌面同步元数据；主文件中断时可回退到上一份完整备份。
+fn load_replica(path: &Path, key: &SyncKey) -> Result<LocalReplica, String> {
+    let backup = path.with_extension("bak");
+    let source = if path.exists() {
+        Some(path)
+    } else if backup.exists() {
+        Some(backup.as_path())
+    } else {
+        None
+    };
+    let Some(source) = source else {
+        return Ok(LocalReplica::empty(key));
+    };
+    let decrypt = |source: &Path| -> Result<LocalReplica, String> {
+        let envelope: ReplicaEnvelope =
+            serde_json::from_slice(&fs::read(source).map_err(|error| error.to_string())?)
+                .map_err(|error| format!("桌面同步元数据格式损坏：{error}"))?;
+        if envelope.version != REPLICA_ENVELOPE_VERSION {
+            return Err("桌面同步元数据版本不受支持".into());
+        }
+        let nonce: [u8; REPLICA_NONCE_LENGTH] = STANDARD
+            .decode(envelope.nonce)
+            .map_err(|error| error.to_string())?
+            .try_into()
+            .map_err(|_| "桌面同步元数据随机数长度无效".to_owned())?;
+        let ciphertext = STANDARD
+            .decode(envelope.ciphertext)
+            .map_err(|error| error.to_string())?;
+        let plaintext = Aes256Gcm::new_from_slice(&replica_encryption_key(key))
+            .map_err(|error| error.to_string())?
+            .decrypt(Nonce::from_slice(&nonce), ciphertext.as_ref())
+            .map_err(|_| "桌面同步元数据无法通过根密钥认证".to_owned())?;
+        let replica: LocalReplica =
+            serde_json::from_slice(&plaintext).map_err(|error| error.to_string())?;
+        if replica.version != REPLICA_VERSION {
+            return Err("桌面同步副本版本不受支持".into());
+        }
+        if replica.workspace_id != key.workspace_id() {
+            return Err("桌面同步副本属于另一个工作区".into());
+        }
+        Ok(replica)
+    };
+    match decrypt(source) {
+        Ok(replica) => Ok(replica),
+        Err(primary_error) if source == path && backup.exists() => {
+            let replica = decrypt(&backup)
+                .map_err(|backup_error| format!("{primary_error}；备份恢复失败：{backup_error}"))?;
+            let _ = fs::copy(&backup, path);
+            Ok(replica)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// 加密并以临时文件、上一版备份和主文件三段式替换桌面同步元数据。
+fn persist_replica(path: &Path, key: &SyncKey, replica: &LocalReplica) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let plaintext = serde_json::to_vec(replica).map_err(|error| error.to_string())?;
+    let mut nonce = [0_u8; REPLICA_NONCE_LENGTH];
+    OsRng.fill_bytes(&mut nonce);
+    let ciphertext = Aes256Gcm::new_from_slice(&replica_encryption_key(key))
+        .map_err(|error| error.to_string())?
+        .encrypt(Nonce::from_slice(&nonce), plaintext.as_ref())
+        .map_err(|error| format!("无法加密桌面同步元数据：{error}"))?;
+    let content = serde_json::to_vec(&ReplicaEnvelope {
+        version: REPLICA_ENVELOPE_VERSION,
+        nonce: STANDARD.encode(nonce),
+        ciphertext: STANDARD.encode(ciphertext),
+    })
+    .map_err(|error| error.to_string())?;
+    let temporary = path.with_extension("tmp");
+    let backup = path.with_extension("bak");
+    fs::write(&temporary, content).map_err(|error| error.to_string())?;
+    if backup.exists() {
+        fs::remove_file(&backup).map_err(|error| error.to_string())?;
+    }
+    if path.exists() {
+        fs::rename(path, &backup).map_err(|error| error.to_string())?;
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, path);
+        }
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
+/// 返回主文件、临时文件和备份文件路径，供断开设备时完整清理。
+fn replica_related_paths(path: &Path) -> [PathBuf; 3] {
+    [
+        path.to_path_buf(),
+        path.with_extension("tmp"),
+        path.with_extension("bak"),
+    ]
+}
+
+/// 构造记忆实体标识。
+fn memory_entity_id(id: &str) -> String {
+    format!("memory:{id}")
+}
+
+/// 构造集合实体标识。
+fn collection_entity_id(id: &str) -> String {
+    format!("collection:{id}")
+}
+
+/// 构造集合成员关系实体标识。
+fn membership_entity_id(collection_id: &str, memory_id: &str) -> String {
+    format!("membership:{collection_id}:{memory_id}")
+}
+
+/// 从成员关系实体标识恢复集合和记忆 UUID。
+fn parse_membership_entity_id(entity_id: &str) -> Result<(Uuid, Uuid), String> {
+    let value = entity_id
+        .strip_prefix("membership:")
+        .ok_or_else(|| "成员关系实体标识前缀无效".to_owned())?;
+    let (collection_id, memory_id) = value
+        .split_once(':')
+        .ok_or_else(|| "成员关系实体标识格式无效".to_owned())?;
+    Ok((
+        parse_uuid(collection_id, "集合")?,
+        parse_uuid(memory_id, "记忆")?,
+    ))
+}
+
+/// 解析同步载荷中的 UUID 并保留字段语义。
+fn parse_uuid(value: &str, field: &str) -> Result<Uuid, String> {
+    Uuid::parse_str(value).map_err(|error| format!("同步{field}标识无效：{error}"))
 }
 
 #[derive(Serialize)]
@@ -973,6 +1998,10 @@ fn unix_millis() -> i64 {
 mod tests {
     use std::collections::HashMap;
 
+    use nexus_core::{
+        CollectionPatch, ContentFormat, IngestInput, Ingestor, MemoryKind, MemoryPatch,
+    };
+
     use super::*;
 
     #[derive(Default)]
@@ -1069,5 +2098,327 @@ mod tests {
         );
         assert!(normalize_relay_endpoint("not-a-url").is_err());
         assert!(normalize_relay_endpoint("file:///tmp/relay").is_err());
+    }
+
+    /// 验证桌面副本文件不包含内容明文，并能在连续替换后恢复待上传操作。
+    #[test]
+    fn encrypts_and_restores_desktop_replica() {
+        let directory = tempfile::tempdir().expect("应创建临时目录");
+        let path = directory.path().join("desktop-sync-replica.enc");
+        let key = SyncKey::generate();
+        let identity = DeviceIdentity::generate("desktop-encryption").unwrap();
+        let mut replica = LocalReplica::empty(&key);
+        queue_entity_change(
+            &mut replica,
+            &key,
+            &identity,
+            memory_entity_id("0198f11d-3cc0-7bd0-8000-000000000001"),
+            Some(SyncEntity::Memory(MemorySummary {
+                id: "0198f11d-3cc0-7bd0-8000-000000000001".into(),
+                source: "orbit".into(),
+                kind: "note".into(),
+                title: Some("密文测试".into()),
+                content: "desktop replica plaintext must stay hidden".into(),
+                content_format: "markdown".into(),
+                tags: vec!["sync".into()],
+                pinned: false,
+                archived: false,
+                created_at: 1_700_000_000_000,
+                updated_at: 1_700_000_000_000,
+                captured_at: None,
+                links: Vec::new(),
+                conflict_count: 0,
+            })),
+        )
+        .unwrap();
+        persist_replica(&path, &key, &replica).unwrap();
+        replica.last_sync_at = Some(1_700_000_001_000);
+        persist_replica(&path, &key, &replica).unwrap();
+
+        let encoded = fs::read_to_string(&path).unwrap();
+        assert!(!encoded.contains("desktop replica plaintext"));
+        let restored = load_replica(&path, &key).unwrap();
+        assert_eq!(restored.pending.len(), 1);
+        assert_eq!(restored.last_sync_at, replica.last_sync_at);
+        assert!(path.with_extension("bak").exists());
+    }
+
+    /// 验证远端写回产生的核心事件会被防回环标记消费，不会生成第二条上传操作。
+    #[tokio::test]
+    async fn suppresses_remote_writeback_event() {
+        let directory = tempfile::tempdir().expect("应创建临时目录");
+        let path = directory.path().join("desktop-sync-replica.enc");
+        let secrets = Arc::new(MemorySecretStore::default());
+        let client =
+            DesktopSync::with_secret_store("https://relay.example.com".into(), true, secrets);
+        let key = SyncKey::generate();
+        let identity = DeviceIdentity::generate("desktop-local").unwrap();
+        client.persist_current_identity(&key, &identity).unwrap();
+        let store = Arc::new(MemoryStore::open_in_memory().unwrap());
+        let embedder = Arc::new(HashEmbedder::default());
+        client
+            .attach_store(Arc::clone(&store), embedder, path.clone())
+            .unwrap();
+        persist_replica(&path, &key, &LocalReplica::empty(&key)).unwrap();
+        let id = Uuid::now_v7();
+        let entity_id = memory_entity_id(&id.to_string());
+        let mut version = VersionVector::default();
+        version.observe("android-a", 1).unwrap();
+        let record = VersionedRecord {
+            value: Some(SyncEntity::Memory(MemorySummary {
+                id: id.to_string(),
+                source: "orbit".into(),
+                kind: "note".into(),
+                title: Some("Android 写回".into()),
+                content: "只应写回一次".into(),
+                content_format: "markdown".into(),
+                tags: Vec::new(),
+                pinned: false,
+                archived: false,
+                created_at: 1_700_000_000_000,
+                updated_at: 1_700_000_000_100,
+                captured_at: None,
+                links: Vec::new(),
+                conflict_count: 0,
+            })),
+            version,
+            device_id: "android-a".into(),
+            modified_at: 1_700_000_000_100,
+            conflicts: Vec::new(),
+        };
+        let context = client.store_context().unwrap();
+        client
+            .apply_record_to_store(&context, &entity_id, &record)
+            .unwrap();
+        assert!(
+            !client
+                .handle_local_event(CoreEvent::MemoryCreated {
+                    id,
+                    source: "orbit".into(),
+                })
+                .await
+                .unwrap()
+        );
+        assert_eq!(client.content_status().await.unwrap().pending_changes, 0);
+        assert_eq!(store.get(&id).unwrap().unwrap().content, "只应写回一次");
+    }
+
+    /// 验证桌面本地提交会生成 Android 可解密结构的签名待上传信封。
+    #[tokio::test]
+    async fn queues_committed_desktop_memory() {
+        let directory = tempfile::tempdir().expect("应创建临时目录");
+        let path = directory.path().join("desktop-sync-replica.enc");
+        let secrets = Arc::new(MemorySecretStore::default());
+        let client =
+            DesktopSync::with_secret_store("https://relay.example.com".into(), true, secrets);
+        let key = SyncKey::generate();
+        let identity = DeviceIdentity::generate("desktop-queue").unwrap();
+        client.persist_current_identity(&key, &identity).unwrap();
+        let store = Arc::new(MemoryStore::open_in_memory().unwrap());
+        let embedder = Arc::new(HashEmbedder::default());
+        client
+            .attach_store(Arc::clone(&store), Arc::clone(&embedder), path.clone())
+            .unwrap();
+        persist_replica(&path, &key, &LocalReplica::empty(&key)).unwrap();
+        let memory = Ingestor::new(store.as_ref(), embedder.as_ref())
+            .ingest(IngestInput {
+                source: MemorySource::Orbit,
+                kind: MemoryKind::Note,
+                title: Some("桌面提交".into()),
+                content: "desktop encrypted upload".into(),
+                content_format: ContentFormat::Markdown,
+                tags: vec!["m5".into()],
+                captured_at: None,
+                device_id: "orbit-desktop".into(),
+                meta: serde_json::json!({}),
+            })
+            .unwrap();
+        assert!(
+            client
+                .handle_local_event(CoreEvent::MemoryCreated {
+                    id: memory.id,
+                    source: "orbit".into(),
+                })
+                .await
+                .unwrap()
+        );
+        let replica = load_replica(&path, &key).unwrap();
+        assert_eq!(replica.pending.len(), 1);
+        let operation = key
+            .decrypt_operation(&replica.pending[0], identity.public_key())
+            .unwrap();
+        let entity: SyncEntity = serde_json::from_value(operation.payload.unwrap()).unwrap();
+        assert!(matches!(
+            entity,
+            SyncEntity::Memory(MemorySummary { content, .. })
+                if content == "desktop encrypted upload"
+        ));
+    }
+
+    /// 验证两个桌面副本经真实 Relay 完成初始导入、集合成员、远端编辑和墓碑删除闭环。
+    #[tokio::test]
+    async fn synchronizes_two_desktop_stores_through_relay() {
+        let token = "orbit-test-relay-token-with-at-least-32-characters";
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let relay = nexus_relay::RelayState::in_memory(token).unwrap();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, nexus_relay::router(relay))
+                .await
+                .unwrap();
+        });
+
+        let directory_a = tempfile::tempdir().unwrap();
+        let secrets_a = Arc::new(MemorySecretStore::default());
+        let client_a = DesktopSync::with_secret_store(String::new(), false, secrets_a);
+        client_a.configure(&endpoint, token).await.unwrap();
+        let store_a = Arc::new(MemoryStore::open_in_memory().unwrap());
+        let embedder_a = Arc::new(HashEmbedder::default());
+        let memory = Ingestor::new(store_a.as_ref(), embedder_a.as_ref())
+            .ingest(IngestInput {
+                source: MemorySource::Orbit,
+                kind: MemoryKind::Note,
+                title: Some("跨设备".into()),
+                content: "来自桌面 A".into(),
+                content_format: ContentFormat::Markdown,
+                tags: vec!["relay".into()],
+                captured_at: None,
+                device_id: "desktop-a".into(),
+                meta: serde_json::json!({}),
+            })
+            .unwrap();
+        let collection = store_a
+            .create_collection("同步集合", None, None, 0)
+            .unwrap();
+        store_a
+            .add_memory_to_collection(collection.id, memory.id)
+            .unwrap();
+        client_a
+            .attach_store(
+                Arc::clone(&store_a),
+                Arc::clone(&embedder_a),
+                directory_a.path().join("replica.enc"),
+            )
+            .unwrap();
+        client_a.initialize("桌面 A").await.unwrap();
+        let phrase = client_a.recovery_phrase().unwrap();
+
+        let directory_b = tempfile::tempdir().unwrap();
+        let secrets_b = Arc::new(MemorySecretStore::default());
+        let client_b = DesktopSync::with_secret_store(String::new(), false, secrets_b);
+        client_b.configure(&endpoint, token).await.unwrap();
+        let store_b = Arc::new(MemoryStore::open_in_memory().unwrap());
+        let embedder_b = Arc::new(HashEmbedder::default());
+        client_b
+            .attach_store(
+                Arc::clone(&store_b),
+                Arc::clone(&embedder_b),
+                directory_b.path().join("replica.enc"),
+            )
+            .unwrap();
+        client_b.restore(&phrase, "桌面 B").await.unwrap();
+
+        assert_eq!(
+            store_b.get(&memory.id).unwrap().unwrap().content,
+            "来自桌面 A"
+        );
+        assert_eq!(
+            store_b.list_collection_memory_ids(collection.id).unwrap(),
+            vec![memory.id]
+        );
+        // 测试未运行真实事件订阅器，手工交付远端写回产生的三个核心事件以消费防回环标记。
+        assert!(
+            !client_b
+                .handle_local_event(CoreEvent::MemoryCreated {
+                    id: memory.id,
+                    source: "orbit".into(),
+                })
+                .await
+                .unwrap()
+        );
+        assert!(
+            !client_b
+                .handle_local_event(CoreEvent::CollectionCreated { id: collection.id })
+                .await
+                .unwrap()
+        );
+        assert!(
+            !client_b
+                .handle_local_event(CoreEvent::CollectionMembershipAdded {
+                    collection_id: collection.id,
+                    memory_id: memory.id,
+                })
+                .await
+                .unwrap()
+        );
+
+        store_b
+            .update(
+                &memory.id,
+                MemoryPatch {
+                    title: Some(Some("B 已编辑".into())),
+                    content: Some("来自桌面 B 的更新".into()),
+                    ..Default::default()
+                },
+                embedder_b.as_ref(),
+            )
+            .unwrap();
+        assert!(
+            client_b
+                .handle_local_event(CoreEvent::MemoryUpdated {
+                    id: memory.id,
+                    source: "orbit".into(),
+                })
+                .await
+                .unwrap()
+        );
+        client_b.sync_content().await.unwrap();
+        client_a.sync_content().await.unwrap();
+        assert_eq!(
+            store_a.get(&memory.id).unwrap().unwrap().content,
+            "来自桌面 B 的更新"
+        );
+
+        store_b
+            .update_collection(
+                collection.id,
+                CollectionPatch {
+                    name: Some("B 集合".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(
+            client_b
+                .handle_local_event(CoreEvent::CollectionUpdated { id: collection.id })
+                .await
+                .unwrap()
+        );
+        client_b.sync_content().await.unwrap();
+        client_a.sync_content().await.unwrap();
+        assert_eq!(
+            store_a.get_collection(collection.id).unwrap().unwrap().name,
+            "B 集合"
+        );
+
+        store_b.delete(&memory.id).unwrap();
+        assert!(
+            client_b
+                .handle_local_event(CoreEvent::MemoryDeleted {
+                    id: memory.id,
+                    source: "orbit".into(),
+                })
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            client_b.content_status().await.unwrap().pending_changes,
+            2,
+            "删除记忆应同时为已知集合成员关系生成墓碑"
+        );
+        client_b.sync_content().await.unwrap();
+        client_a.sync_content().await.unwrap();
+        assert!(store_a.get(&memory.id).unwrap().is_none());
+        server.abort();
     }
 }
