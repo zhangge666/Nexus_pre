@@ -25,7 +25,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
   cards: { key: "cards", label: "卡片", description: "设置知识卡片的生成方式与默认归档位置。", icon: <Layers size={15} /> },
   review: { key: "review", label: "复习调度", description: "配置间隔复习算法、每日限额与到期提醒。", icon: <BrainCircuit size={15} /> },
   links: { key: "links", label: "关联", description: "控制自动关联、去重提示与知识图谱密度。", icon: <Link2 size={15} /> },
-  sync: { key: "sync", label: "移动连接", description: "配置 Android 访问的远程加密记忆服务。", icon: <Cloud size={15} /> },
+  sync: { key: "sync", label: "设备同步", description: "配置端到端 Relay 或 Android 远程记忆服务。", icon: <Cloud size={15} /> },
   security: { key: "security", label: "端到端加密", description: "管理 E2E 根密钥、恢复短语、设备配对与撤销。", icon: <ShieldCheck size={15} /> },
   appearance: { key: "appearance", label: "外观", description: "选择 Orbit 在当前设备上使用的显示主题。", icon: <Palette size={15} /> },
   about: { key: "about", label: "关于 Orbit", description: "查看版本、数据位置与默认隐私策略。", icon: <Info size={15} /> },
@@ -34,7 +34,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
 const SECTION_GROUPS: { label: string; items: SettingsSection[] }[] = [
   { label: "智能", items: isAndroidPlatform() ? ["search"] : ["search", "rag"] },
   { label: "学习", items: ["cards", "review", "links"] },
-  { label: "应用", items: isAndroidPlatform() ? ["sync", "security", "appearance", "about"] : ["appearance", "about"] },
+  { label: "应用", items: ["sync", "security", "appearance", "about"] },
 ];
 
 /** 渲染受控开关，并将状态变化交给设置页统一保存。 */
@@ -130,9 +130,9 @@ export default function SettingsPage(): React.JSX.Element {
     }
   }
 
-  /** 清除 Android Keystore 令牌和加密缓存，并恢复未连接状态。 */
+  /** 清除当前平台的 Relay 凭据、E2E 身份和本机同步状态。 */
   async function handleDisconnect(): Promise<void> {
-    if (!settings || !window.confirm("断开后将清除本机访问令牌和离线缓存，是否继续？")) return;
+    if (!settings || !window.confirm("断开后将清除本机访问令牌、端到端身份和同步状态，是否继续？")) return;
     setSaving(true);
     setError(null);
     try {
@@ -204,19 +204,24 @@ export default function SettingsPage(): React.JSX.Element {
     </SettingsSectionLayout>;
 
     if (section === "sync") return <SettingsSectionLayout meta={SECTIONS.sync}>
-      <SettingRow label="连接方式" description="Android 不启动本地协议服务，只连接端到端云或自托管 HTTPS 服务。" id="sync-mode">
+      <SettingRow label="连接方式" description={isAndroidPlatform() ? "Android 不启动本地协议服务，只连接端到端云或自托管 HTTPS 服务。" : "桌面记忆库保持本地可用；启用后额外通过零知识 Relay 与 Android 同步。"} id="sync-mode">
         <div className="radio-group segments-2">
-          <label className={`radio-option${settings.sync.mode === "e2e_cloud" ? " active" : ""}`}><input id="sync-mode" type="radio" name="sync-mode" checked={settings.sync.mode === "e2e_cloud"} onChange={() => update("sync", { mode: "e2e_cloud" })} />托管云</label>
-          <label className={`radio-option${settings.sync.mode === "self_hosted" ? " active" : ""}`}><input type="radio" name="sync-mode" checked={settings.sync.mode === "self_hosted"} onChange={() => update("sync", { mode: "self_hosted" })} />自托管</label>
+          {isAndroidPlatform() ? <>
+            <label className={`radio-option${settings.sync.mode === "e2e_cloud" ? " active" : ""}`}><input id="sync-mode" type="radio" name="sync-mode" checked={settings.sync.mode === "e2e_cloud"} onChange={() => update("sync", { mode: "e2e_cloud" })} />端到端 Relay</label>
+            <label className={`radio-option${settings.sync.mode === "self_hosted" ? " active" : ""}`}><input type="radio" name="sync-mode" checked={settings.sync.mode === "self_hosted"} onChange={() => update("sync", { mode: "self_hosted" })} />自托管协议</label>
+          </> : <>
+            <label className={`radio-option${settings.sync.mode === "local" ? " active" : ""}`}><input id="sync-mode" type="radio" name="sync-mode" checked={settings.sync.mode === "local"} onChange={() => update("sync", { mode: "local" })} />仅本机</label>
+            <label className={`radio-option${settings.sync.mode === "e2e_cloud" ? " active" : ""}`}><input type="radio" name="sync-mode" checked={settings.sync.mode === "e2e_cloud"} onChange={() => update("sync", { mode: "e2e_cloud" })} />端到端 Relay</label>
+          </>}
         </div>
       </SettingRow>
-      <SettingRow label="远程服务地址" description="发布版本必须使用 HTTPS；开发构建可连接调试用 HTTP 地址。" id="relay-endpoint">
+      <SettingRow label={isAndroidPlatform() && settings.sync.mode === "self_hosted" ? "远程 Orbit 地址" : "Relay 地址"} description="发布版本必须使用 HTTPS；开发构建可连接调试用 HTTP 地址。" id="relay-endpoint">
         <input id="relay-endpoint" type="url" inputMode="url" className="settings-input" value={settings.sync.relayEndpoint} onChange={(event) => update("sync", { relayEndpoint: event.target.value })} placeholder="https://sync.example.com" />
       </SettingRow>
-      <SettingRow label="访问令牌" description={settings.sync.hasAccessToken ? "令牌已载入当前安全会话；留空可继续使用。" : "由远程 Orbit 服务签发，不会写入普通设置文件。"} id="sync-access-token">
+      <SettingRow label="访问令牌" description={settings.sync.hasAccessToken ? "令牌已由平台安全存储保护；留空可继续使用。" : "由 Relay 或远程 Orbit 签发，不会写入普通设置文件。"} id="sync-access-token">
         <input id="sync-access-token" type="password" autoComplete="off" className="settings-input" value={settings.sync.accessToken} onChange={(event) => update("sync", { accessToken: event.target.value })} placeholder={settings.sync.hasAccessToken ? "已配置（不回显）" : "粘贴远程访问令牌"} />
       </SettingRow>
-      {settings.sync.hasAccessToken && <SettingRow label="设备连接" description="断开后会删除 Android Keystore 中的令牌和本机加密缓存。">
+      {settings.sync.hasAccessToken && <SettingRow label="设备连接" description={isAndroidPlatform() ? "断开后会删除 Android Keystore 中的令牌、身份和本机加密缓存。" : "断开后会删除系统凭据库中的 Relay 令牌、根密钥、设备私钥和本机同步状态。"}>
         <button type="button" className="secondary-button danger-text" onClick={() => void handleDisconnect()} disabled={saving}>断开并清除本机数据</button>
       </SettingRow>}
     </SettingsSectionLayout>;
@@ -230,8 +235,8 @@ export default function SettingsPage(): React.JSX.Element {
     return <SettingsSectionLayout meta={SECTIONS.about}>
       <div className="about-facts">
         <div><span>应用</span><strong>Orbit 0.1.0</strong></div>
-        <div><span>数据</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "记忆保存在本机加密副本，中继只存密文" : "远程记忆按需缓存到本机加密文件" : "记忆与设置均存储在本机"}</strong></div>
-        <div><span>凭据</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "访问令牌、根密钥与设备身份由 Android Keystore 保护" : "访问令牌由 Android Keystore 保护" : "API Key 使用系统凭据库存放"}</strong></div>
+        <div><span>数据</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "记忆保存在本机加密副本，中继只存密文" : "远程记忆按需缓存到本机加密文件" : settings.sync.mode === "e2e_cloud" ? "本地记忆库保留明文检索，中继只保存端到端密文" : "记忆与设置均存储在本机"}</strong></div>
+        <div><span>凭据</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "访问令牌、根密钥与设备身份由 Android Keystore 保护" : "访问令牌由 Android Keystore 保护" : settings.sync.mode === "e2e_cloud" ? "Relay 令牌、根密钥与设备私钥使用系统凭据库存放" : "API Key 使用系统凭据库存放"}</strong></div>
         <div><span>问答</span><strong>{isAndroidPlatform() ? settings.sync.mode === "e2e_cloud" ? "零知识模式不向中继发送明文上下文" : "由已连接的自托管服务提供" : "默认使用本地抽取式回答"}</strong></div>
       </div>
     </SettingsSectionLayout>;

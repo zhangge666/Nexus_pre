@@ -25,11 +25,17 @@ tauri-plugin-notification = "2"
 tokio = { version = "1", features = ["sync", "time"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+base64 = "0.22"
+blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 keyring = "3"
 # 本地数据库、嵌入与协议监听仅属于桌面运行时，移动构建不得链接这些依赖。
 nexus-core = { path = "../../../crates/nexus-core", default-features = false }
 nexus-protocol = { path = "../../../crates/nexus-protocol", default-features = false }
+nexus-sync = { path = "../../../crates/nexus-sync" }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rand = "0.8"
+uuid = { version = "1", features = ["v7"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 aes-gcm = "0.10"

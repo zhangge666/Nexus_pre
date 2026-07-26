@@ -1,6 +1,8 @@
 //! 本文件装配 Orbit 桌面本地服务、Android 远程客户端以及统一 HTTP 协议访问。
 
 mod credentials;
+#[cfg(not(mobile))]
+mod desktop_sync;
 #[cfg(target_os = "android")]
 mod mobile_cache;
 #[cfg(target_os = "android")]
@@ -42,6 +44,8 @@ struct OrbitState {
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     settings_path: PathBuf,
     settings: Arc<Mutex<serde_json::Value>>,
+    #[cfg(not(mobile))]
+    desktop_sync: Arc<desktop_sync::DesktopSync>,
     #[cfg(target_os = "android")]
     app: tauri::AppHandle,
     #[cfg(target_os = "android")]
@@ -797,10 +801,20 @@ impl OrbitState {
     }
 
     fn get_settings(&self) -> Result<serde_json::Value, String> {
-        self.settings
+        let public = self
+            .settings
             .lock()
             .map(|settings| public_settings(&settings))
-            .map_err(|_| "Orbit 设置状态不可用".into())
+            .map_err(|_| "Orbit 设置状态不可用".to_owned())?;
+        #[cfg(not(mobile))]
+        let mut public = public;
+        #[cfg(not(mobile))]
+        set_json_bool(
+            &mut public,
+            "/sync/hasAccessToken",
+            self.desktop_sync.has_access_token(),
+        );
+        Ok(public)
     }
 
     /// 深度合并设置、切换服务端 Provider，并只持久化非敏感字段。
@@ -824,6 +838,17 @@ impl OrbitState {
         #[cfg(not(mobile))]
         let submitted_key = patch
             .pointer("/rag/apiKey")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        #[cfg(not(mobile))]
+        let current_sync_mode = json_string(&current, "/sync/mode");
+        #[cfg(not(mobile))]
+        let current_relay_endpoint = json_string(&current, "/sync/relayEndpoint");
+        #[cfg(not(mobile))]
+        let submitted_access_token = patch
+            .pointer("/sync/accessToken")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .trim()
@@ -1030,8 +1055,30 @@ impl OrbitState {
             if provider_uses_api_key(&provider) && !api_key.is_empty() {
                 credentials::save_api_key(&provider, &api_key)?;
             }
+            let sync_mode = json_string(&next, "/sync/mode");
+            if sync_mode == "e2e_cloud" {
+                let relay_endpoint = json_string(&next, "/sync/relayEndpoint");
+                if current_sync_mode != sync_mode
+                    || current_relay_endpoint != relay_endpoint
+                    || !submitted_access_token.is_empty()
+                    || !self.desktop_sync.is_enabled()
+                {
+                    self.desktop_sync
+                        .configure(&relay_endpoint, &submitted_access_token)
+                        .await?;
+                }
+                set_json_bool(&mut next, "/sync/hasAccessToken", true);
+            } else {
+                self.desktop_sync.disable()?;
+                set_json_bool(
+                    &mut next,
+                    "/sync/hasAccessToken",
+                    self.desktop_sync.has_access_token(),
+                );
+            }
             // Completion 已完成进程内切换，后续设置更新会按 Provider 从凭据库重新取得 Key。
             set_json_string(&mut next, "/rag/apiKey", "");
+            set_json_string(&mut next, "/sync/accessToken", "");
             persist_settings(&self.settings_path, &next)?;
             *self
                 .settings
@@ -1944,14 +1991,23 @@ fn disconnect_remote(state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
     state.disconnect_remote()
 }
 
-/// 桌面端不提供移动连接断开命令。
+/// 桌面端清除 Relay 令牌、E2E 身份和未完成配对材料，并恢复纯本地模式。
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn disconnect_remote(_state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
-    Err("当前平台没有 Android 远程连接".into())
+fn disconnect_remote(state: State<'_, Arc<OrbitState>>) -> Result<(), String> {
+    state.desktop_sync.clear()?;
+    let mut settings = state
+        .settings
+        .lock()
+        .map_err(|_| "Orbit 设置状态不可用".to_owned())?;
+    set_json_string(&mut settings, "/sync/mode", "local");
+    set_json_string(&mut settings, "/sync/relayEndpoint", "");
+    set_json_string(&mut settings, "/sync/accessToken", "");
+    set_json_bool(&mut settings, "/sync/hasAccessToken", false);
+    persist_settings(&state.settings_path, &settings)
 }
 
-/// 返回当前 Android 设备的 E2E 根密钥、身份和待处理配对状态。
+/// 返回当前设备的 E2E 根密钥、身份和待处理配对状态。
 #[tauri::command]
 fn get_e2e_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
@@ -1960,8 +2016,7 @@ fn get_e2e_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_json::Value
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.status()?).map_err(|error| error.to_string())
     }
 }
 
@@ -2002,7 +2057,7 @@ fn get_e2e_content_status(state: State<'_, Arc<OrbitState>>) -> Result<serde_jso
     }
 }
 
-/// 创建首个 E2E 工作区并把根密钥与设备私钥封存在 Android Keystore。
+/// 创建首个 E2E 工作区并把根密钥与设备私钥封存在平台安全存储。
 #[tauri::command]
 async fn initialize_e2e(
     device_name: String,
@@ -2022,12 +2077,12 @@ async fn initialize_e2e(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (device_name, state);
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.initialize(&device_name).await?)
+            .map_err(|error| error.to_string())
     }
 }
 
-/// 使用 24 词恢复短语重新登记 Android 设备，短语不会发送到中继。
+/// 使用 24 词恢复短语重新登记当前设备，短语不会发送到中继。
 #[tauri::command]
 async fn restore_e2e(
     recovery_phrase: String,
@@ -2049,8 +2104,13 @@ async fn restore_e2e(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (recovery_phrase, device_name, state);
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(
+            state
+                .desktop_sync
+                .restore(&recovery_phrase, &device_name)
+                .await?,
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -2063,12 +2123,11 @@ fn get_recovery_phrase(state: State<'_, Arc<OrbitState>>) -> Result<String, Stri
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        state.desktop_sync.recovery_phrase()
     }
 }
 
-/// 创建含一次性高熵秘密的 Android 配对二维码。
+/// 创建含一次性高熵秘密的跨设备配对二维码。
 #[tauri::command]
 async fn create_e2e_pairing_offer(
     state: State<'_, Arc<OrbitState>>,
@@ -2086,8 +2145,8 @@ async fn create_e2e_pairing_offer(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.create_pairing_offer().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -2109,12 +2168,12 @@ async fn get_e2e_pairing_status(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.pairing_status().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
-/// 扫描或粘贴配对 URI 后创建新 Android 设备加入请求。
+/// 扫描或粘贴配对 URI 后创建当前设备加入请求。
 #[tauri::command]
 async fn request_e2e_pairing(
     pairing_uri: String,
@@ -2136,8 +2195,13 @@ async fn request_e2e_pairing(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (pairing_uri, device_name, state);
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(
+            state
+                .desktop_sync
+                .request_pairing(&pairing_uri, &device_name)
+                .await?,
+        )
+        .map_err(|error| error.to_string())
     }
 }
 
@@ -2159,12 +2223,12 @@ async fn approve_e2e_pairing(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.approve_pairing().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
-/// 新设备领取配对包、解封根密钥并完成 Android Keystore 写入。
+/// 新设备领取配对包、解封根密钥并完成平台安全存储写入。
 #[tauri::command]
 async fn complete_e2e_pairing(
     state: State<'_, Arc<OrbitState>>,
@@ -2182,8 +2246,8 @@ async fn complete_e2e_pairing(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.complete_pairing().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -2203,8 +2267,8 @@ async fn list_e2e_devices(state: State<'_, Arc<OrbitState>>) -> Result<serde_jso
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = state;
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.list_devices().await?)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -2228,8 +2292,8 @@ async fn revoke_e2e_device(
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (device_id, state);
-        Err("当前平台没有 Android E2E 设备身份".into())
+        serde_json::to_value(state.desktop_sync.revoke_device(&device_id).await?)
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -2343,6 +2407,17 @@ pub fn run() {
                 let settings_path = data_dir.join("orbit-settings.json");
                 let settings = Arc::new(Mutex::new(load_settings(&settings_path)));
                 (data_dir, settings_path, settings)
+            };
+
+            #[cfg(not(mobile))]
+            let desktop_sync = {
+                let current = settings
+                    .lock()
+                    .map_err(|_| io::Error::other("Orbit 设置状态不可用"))?;
+                Arc::new(desktop_sync::DesktopSync::open(
+                    json_string(&current, "/sync/relayEndpoint"),
+                    json_string(&current, "/sync/mode") == "e2e_cloud",
+                ))
             };
 
             #[cfg(mobile)]
@@ -2503,6 +2578,7 @@ pub fn run() {
                             shutdown: Mutex::new(Some(shutdown_sender)),
                             settings_path,
                             settings: Arc::clone(&settings),
+                            desktop_sync: Arc::clone(&desktop_sync),
                         }
                     }
                     LocalServiceClaim::Client(discovery) => OrbitState {
@@ -2513,6 +2589,7 @@ pub fn run() {
                         shutdown: Mutex::new(None),
                         settings_path,
                         settings: Arc::clone(&settings),
+                        desktop_sync: Arc::clone(&desktop_sync),
                     },
                 }
             };
@@ -2702,6 +2779,7 @@ mod tests {
             shutdown: Mutex::new(None),
             settings_path: settings_dir.path().join("orbit-settings.json"),
             settings: Arc::new(Mutex::new(default_settings())),
+            desktop_sync: Arc::new(desktop_sync::DesktopSync::open(String::new(), false)),
         };
         let created = state
             .create_memory("Tauri IPC connects through Memory Protocol.".into())

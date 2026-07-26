@@ -1,4 +1,4 @@
-/** 本文件实现 Android E2E 工作区初始化、恢复短语、二维码配对和设备撤销设置。 */
+/** 本文件实现跨平台 E2E 工作区初始化、恢复短语、二维码配对和设备撤销设置。 */
 
 import type React from "react";
 import { useEffect, useState } from "react";
@@ -26,6 +26,7 @@ import type {
   E2ePairingStatus,
   E2eStatus,
 } from "../core";
+import { isAndroidPlatform } from "../platform";
 
 /** 渲染 E2E 设置中的统一标签、说明和操作区域。 */
 function SecurityRow({
@@ -53,7 +54,7 @@ function formatTime(value: number): string {
   return new Date(value).toLocaleString();
 }
 
-/** 渲染 Android E2E 安全设置并协调全部异步密钥流程。 */
+/** 渲染当前设备的 E2E 安全设置并协调全部异步密钥流程。 */
 export function E2eSecuritySection(): React.JSX.Element {
   const [status, setStatus] = useState<E2eStatus | null>(null);
   const [devices, setDevices] = useState<E2eDevice[]>([]);
@@ -61,7 +62,7 @@ export function E2eSecuritySection(): React.JSX.Element {
   const [offer, setOffer] = useState<E2ePairingOffer | null>(null);
   const [pairingStatus, setPairingStatus] = useState<E2ePairingStatus | null>(null);
   const [joinStatus, setJoinStatus] = useState<E2ePairingJoin | null>(null);
-  const [deviceName, setDeviceName] = useState("我的 Android 设备");
+  const [deviceName, setDeviceName] = useState(isAndroidPlatform() ? "我的 Android 设备" : "我的桌面设备");
   const [recoveryInput, setRecoveryInput] = useState("");
   const [pairingUri, setPairingUri] = useState("");
   const [recoveryPhrase, setRecoveryPhrase] = useState<string | null>(null);
@@ -172,7 +173,7 @@ export function E2eSecuritySection(): React.JSX.Element {
       setJoinStatus(null);
       setPairingUri("");
       await refresh();
-    }, "配对完成，根密钥与设备私钥已写入 Android Keystore。");
+    }, `配对完成，根密钥与设备私钥已写入${isAndroidPlatform() ? " Android Keystore" : "系统凭据库"}。`);
   }
 
   /** 撤销指定设备并刷新工作区设备列表。 */
@@ -203,7 +204,7 @@ export function E2eSecuritySection(): React.JSX.Element {
         <span className="settings-section-icon" aria-hidden="true"><ShieldCheck size={15} /></span>
         <div>
           <h2 id="settings-security-title" className="setting-group-title">端到端加密</h2>
-          <p>根密钥和设备私钥由 Android Keystore 保护，中继只保存签名密文与设备公钥。</p>
+          <p>根密钥和设备私钥由{isAndroidPlatform() ? " Android Keystore" : "系统凭据库"}保护，中继只保存签名密文与设备公钥。</p>
         </div>
       </div>
 
