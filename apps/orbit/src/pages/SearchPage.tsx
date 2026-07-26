@@ -125,7 +125,7 @@ export default function SearchPage(): React.JSX.Element {
       present("检索概览", <SearchInsight query={query} />);
       return;
     }
-    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onDelete={handleDelete} onAddToCollection={handleAddToCollection} />);
+    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onDelete={handleDelete} onAddToCollection={handleAddToCollection} onConflictResolved={handleConflictResolved} />);
   }, [collections, present, query, selected, show]);
 
   /** 仅执行真实 Memory Protocol 检索；问答能力属于 M4，不能阻断 M2 搜索结果。 */
@@ -161,6 +161,13 @@ export default function SearchPage(): React.JSX.Element {
     setMemories((current) => current.map((memory) => memory.id === id ? updated : memory));
     setSelected(updated);
     setNotice("更改已保存");
+  }
+
+  /** 冲突恢复或手工合并成功后同时刷新列表行与检查器内容。 */
+  function handleConflictResolved(updated: MemorySummary): void {
+    setMemories((current) => current.map((memory) => memory.id === updated.id ? updated : memory));
+    setSelected(updated);
+    setNotice("冲突已解决，新版本正在同步");
   }
 
   /** 删除当前记忆并清理本页列表与检索命中。 */

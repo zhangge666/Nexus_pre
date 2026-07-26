@@ -385,11 +385,24 @@ impl OrbitState {
                 serde_json::json!({}),
             )
             .await?;
-        Ok(response
+        let memories = response
             .items
             .into_iter()
             .map(MemorySummary::from)
-            .collect())
+            .collect::<Vec<_>>();
+        #[cfg(not(mobile))]
+        {
+            let mut memories = memories;
+            if self.desktop_sync.is_enabled() {
+                let _ = self
+                    .desktop_sync
+                    .decorate_memory_conflicts(&mut memories)
+                    .await;
+            }
+            Ok(memories)
+        }
+        #[cfg(mobile)]
+        Ok(memories)
     }
 
     /// 聚合全部记忆及其关联，用于知识图谱展示；无关联的独立记忆同样必须作为节点返回。
@@ -517,7 +530,79 @@ impl OrbitState {
                 serde_json::json!({}),
             )
             .await?;
-        Ok(MemorySummary::from(response))
+        let memory = MemorySummary::from(response);
+        #[cfg(not(mobile))]
+        {
+            let mut memory = memory;
+            if self.desktop_sync.is_enabled() {
+                let _ = self
+                    .desktop_sync
+                    .decorate_memory_conflicts(std::slice::from_mut(&mut memory))
+                    .await;
+            }
+            Ok(memory)
+        }
+        #[cfg(mobile)]
+        Ok(memory)
+    }
+
+    /// 返回 E2E 副本为指定记忆保留的当前版本与并发失败版本。
+    async fn get_memory_conflicts(&self, id: String) -> Result<MemoryConflictSet, String> {
+        #[cfg(target_os = "android")]
+        {
+            if !self.uses_e2e_sync()? {
+                return Err("当前连接未启用端到端同步".into());
+            }
+            mobile_sync::memory_conflicts(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &id,
+            )
+            .await
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            if !self.desktop_sync.is_enabled() {
+                return Err("当前桌面未启用端到端同步".into());
+            }
+            self.desktop_sync.memory_conflicts(&id).await
+        }
+    }
+
+    /// 采用一个已有版本或用户合并结果，生成清除旧冲突的因果后继版本。
+    async fn resolve_memory_conflict(
+        &self,
+        id: String,
+        resolution: MemoryConflictResolution,
+    ) -> Result<MemorySummary, String> {
+        #[cfg(target_os = "android")]
+        {
+            if !self.uses_e2e_sync()? {
+                return Err("当前连接未启用端到端同步".into());
+            }
+            mobile_sync::resolve_memory_conflict(
+                &self.app,
+                &self.cache,
+                &self.client,
+                &self.endpoint()?,
+                &self.token()?,
+                &id,
+                &resolution,
+            )
+            .await
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            if !self.desktop_sync.is_enabled() {
+                return Err("当前桌面未启用端到端同步".into());
+            }
+            self.desktop_sync
+                .resolve_memory_conflict(&id, &resolution)
+                .await
+        }
     }
 
     /// 更新 Orbit 编辑器提交的标题和正文，并返回最新记忆摘要。
@@ -1711,6 +1796,129 @@ struct MemorySummary {
     conflict_count: usize,
 }
 
+/// 表示冲突检查器中一个可预览、可恢复的因果版本。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryConflictVersion {
+    version_id: String,
+    is_current: bool,
+    device_id: String,
+    modified_at: i64,
+    memory: Option<MemorySummary>,
+}
+
+/// 表示一条记忆的当前胜出版本与全部并发留痕。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MemoryConflictSet {
+    memory_id: String,
+    versions: Vec<MemoryConflictVersion>,
+}
+
+/// 表示用户选择恢复已有版本或提交手工合并正文。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "strategy", rename_all = "snake_case")]
+enum MemoryConflictResolution {
+    /// 采用检查器中一个仍然存在的稳定版本。
+    Restore {
+        #[serde(rename = "versionId")]
+        version_id: String,
+        #[serde(rename = "expectedVersionIds")]
+        expected_version_ids: Vec<String>,
+    },
+    /// 以当前可见版本为元数据基础提交用户合并后的标题和正文。
+    Merge {
+        title: Option<String>,
+        content: String,
+        #[serde(rename = "expectedVersionIds")]
+        expected_version_ids: Vec<String>,
+    },
+}
+
+/// 为冲突版本生成不包含明文的稳定标识，解决时据此拒绝已经过期的检查器状态。
+#[cfg(any(not(mobile), target_os = "android"))]
+fn memory_conflict_version_id<T: Serialize>(
+    value: &Option<T>,
+    device_id: &str,
+    modified_at: i64,
+) -> String {
+    let encoded = serde_json::to_vec(&(value, device_id, modified_at)).unwrap_or_default();
+    blake3::hash(&encoded).to_hex().to_string()
+}
+
+/// 从最新冲突集合构造一个因果后继快照；实际版本向量推进由各平台同步队列完成。
+fn resolve_memory_conflict_snapshot(
+    conflicts: &MemoryConflictSet,
+    resolution: &MemoryConflictResolution,
+    modified_at: i64,
+) -> Result<MemorySummary, String> {
+    let expected_version_ids = match resolution {
+        MemoryConflictResolution::Restore {
+            expected_version_ids,
+            ..
+        }
+        | MemoryConflictResolution::Merge {
+            expected_version_ids,
+            ..
+        } => expected_version_ids,
+    };
+    let mut current_version_ids = conflicts
+        .versions
+        .iter()
+        .map(|version| version.version_id.as_str())
+        .collect::<Vec<_>>();
+    let mut expected_version_ids = expected_version_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    current_version_ids.sort_unstable();
+    expected_version_ids.sort_unstable();
+    if expected_version_ids.is_empty() || current_version_ids != expected_version_ids {
+        return Err("冲突版本已经变化，请刷新后重新确认".into());
+    }
+
+    let mut memory = match resolution {
+        MemoryConflictResolution::Restore { version_id, .. } => conflicts
+            .versions
+            .iter()
+            .find(|version| &version.version_id == version_id)
+            .ok_or_else(|| "所选冲突版本已经变化，请刷新后重试".to_owned())?
+            .memory
+            .clone()
+            .ok_or_else(|| "删除墓碑不能作为正文恢复，请选择一个内容版本".to_owned())?,
+        MemoryConflictResolution::Merge { title, content, .. } => {
+            if content.trim().is_empty() {
+                return Err("合并后的记忆正文不能为空".into());
+            }
+            let mut current = conflicts
+                .versions
+                .iter()
+                .find(|version| version.is_current)
+                .and_then(|version| version.memory.clone())
+                .or_else(|| {
+                    conflicts
+                        .versions
+                        .iter()
+                        .find_map(|version| version.memory.clone())
+                })
+                .ok_or_else(|| "没有可用于手工合并的内容版本".to_owned())?;
+            current.title = title
+                .as_ref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned);
+            current.content.clone_from(content);
+            current
+        }
+    };
+    if memory.id != conflicts.memory_id {
+        return Err("冲突版本与目标记忆不一致".into());
+    }
+    memory.updated_at = modified_at;
+    memory.conflict_count = 0;
+    Ok(memory)
+}
+
 /// 表示知识图谱所需的最小节点字段，内容来自 Memory Protocol 的真实记忆列表。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1826,6 +2034,15 @@ async fn get_memory(
     state.get_memory(id).await
 }
 
+/// 返回记忆冲突检查器所需的当前版本与全部并发留痕。
+#[tauri::command]
+async fn get_memory_conflicts(
+    id: String,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<MemoryConflictSet, String> {
+    state.get_memory_conflicts(id).await
+}
+
 /// 通过 Tauri IPC 返回指定集合实际包含的记忆列表。
 #[tauri::command]
 async fn list_collection_memories(
@@ -1864,6 +2081,16 @@ async fn update_memory(
     state: State<'_, Arc<OrbitState>>,
 ) -> Result<MemorySummary, String> {
     state.update_memory(id, title, content).await
+}
+
+/// 采用用户选择或手工合并的内容，生成观察全部旧版本的新因果版本。
+#[tauri::command]
+async fn resolve_memory_conflict(
+    id: String,
+    resolution: MemoryConflictResolution,
+    state: State<'_, Arc<OrbitState>>,
+) -> Result<MemorySummary, String> {
+    state.resolve_memory_conflict(id, resolution).await
 }
 
 /// 通过 Tauri IPC 删除记忆；E2E 模式会生成可验证墓碑。
@@ -2704,11 +2931,13 @@ pub fn run() {
             search_memory,
             list_memories,
             get_memory,
+            get_memory_conflicts,
             list_collection_memories,
             get_graph_data,
             list_inbox_items,
             mark_inbox_read,
             update_memory,
+            resolve_memory_conflict,
             delete_memory,
             list_collections,
             create_collection,

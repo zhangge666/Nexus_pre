@@ -67,7 +67,7 @@ export default function TimelinePage(): React.JSX.Element {
 
   useEffect(() => {
     if (!selected) return;
-    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onDelete={handleDelete} onAddToCollection={handleAddToCollection} />);
+    show("记忆详情", <MemoryDetail memory={selected} collections={collections} onClose={() => setSelected(null)} onSave={handleSave} onDelete={handleDelete} onAddToCollection={handleAddToCollection} onConflictResolved={handleConflictResolved} />);
   }, [collections, selected, show]);
 
   /** 读取完整记忆并在全局检查器中打开详情。 */
@@ -87,6 +87,13 @@ export default function TimelinePage(): React.JSX.Element {
       setNotice(`保存失败：${String(error)}`);
       throw error;
     }
+  }
+
+  /** 冲突解决成功后在时间线和详情中替换为新的因果版本。 */
+  function handleConflictResolved(updated: MemorySummary): void {
+    setMemories((current) => current.map((memory) => memory.id === updated.id ? updated : memory));
+    setSelected(updated);
+    setNotice("冲突已解决，新版本正在同步");
   }
 
   /** 删除当前记忆并从时间线立即移除；原生 E2E 模式会同步墓碑。 */

@@ -23,8 +23,10 @@ import {
   searchMemory as _mockSearch,
   listMemories as _mockList,
   getMemory as _mockGet,
+  getMemoryConflicts as _mockGetMemoryConflicts,
   createMemory as _mockCreate,
   updateMemory as _mockUpdate,
+  resolveMemoryConflict as _mockResolveMemoryConflict,
   deleteMemory as _mockDelete,
   getReviewQueue as _mockQueue,
   getReviewStats as _mockStats,
@@ -84,8 +86,10 @@ function makeFn<T extends (...args: Parameters<T>) => ReturnType<T>>(
 export const searchMemory      = makeFn("searchMemory",      _mockSearch);
 export const listMemories       = makeFn("listMemories",       _mockList);
 export const getMemory          = makeFn("getMemory",          _mockGet);
+export const getMemoryConflicts = makeFn("getMemoryConflicts", _mockGetMemoryConflicts);
 export const createMemory       = makeFn("createMemory",       _mockCreate);
 export const updateMemory       = makeFn("updateMemory",       _mockUpdate);
+export const resolveMemoryConflict = makeFn("resolveMemoryConflict", _mockResolveMemoryConflict);
 export const deleteMemory       = makeFn("deleteMemory",       _mockDelete);
 export const getReviewQueue     = makeFn("getReviewQueue",     _mockQueue);
 export const getReviewStats     = makeFn("getReviewStats",     _mockStats);

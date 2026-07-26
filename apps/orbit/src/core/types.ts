@@ -36,6 +36,26 @@ export interface MemorySummary {
   conflictCount?: number;
 }
 
+/** 冲突检查器展示的一个当前或并发失败版本。 */
+export interface MemoryConflictVersion {
+  versionId: string;
+  isCurrent: boolean;
+  deviceId: string;
+  modifiedAt: number;
+  memory: MemorySummary | null;
+}
+
+/** 一条记忆当前已知的全部并发版本。 */
+export interface MemoryConflictSet {
+  memoryId: string;
+  versions: MemoryConflictVersion[];
+}
+
+/** 恢复已有版本或提交手工合并正文。 */
+export type MemoryConflictResolution =
+  | { strategy: "restore"; versionId: string; expectedVersionIds: string[] }
+  | { strategy: "merge"; title: string | null; content: string; expectedVersionIds: string[] };
+
 /** 检索命中（块级） */
 export interface MemoryHit {
   memoryId: string;

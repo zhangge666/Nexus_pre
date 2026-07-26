@@ -30,7 +30,10 @@ use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use uuid::Uuid;
 
-use crate::{Collection, MemorySummary};
+use crate::{
+    Collection, MemoryConflictResolution, MemoryConflictSet, MemoryConflictVersion, MemorySummary,
+    memory_conflict_version_id, resolve_memory_conflict_snapshot,
+};
 
 const CREDENTIAL_SERVICE: &str = "com.nexus.orbit.sync";
 const ACCESS_TOKEN_STORAGE_KEY: &str = "relay-access-token";
@@ -976,6 +979,79 @@ impl DesktopSync {
         Ok(replica_status(&load_replica(&context.replica_path, &key)?))
     }
 
+    /// 为协议返回的记忆摘要补充桌面加密副本中的冲突数量。
+    pub(crate) async fn decorate_memory_conflicts(
+        &self,
+        memories: &mut [MemorySummary],
+    ) -> Result<(), String> {
+        if !self.is_enabled() {
+            return Ok(());
+        }
+        let context = self.store_context()?;
+        let (key, _) = self.current_identity()?;
+        let _state = self.state_gate.lock().await;
+        let replica = load_replica(&context.replica_path, &key)?;
+        for memory in memories {
+            memory.conflict_count = replica
+                .records
+                .get(&memory_entity_id(&memory.id))
+                .map_or(0, |record| record.conflicts.len());
+        }
+        Ok(())
+    }
+
+    /// 返回指定桌面记忆的当前胜出版本与全部并发留痕。
+    pub(crate) async fn memory_conflicts(&self, id: &str) -> Result<MemoryConflictSet, String> {
+        let context = self.store_context()?;
+        let (key, _) = self.current_identity()?;
+        let _state = self.state_gate.lock().await;
+        let replica = load_replica(&context.replica_path, &key)?;
+        let record = replica
+            .records
+            .get(&memory_entity_id(id))
+            .ok_or_else(|| "记忆不存在或尚未进入同步副本".to_owned())?;
+        memory_conflict_set(id, record)
+    }
+
+    /// 将恢复或手工合并结果写成观察全部冲突的因果后继版本并物化到桌面库。
+    pub(crate) async fn resolve_memory_conflict(
+        &self,
+        id: &str,
+        resolution: &MemoryConflictResolution,
+    ) -> Result<MemorySummary, String> {
+        let context = self.store_context()?;
+        let (key, identity) = self.current_identity()?;
+        let entity_id = memory_entity_id(id);
+        let (memory, record) = {
+            let _state = self.state_gate.lock().await;
+            let mut replica = load_replica(&context.replica_path, &key)?;
+            let conflicts = memory_conflict_set(
+                id,
+                replica
+                    .records
+                    .get(&entity_id)
+                    .ok_or_else(|| "记忆不存在或尚未进入同步副本".to_owned())?,
+            )?;
+            let memory = resolve_memory_conflict_snapshot(&conflicts, resolution, unix_millis())?;
+            queue_entity_change(
+                &mut replica,
+                &key,
+                &identity,
+                entity_id.clone(),
+                Some(SyncEntity::Memory(memory.clone())),
+            )?;
+            let record = replica
+                .records
+                .get(&entity_id)
+                .cloned()
+                .ok_or_else(|| "冲突解决版本未写入本地副本".to_owned())?;
+            persist_replica(&context.replica_path, &key, &replica)?;
+            (memory, record)
+        };
+        self.apply_record_to_store(&context, &entity_id, &record)?;
+        Ok(memory)
+    }
+
     /// 将当前桌面库中尚未进入工作区的记忆、集合与成员关系加入可靠队列。
     async fn seed_current_store(&self, key: &SyncKey) -> Result<(), String> {
         let context = match self.store_context() {
@@ -1604,6 +1680,64 @@ fn replica_status(replica: &LocalReplica) -> ContentSyncStatus {
     }
 }
 
+/// 将桌面内部同步实体记录投影为前端共享的记忆冲突检查器契约。
+fn memory_conflict_set(
+    id: &str,
+    record: &VersionedRecord<SyncEntity>,
+) -> Result<MemoryConflictSet, String> {
+    let mut versions = Vec::with_capacity(record.conflicts.len() + 1);
+    versions.push(memory_conflict_version(
+        id,
+        &record.value,
+        &record.device_id,
+        record.modified_at,
+        true,
+        record.conflicts.len(),
+    )?);
+    for conflict in &record.conflicts {
+        versions.push(memory_conflict_version(
+            id,
+            &conflict.value,
+            &conflict.device_id,
+            conflict.modified_at,
+            false,
+            0,
+        )?);
+    }
+    Ok(MemoryConflictSet {
+        memory_id: id.into(),
+        versions,
+    })
+}
+
+/// 校验单个桌面冲突载荷属于目标记忆，并生成稳定版本标识。
+fn memory_conflict_version(
+    id: &str,
+    value: &Option<SyncEntity>,
+    device_id: &str,
+    modified_at: i64,
+    is_current: bool,
+    conflict_count: usize,
+) -> Result<MemoryConflictVersion, String> {
+    let memory = match value {
+        Some(SyncEntity::Memory(memory)) if memory.id == id => {
+            let mut memory = memory.clone();
+            memory.conflict_count = conflict_count;
+            Some(memory)
+        }
+        Some(SyncEntity::Memory(_)) => return Err("冲突版本与目标记忆不一致".into()),
+        Some(_) => return Err("同步副本中的冲突实体类型无效".into()),
+        None => None,
+    };
+    Ok(MemoryConflictVersion {
+        version_id: memory_conflict_version_id(value, device_id, modified_at),
+        is_current,
+        device_id: device_id.into(),
+        modified_at,
+        memory,
+    })
+}
+
 /// 从根密钥域分离桌面同步元数据加密密钥。
 fn replica_encryption_key(key: &SyncKey) -> [u8; 32] {
     *blake3::keyed_hash(&key.to_bytes(), b"nexus-desktop-replica-v1").as_bytes()
@@ -2001,6 +2135,7 @@ mod tests {
     use nexus_core::{
         CollectionPatch, ContentFormat, IngestInput, Ingestor, MemoryKind, MemoryPatch,
     };
+    use nexus_sync::ConflictVersion;
 
     use super::*;
 
@@ -2032,6 +2167,148 @@ mod tests {
                 .remove(key);
             Ok(())
         }
+    }
+
+    /// 构造冲突合并测试使用的完整记忆同步载荷。
+    fn conflict_memory(id: &str, title: &str, content: &str, updated_at: i64) -> MemorySummary {
+        MemorySummary {
+            id: id.into(),
+            source: "orbit".into(),
+            kind: "note".into(),
+            title: Some(title.into()),
+            content: content.into(),
+            content_format: "markdown".into(),
+            tags: Vec::new(),
+            pinned: false,
+            archived: false,
+            created_at: 1_700_000_000_000,
+            updated_at,
+            captured_at: None,
+            links: Vec::new(),
+            conflict_count: 0,
+        }
+    }
+
+    /// 验证恢复和手工合并都会生成观察全部旧版本且清空冲突留痕的新因果版本。
+    #[test]
+    fn resolves_conflicts_as_causal_successor() {
+        let id = Uuid::now_v7().to_string();
+        let current = conflict_memory(&id, "桌面版本", "桌面正文", 20);
+        let android = conflict_memory(&id, "Android 版本", "Android 正文", 10);
+        let mut version = VersionVector::default();
+        version.observe("desktop-a", 1).unwrap();
+        version.observe("android-a", 1).unwrap();
+        let record = VersionedRecord {
+            value: Some(SyncEntity::Memory(current)),
+            version,
+            device_id: "desktop-a".into(),
+            modified_at: 20,
+            conflicts: vec![ConflictVersion {
+                value: Some(SyncEntity::Memory(android)),
+                device_id: "android-a".into(),
+                modified_at: 10,
+            }],
+        };
+        let conflicts = memory_conflict_set(&id, &record).unwrap();
+        let expected_version_ids = conflicts
+            .versions
+            .iter()
+            .map(|version| version.version_id.clone())
+            .collect::<Vec<_>>();
+        let restored_version_id = conflicts.versions[1].version_id.clone();
+        let restored = resolve_memory_conflict_snapshot(
+            &conflicts,
+            &MemoryConflictResolution::Restore {
+                version_id: restored_version_id,
+                expected_version_ids: expected_version_ids.clone(),
+            },
+            30,
+        )
+        .unwrap();
+        assert_eq!(restored.content, "Android 正文");
+        assert_eq!(restored.updated_at, 30);
+
+        let merged = resolve_memory_conflict_snapshot(
+            &conflicts,
+            &MemoryConflictResolution::Merge {
+                title: Some("合并版本".into()),
+                content: "桌面正文\n\nAndroid 正文".into(),
+                expected_version_ids,
+            },
+            31,
+        )
+        .unwrap();
+        assert_eq!(merged.title.as_deref(), Some("合并版本"));
+
+        let stale = resolve_memory_conflict_snapshot(
+            &conflicts,
+            &MemoryConflictResolution::Merge {
+                title: None,
+                content: "过期内容".into(),
+                expected_version_ids: vec![conflicts.versions[0].version_id.clone()],
+            },
+            32,
+        );
+        assert_eq!(stale.unwrap_err(), "冲突版本已经变化，请刷新后重新确认");
+
+        let key = SyncKey::generate();
+        let identity = DeviceIdentity::generate("desktop-resolver").unwrap();
+        let mut replica = LocalReplica::empty(&key);
+        replica.records.insert(memory_entity_id(&id), record);
+        queue_entity_change(
+            &mut replica,
+            &key,
+            &identity,
+            memory_entity_id(&id),
+            Some(SyncEntity::Memory(restored)),
+        )
+        .unwrap();
+        let resolved = replica.records.get(&memory_entity_id(&id)).unwrap();
+        assert!(resolved.conflicts.is_empty());
+        assert_eq!(
+            resolved.value.as_ref().and_then(|value| match value {
+                SyncEntity::Memory(memory) => Some(memory.content.as_str()),
+                _ => None,
+            }),
+            Some("Android 正文")
+        );
+        assert_eq!(replica.pending.len(), 1);
+    }
+
+    /// 验证前端 camelCase 字段能够按共享 IPC 契约解析为恢复和合并请求。
+    #[test]
+    fn parses_conflict_resolution_ipc_contract() {
+        let restore = serde_json::from_value::<MemoryConflictResolution>(serde_json::json!({
+            "strategy": "restore",
+            "versionId": "version-a",
+            "expectedVersionIds": ["version-a", "version-b"]
+        }))
+        .unwrap();
+        assert!(matches!(
+            restore,
+            MemoryConflictResolution::Restore {
+                version_id,
+                expected_version_ids
+            } if version_id == "version-a" && expected_version_ids.len() == 2
+        ));
+
+        let merge = serde_json::from_value::<MemoryConflictResolution>(serde_json::json!({
+            "strategy": "merge",
+            "title": "合并版本",
+            "content": "合并正文",
+            "expectedVersionIds": ["version-a", "version-b"]
+        }))
+        .unwrap();
+        assert!(matches!(
+            merge,
+            MemoryConflictResolution::Merge {
+                title,
+                content,
+                expected_version_ids
+            } if title.as_deref() == Some("合并版本")
+                && content == "合并正文"
+                && expected_version_ids.len() == 2
+        ));
     }
 
     /// 验证桌面 E2E 身份只进入安全存储，公开状态不包含根密钥或私钥。

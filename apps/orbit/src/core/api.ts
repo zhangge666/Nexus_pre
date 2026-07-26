@@ -21,6 +21,8 @@ import type {
   GraphNode,
   InboxItem,
   MemoryCollection,
+  MemoryConflictResolution,
+  MemoryConflictSet,
   MemoryHit,
   MemorySummary,
   OrbitSettings,
@@ -53,6 +55,11 @@ export async function getMemory(id: string): Promise<MemorySummary> {
   return invoke<MemorySummary>("get_memory", { id });
 }
 
+/** 读取记忆当前胜出版本和全部 E2E 并发留痕。 */
+export async function getMemoryConflicts(id: string): Promise<MemoryConflictSet> {
+  return invoke<MemoryConflictSet>("get_memory_conflicts", { id });
+}
+
 /** 调用真实 IPC 新建一条 Orbit 手动记忆。 */
 export async function createMemory(content: string): Promise<MemorySummary> {
   return invoke<MemorySummary>("create_memory", { content });
@@ -64,6 +71,14 @@ export async function updateMemory(
   content: string
 ): Promise<MemorySummary> {
   return invoke<MemorySummary>("update_memory", { id, title, content });
+}
+
+/** 将恢复或手工合并结果提交为观察全部旧冲突的新因果版本。 */
+export async function resolveMemoryConflict(
+  id: string,
+  resolution: MemoryConflictResolution,
+): Promise<MemorySummary> {
+  return invoke<MemorySummary>("resolve_memory_conflict", { id, resolution });
 }
 
 /** 删除记忆；E2E 模式由原生层生成并同步墓碑。 */

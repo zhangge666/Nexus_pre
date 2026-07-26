@@ -1,8 +1,9 @@
 /** 本文件实现记忆详情面板组件。 */
 import type React from "react";
-import { useState } from "react";
-import { X, Save, Pencil, Layers, BookmarkCheck, Trash2, TriangleAlert } from "lucide-react";
-import type { MemorySummary, MemoryCollection } from "../core";
+import { useEffect, useState } from "react";
+import { X, Save, Pencil, Layers, BookmarkCheck, Trash2, TriangleAlert, GitMerge, RotateCcw } from "lucide-react";
+import { getMemoryConflicts, resolveMemoryConflict } from "../core";
+import type { MemorySummary, MemoryCollection, MemoryConflictSet, MemoryConflictVersion } from "../core";
 
 interface MemoryDetailProps {
   memory: MemorySummary;
@@ -12,6 +13,7 @@ interface MemoryDetailProps {
   onAddToCollection: (collectionId: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
   onGenerateCard?: () => void;
+  onConflictResolved?: (memory: MemorySummary) => void;
 }
 
 /** 将记忆创建时间格式化为检查器中稳定可追溯的完整日期。 */
@@ -59,6 +61,7 @@ export function MemoryDetail({
   onAddToCollection,
   onDelete,
   onGenerateCard,
+  onConflictResolved,
 }: MemoryDetailProps): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(memory.title ?? "");
@@ -66,6 +69,24 @@ export function MemoryDetail({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [conflicts, setConflicts] = useState<MemoryConflictSet | null>(null);
+  const [conflictMode, setConflictMode] = useState<"versions" | "merge">("versions");
+  const [conflictBusy, setConflictBusy] = useState(false);
+  const [conflictError, setConflictError] = useState("");
+  const [mergeTitle, setMergeTitle] = useState(memory.title ?? "");
+  const [mergeContent, setMergeContent] = useState(memory.content);
+
+  useEffect(() => {
+    setEditTitle(memory.title ?? "");
+    setEditContent(memory.content);
+    setMergeTitle(memory.title ?? "");
+    setMergeContent(memory.content);
+    if (!memory.conflictCount) {
+      setConflictOpen(false);
+      setConflicts(null);
+    }
+  }, [memory.content, memory.conflictCount, memory.id, memory.title, memory.updatedAt]);
 
   /** 保存编辑内容并在成功后退出编辑态，避免阅读与编辑状态混杂。 */
   async function handleSave(): Promise<void> {
@@ -95,6 +116,85 @@ export function MemoryDetail({
     } finally {
       setDeleting(false);
     }
+  }
+
+  /** 打开冲突检查器并读取最新副本，避免依据列表中的过期计数解决冲突。 */
+  async function handleOpenConflicts(): Promise<void> {
+    if (conflictOpen) {
+      setConflictOpen(false);
+      return;
+    }
+    setConflictOpen(true);
+    setConflictBusy(true);
+    setConflictError("");
+    try {
+      const loaded = await getMemoryConflicts(memory.id);
+      setConflicts(loaded);
+      const current = loaded.versions.find((version) => version.isCurrent)?.memory ?? memory;
+      setMergeTitle(current.title ?? "");
+      setMergeContent(current.content);
+    } catch (error) {
+      setConflictError(`读取冲突版本失败：${String(error)}`);
+    } finally {
+      setConflictBusy(false);
+    }
+  }
+
+  /** 采用检查器中的一个内容版本，并由原生同步层生成新的因果后继版本。 */
+  async function handleRestoreConflict(version: MemoryConflictVersion): Promise<void> {
+    if (!version.memory) return;
+    setConflictBusy(true);
+    setConflictError("");
+    try {
+      const updated = await resolveMemoryConflict(memory.id, {
+        strategy: "restore",
+        versionId: version.versionId,
+        expectedVersionIds: conflicts?.versions.map((candidate) => candidate.versionId) ?? [],
+      });
+      setConflicts(null);
+      setConflictOpen(false);
+      onConflictResolved?.(updated);
+    } catch (error) {
+      setConflictError(`恢复版本失败：${String(error)}`);
+    } finally {
+      setConflictBusy(false);
+    }
+  }
+
+  /** 提交用户整理后的标题和正文，清除已观察到的旧冲突留痕。 */
+  async function handleMergeConflict(): Promise<void> {
+    if (!mergeContent.trim()) {
+      setConflictError("合并后的正文不能为空");
+      return;
+    }
+    setConflictBusy(true);
+    setConflictError("");
+    try {
+      const updated = await resolveMemoryConflict(memory.id, {
+        strategy: "merge",
+        title: mergeTitle.trim() || null,
+        content: mergeContent.trim(),
+        expectedVersionIds: conflicts?.versions.map((version) => version.versionId) ?? [],
+      });
+      setConflicts(null);
+      setConflictOpen(false);
+      onConflictResolved?.(updated);
+    } catch (error) {
+      setConflictError(`保存合并版本失败：${String(error)}`);
+    } finally {
+      setConflictBusy(false);
+    }
+  }
+
+  /** 在冲突处理页签间提供标准左右方向键导航，并同步移动键盘焦点。 */
+  function handleConflictTabKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const nextMode = event.key === "ArrowLeft" ? "versions" : "merge";
+    setConflictMode(nextMode);
+    event.currentTarget.parentElement
+      ?.querySelector<HTMLButtonElement>(`[data-conflict-tab="${nextMode}"]`)
+      ?.focus();
   }
 
   const sourceLabel = memory.source === "orbit" ? "Orbit"
@@ -160,9 +260,68 @@ export function MemoryDetail({
               {memory.pinned && <span className="pin-badge"><BookmarkCheck size={11} />置顶</span>}
             </div>
             {!!memory.conflictCount && (
-              <p className="detail-conflict-notice" role="status">
-                <TriangleAlert size={13} />已保留 {memory.conflictCount} 个并发版本，可在端到端加密设置中查看冲突数量。
-              </p>
+              <>
+                <div className="detail-conflict-notice" role="status">
+                  <TriangleAlert size={13} aria-hidden="true" />
+                  <span>已保留 {memory.conflictCount} 个并发版本，当前内容已按确定性规则收敛。</span>
+                  <button type="button" onClick={() => void handleOpenConflicts()} aria-expanded={conflictOpen}>
+                    {conflictOpen ? "收起" : "查看版本"}
+                  </button>
+                </div>
+                {conflictOpen && (
+                  <section className="conflict-inspector" aria-label="并发版本检查器" aria-busy={conflictBusy}>
+                    <div className="conflict-tabs" role="tablist" aria-label="冲突处理方式">
+                      <button type="button" role="tab" id="conflict-tab-versions" data-conflict-tab="versions" aria-controls="conflict-panel-versions" aria-selected={conflictMode === "versions"} tabIndex={conflictMode === "versions" ? 0 : -1} className={conflictMode === "versions" ? "active" : ""} onClick={() => setConflictMode("versions")} onKeyDown={handleConflictTabKeyDown}>
+                        版本预览
+                      </button>
+                      <button type="button" role="tab" id="conflict-tab-merge" data-conflict-tab="merge" aria-controls="conflict-panel-merge" aria-selected={conflictMode === "merge"} tabIndex={conflictMode === "merge" ? 0 : -1} className={conflictMode === "merge" ? "active" : ""} onClick={() => setConflictMode("merge")} onKeyDown={handleConflictTabKeyDown}>
+                        <GitMerge size={12} aria-hidden="true" />手工合并
+                      </button>
+                    </div>
+                    {conflictBusy && !conflicts && <p className="conflict-loading">正在读取加密副本…</p>}
+                    {conflictMode === "versions" && conflicts && (
+                      <div className="conflict-version-list" role="tabpanel" id="conflict-panel-versions" aria-labelledby="conflict-tab-versions">
+                        {conflicts.versions.map((version) => (
+                          <article key={version.versionId} className={`conflict-version${version.isCurrent ? " current" : ""}`}>
+                            <header>
+                              <span>{version.isCurrent ? "当前版本" : "并发版本"}</span>
+                              <time dateTime={new Date(version.modifiedAt).toISOString()}>{formatDate(version.modifiedAt)}</time>
+                            </header>
+                            <code title={version.deviceId}>{version.deviceId}</code>
+                            {version.memory ? (
+                              <>
+                                <h4>{version.memory.title ?? version.memory.kind}</h4>
+                                <pre>{version.memory.content}</pre>
+                                <button type="button" className="secondary-button conflict-restore" disabled={conflictBusy} onClick={() => void handleRestoreConflict(version)}>
+                                  <RotateCcw size={12} aria-hidden="true" />{version.isCurrent ? "保留当前版本" : "恢复此版本"}
+                                </button>
+                              </>
+                            ) : (
+                              <p className="conflict-tombstone">此并发版本已删除记忆，保留为墓碑记录。</p>
+                            )}
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                    {conflictMode === "merge" && (
+                      <div className="conflict-merge-editor" role="tabpanel" id="conflict-panel-merge" aria-labelledby="conflict-tab-merge">
+                        <label>
+                          合并标题
+                          <input value={mergeTitle} onChange={(event) => setMergeTitle(event.target.value)} placeholder="可选标题" />
+                        </label>
+                        <label>
+                          合并正文
+                          <textarea value={mergeContent} onChange={(event) => setMergeContent(event.target.value)} />
+                        </label>
+                        <button type="button" className="primary-small" disabled={conflictBusy || !mergeContent.trim()} onClick={() => void handleMergeConflict()}>
+                          <GitMerge size={13} aria-hidden="true" />{conflictBusy ? "保存中…" : "保存合并版本"}
+                        </button>
+                      </div>
+                    )}
+                    {conflictError && <p className="conflict-error" role="alert">{conflictError}</p>}
+                  </section>
+                )}
+              </>
             )}
             <h3 className="detail-title-text">{memory.title ?? memory.kind}</h3>
             <div className="detail-content">

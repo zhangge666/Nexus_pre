@@ -19,6 +19,9 @@ import type {
   GraphNode,
   InboxItem,
   MemoryCollection,
+  MemoryConflictResolution,
+  MemoryConflictSet,
+  MemoryConflictVersion,
   MemoryHit,
   MemorySummary,
   OrbitSettings,
@@ -48,6 +51,7 @@ export const mockMemories: MemorySummary[] = [
     updatedAt: Date.now() - 3_600_000,
     capturedAt: null,
     links: [{ fromId: "m-001", toId: "m-002", relation: "related", createdBy: "system" }],
+    conflictCount: 2,
   },
   {
     id: "m-002",
@@ -535,6 +539,41 @@ export async function getMemory(id: string): Promise<MemorySummary> {
   return mem;
 }
 
+/** 浏览器预览中构造一个当前版本和一个来自 Android 的并发版本。 */
+export async function getMemoryConflicts(id: string): Promise<MemoryConflictSet> {
+  await delay(120);
+  const memory = await getMemory(id);
+  const versions: MemoryConflictVersion[] = [{
+    versionId: `${id}:current`,
+    isCurrent: true,
+    deviceId: "desktop-preview",
+    modifiedAt: memory.updatedAt,
+    memory: { ...memory },
+  }];
+  if (memory.conflictCount) {
+    versions.push({
+      versionId: `${id}:android`,
+      isCurrent: false,
+      deviceId: "android-preview",
+      modifiedAt: memory.updatedAt - 60_000,
+      memory: {
+        ...memory,
+        title: memory.title ? `${memory.title}（Android 版本）` : "Android 版本",
+        content: `${memory.content}\n\n来自 Android 并发编辑的补充内容。`,
+        conflictCount: 0,
+      },
+    });
+    versions.push({
+      versionId: `${id}:tombstone`,
+      isCurrent: false,
+      deviceId: "android-offline-preview",
+      modifiedAt: memory.updatedAt - 120_000,
+      memory: null,
+    });
+  }
+  return { memoryId: id, versions };
+}
+
 export async function createMemory(content: string): Promise<MemorySummary> {
   await delay(300);
   const newMem: MemorySummary = {
@@ -566,6 +605,34 @@ export async function updateMemory(
   if (idx === -1) throw new Error(`Memory ${id} not found`);
   mockMemories[idx] = { ...mockMemories[idx], title, content, updatedAt: Date.now() };
   return mockMemories[idx];
+}
+
+/** 浏览器预览中应用冲突恢复或手工合并，并清除冲突计数。 */
+export async function resolveMemoryConflict(
+  id: string,
+  resolution: MemoryConflictResolution,
+): Promise<MemorySummary> {
+  const conflicts = await getMemoryConflicts(id);
+  const actualVersionIds = conflicts.versions.map((version) => version.versionId).sort();
+  const expectedVersionIds = [...resolution.expectedVersionIds].sort();
+  if (
+    actualVersionIds.length !== expectedVersionIds.length
+    || actualVersionIds.some((versionId, index) => versionId !== expectedVersionIds[index])
+  ) {
+    throw new Error("冲突版本已经变化，请刷新后重新确认");
+  }
+  const selected = resolution.strategy === "restore"
+    ? conflicts.versions.find((version) => version.versionId === resolution.versionId)?.memory
+    : conflicts.versions.find((version) => version.isCurrent)?.memory;
+  if (!selected) throw new Error("所选冲突版本不可用");
+  return updateMemory(
+    id,
+    resolution.strategy === "merge" ? resolution.title : selected.title,
+    resolution.strategy === "merge" ? resolution.content : selected.content,
+  ).then((memory) => {
+    memory.conflictCount = 0;
+    return memory;
+  });
 }
 
 /** 浏览器预览中删除一条 mock 记忆。 */

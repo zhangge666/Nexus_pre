@@ -21,7 +21,11 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tauri::AppHandle;
 use uuid::Uuid;
 
-use crate::{Collection, MemoryHit, MemorySummary, mobile_cache::EncryptedCache};
+use crate::{
+    Collection, MemoryConflictResolution, MemoryConflictSet, MemoryConflictVersion, MemoryHit,
+    MemorySummary, memory_conflict_version_id, mobile_cache::EncryptedCache,
+    resolve_memory_conflict_snapshot,
+};
 
 const ROOT_KEY_STORAGE_KEY: &str = "orbit.e2e-root-key";
 const DEVICE_ID_STORAGE_KEY: &str = "orbit.e2e-device-id";
@@ -835,6 +839,61 @@ pub fn content_status(
     Ok(replica_status(&load_replica(cache, &key)?))
 }
 
+/// 刷新并返回指定记忆的当前胜出版本与全部并发留痕。
+pub async fn memory_conflicts(
+    app: &AppHandle,
+    cache: &EncryptedCache,
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    id: &str,
+) -> Result<MemoryConflictSet, String> {
+    let _sync_guard = CONTENT_SYNC_LOCK.lock().await;
+    let (key, identity) = current_identity(app)?;
+    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
+    let replica = load_replica(cache, &key)?;
+    let record = replica
+        .records
+        .get(&memory_entity_id(id))
+        .ok_or_else(|| "记忆不存在或尚未进入同步副本".to_owned())?;
+    memory_conflict_set(id, record)
+}
+
+/// 将恢复或手工合并结果写成观察全部冲突的因果后继版本，并尽力立即上传。
+pub async fn resolve_memory_conflict(
+    app: &AppHandle,
+    cache: &EncryptedCache,
+    client: &reqwest::Client,
+    endpoint: &str,
+    token: &str,
+    id: &str,
+    resolution: &MemoryConflictResolution,
+) -> Result<MemorySummary, String> {
+    let _sync_guard = CONTENT_SYNC_LOCK.lock().await;
+    let (key, identity) = current_identity(app)?;
+    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
+    let mut replica = load_replica(cache, &key)?;
+    let entity_id = memory_entity_id(id);
+    let conflicts = memory_conflict_set(
+        id,
+        replica
+            .records
+            .get(&entity_id)
+            .ok_or_else(|| "记忆不存在或尚未进入同步副本".to_owned())?,
+    )?;
+    let memory = resolve_memory_conflict_snapshot(&conflicts, resolution, unix_millis())?;
+    queue_entity_change_in_replica(
+        &mut replica,
+        &key,
+        &identity,
+        entity_id,
+        Some(SyncEntity::Memory(memory.clone())),
+    )?;
+    persist_replica(cache, &replica)?;
+    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
+    Ok(memory)
+}
+
 /// 从加密副本列出可见记忆；联网时先执行一次增量同步，离线时保留本地结果。
 pub async fn list_memories(
     app: &AppHandle,
@@ -1190,6 +1249,20 @@ async fn queue_entity_change(
     let (key, identity) = current_identity(app)?;
     let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
     let mut replica = load_replica(cache, &key)?;
+    queue_entity_change_in_replica(&mut replica, &key, &identity, entity_id, value)?;
+    persist_replica(cache, &replica)?;
+    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
+    Ok(())
+}
+
+/// 在已持有同步锁时生成一个本地因果版本并加入可靠上传队列。
+fn queue_entity_change_in_replica(
+    replica: &mut LocalReplica,
+    key: &SyncKey,
+    identity: &DeviceIdentity,
+    entity_id: String,
+    value: Option<SyncEntity>,
+) -> Result<(), String> {
     replica.local_sequence = replica
         .local_sequence
         .checked_add(1)
@@ -1220,12 +1293,10 @@ async fn queue_entity_change(
         created_at: unix_millis(),
     };
     let envelope = key
-        .encrypt_operation(&operation, &identity)
+        .encrypt_operation(&operation, identity)
         .map_err(|error| error.to_string())?;
-    apply_operation(&mut replica, operation)?;
+    apply_operation(replica, operation)?;
     replica.pending.push(envelope);
-    persist_replica(cache, &replica)?;
-    let _ = sync_content_with_identity(cache, client, endpoint, token, &key, &identity).await;
     Ok(())
 }
 
@@ -1339,6 +1410,64 @@ fn memory_from_record(record: &VersionedRecord<SyncEntity>) -> Option<MemorySumm
     let mut memory = memory.clone();
     memory.conflict_count = record.conflicts.len();
     Some(memory)
+}
+
+/// 将内部同步实体记录投影为前端共享的记忆冲突检查器契约。
+fn memory_conflict_set(
+    id: &str,
+    record: &VersionedRecord<SyncEntity>,
+) -> Result<MemoryConflictSet, String> {
+    let mut versions = Vec::with_capacity(record.conflicts.len() + 1);
+    versions.push(memory_conflict_version(
+        id,
+        &record.value,
+        &record.device_id,
+        record.modified_at,
+        true,
+        record.conflicts.len(),
+    )?);
+    for conflict in &record.conflicts {
+        versions.push(memory_conflict_version(
+            id,
+            &conflict.value,
+            &conflict.device_id,
+            conflict.modified_at,
+            false,
+            0,
+        )?);
+    }
+    Ok(MemoryConflictSet {
+        memory_id: id.into(),
+        versions,
+    })
+}
+
+/// 校验单个冲突载荷属于目标记忆，并生成不会暴露明文的版本标识。
+fn memory_conflict_version(
+    id: &str,
+    value: &Option<SyncEntity>,
+    device_id: &str,
+    modified_at: i64,
+    is_current: bool,
+    conflict_count: usize,
+) -> Result<MemoryConflictVersion, String> {
+    let memory = match value {
+        Some(SyncEntity::Memory(memory)) if memory.id == id => {
+            let mut memory = memory.clone();
+            memory.conflict_count = conflict_count;
+            Some(memory)
+        }
+        Some(SyncEntity::Memory(_)) => return Err("冲突版本与目标记忆不一致".into()),
+        Some(_) => return Err("同步副本中的冲突实体类型无效".into()),
+        None => None,
+    };
+    Ok(MemoryConflictVersion {
+        version_id: memory_conflict_version_id(value, device_id, modified_at),
+        is_current,
+        device_id: device_id.into(),
+        modified_at,
+        memory,
+    })
 }
 
 /// 构造记忆实体的加密载荷内标识。
