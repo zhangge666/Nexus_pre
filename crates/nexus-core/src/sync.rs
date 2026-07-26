@@ -255,6 +255,23 @@ impl DeviceIdentity {
     }
 }
 
+/// 使用登记的 Ed25519 公钥验证任意设备协议消息签名。
+pub fn verify_device_signature(
+    public_key: &str,
+    message: &[u8],
+    signature: &str,
+) -> Result<(), SyncError> {
+    let public_key = URL_SAFE_NO_PAD
+        .decode(public_key)
+        .map_err(|_| SyncError::InvalidSignature)?;
+    let signature = URL_SAFE_NO_PAD
+        .decode(signature)
+        .map_err(|_| SyncError::InvalidSignature)?;
+    UnparsedPublicKey::new(&ED25519, public_key)
+        .verify(message, &signature)
+        .map_err(|_| SyncError::InvalidSignature)
+}
+
 impl Drop for DeviceIdentity {
     /// 释放设备身份时清零 PKCS#8 私钥字节。
     fn drop(&mut self) {
@@ -380,15 +397,7 @@ impl EncryptedSyncEnvelope {
 
     /// 使用登记的设备公钥验证信封签名，供零知识中继拒绝伪造操作。
     pub fn verify_signature(&self, public_key: &str) -> Result<(), SyncError> {
-        let public_key = URL_SAFE_NO_PAD
-            .decode(public_key)
-            .map_err(|_| SyncError::InvalidSignature)?;
-        let signature = URL_SAFE_NO_PAD
-            .decode(&self.signature)
-            .map_err(|_| SyncError::InvalidSignature)?;
-        UnparsedPublicKey::new(&ED25519, public_key)
-            .verify(&self.signing_bytes()?, &signature)
-            .map_err(|_| SyncError::InvalidSignature)
+        verify_device_signature(public_key, &self.signing_bytes()?, &self.signature)
     }
 
     /// 构造认证加密附加数据，防止中继修改路由元数据。

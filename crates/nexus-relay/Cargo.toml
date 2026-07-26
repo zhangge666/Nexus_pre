@@ -1,0 +1,28 @@
+# 本文件定义 Nexus 零知识同步中继服务及其最小运行依赖。
+
+[package]
+name = "nexus-relay"
+description = "Nexus E2E 同步密文中继、设备配对与撤销服务"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+axum = "0.8"
+blake3 = "1"
+nexus-core = { path = "../nexus-core", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+subtle = "2"
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal"] }
+uuid = { version = "1", features = ["serde", "v7"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

@@ -34,7 +34,7 @@ pub use store::MemoryStore;
 pub use sync::{
     ConflictVersion, DeviceIdentity, EncryptedSyncEnvelope, MergeResult, OperationKind,
     PairingOffer, PairingSecret, PlainSyncOperation, SealedPairingKey, SyncError, SyncKey,
-    VectorRelation, VersionVector, VersionedRecord,
+    VectorRelation, VersionVector, VersionedRecord, verify_device_signature,
 };
 
 /// 返回当前核心骨架已经声明的领域模块。

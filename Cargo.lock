@@ -2862,6 +2862,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "nexus-relay"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "blake3",
+ "http-body-util",
+ "nexus-core",
+ "serde",
+ "serde_json",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "uuid",
+]
+
+[[package]]
 name = "nexus-sqlite-vec"
 version = "0.1.0"
 dependencies = [
@@ -5061,6 +5079,7 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
+ "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
