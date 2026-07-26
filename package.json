@@ -10,6 +10,9 @@
     "verify:orbit-m2": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m2.ps1",
     "verify:muse-m3": "powershell -ExecutionPolicy Bypass -File scripts/verify-muse-m3.ps1",
     "verify:orbit-m4": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m4.ps1",
+    "verify:orbit-m5": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m5.ps1",
+    "build:orbit-android-release": "powershell -ExecutionPolicy Bypass -File scripts/build-orbit-android-release.ps1",
+    "smoke:orbit-android-device": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-android-device.ps1",
     "verify:orbit-m6": "powershell -ExecutionPolicy Bypass -File scripts/verify-orbit-m6.ps1"
   },
   "devDependencies": {
