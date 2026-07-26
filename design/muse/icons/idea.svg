@@ -1,0 +1,8 @@
+<!-- Muse 灵感功能图标：一笔星芒代表突然出现并被接住的想法。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">灵感</title>
+  <g fill="none" stroke="#A9B0FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">
+    <path d="M12 2.7c.45 3.2 2.1 4.85 5.3 5.3-3.2.45-4.85 2.1-5.3 5.3-.45-3.2-2.1-4.85-5.3-5.3 3.2-.45 4.85-2.1 5.3-5.3Z"/>
+    <path d="M5.5 13.6v2.9a3 3 0 0 0 3 3h7a3 3 0 0 0 3-3v-2.9"/>
+  </g>
+</svg>

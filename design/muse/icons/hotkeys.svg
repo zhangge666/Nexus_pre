@@ -1,0 +1,8 @@
+<!-- Muse 快捷键功能图标：四个方向键位表达独立而可配置的功能入口。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">快捷键</title>
+  <g fill="none" stroke="#A9B0FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">
+    <rect x="3" y="4" width="18" height="16" rx="3"/>
+    <path d="M7 8h3M14 8h3M7 12h2M13 12h4M7 16h10"/>
+  </g>
+</svg>

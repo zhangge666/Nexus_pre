@@ -1,0 +1,10 @@
+<!-- Muse 剪贴板功能图标：并列片段与中间差异标记表示固定窗口中的内容比较。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">剪贴板比较</title>
+  <g fill="none" stroke="#A9B0FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">
+    <rect x="2.8" y="4.5" width="7.2" height="15" rx="1.8"/>
+    <rect x="14" y="4.5" width="7.2" height="15" rx="1.8"/>
+    <path d="M5.5 8h2M5.5 11h2M16.5 8h2M16.5 11h2"/>
+    <path d="m11.5 15 1-1 1 1M12.5 14v4"/>
+  </g>
+</svg>

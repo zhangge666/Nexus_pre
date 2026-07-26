@@ -1,0 +1,10 @@
+<!-- Muse 任务功能图标：勾选节点与竖向轨迹共同表达可追溯的工作过程。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-labelledby="title">
+  <title id="title">任务留痕</title>
+  <g fill="none" stroke="#A9B0FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">
+    <circle cx="7" cy="6" r="2.5"/>
+    <path d="m5.8 6 1 1 2-2.2M7 8.5v7"/>
+    <circle cx="7" cy="18" r="2.5"/>
+    <path d="M12 6h7M12 11h5M12 18h7"/>
+  </g>
+</svg>

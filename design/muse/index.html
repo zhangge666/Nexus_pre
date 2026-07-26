@@ -1,0 +1,474 @@
+<!-- Muse 界面原型：集中预览快捷启动、灵感、任务留痕、会议、剪贴板与快捷键设置。 -->
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Muse · 小巧助手界面原型</title>
+    <link rel="stylesheet" href="./muse.css" />
+  </head>
+  <body>
+    <div class="prototype-shell">
+      <header class="prototype-header">
+        <div class="prototype-title">
+          <img src="./icons/muse-app-icon.svg" alt="" />
+          <div>
+            <strong>Muse 界面原型</strong>
+            <span>小巧、直达、可追溯</span>
+          </div>
+        </div>
+        <nav class="preview-nav" aria-label="原型页面">
+          <button type="button" data-switch="launcher">启动</button>
+          <button type="button" data-switch="idea">灵感</button>
+          <button type="button" data-switch="tasks">任务</button>
+          <button type="button" data-switch="meeting">会议</button>
+          <button type="button" data-switch="clipboard">剪贴板</button>
+          <button type="button" data-switch="settings">快捷键</button>
+        </nav>
+        <div class="prototype-meta">
+          <span class="status-dot"></span>
+          <span>仅界面预览</span>
+        </div>
+      </header>
+
+      <main class="prototype-stage">
+        <div class="desktop-glow desktop-glow-a"></div>
+        <div class="desktop-glow desktop-glow-b"></div>
+
+        <section class="muse-window window-launcher" data-view="launcher" aria-label="Muse 快捷启动条">
+          <div class="launcher-brand" title="Muse">
+            <img src="./icons/muse-app-icon.svg" alt="Muse" />
+          </div>
+          <div class="launcher-actions">
+            <button class="launcher-action is-active" type="button" data-switch="idea">
+              <img src="./icons/idea.svg" alt="" />
+              <span>灵感</span>
+              <kbd>I</kbd>
+            </button>
+            <button class="launcher-action" type="button" data-switch="tasks">
+              <img src="./icons/task-trace.svg" alt="" />
+              <span>任务</span>
+              <kbd>T</kbd>
+            </button>
+            <button class="launcher-action" type="button" data-switch="meeting">
+              <img src="./icons/meeting.svg" alt="" />
+              <span>会议</span>
+              <kbd>R</kbd>
+            </button>
+            <button class="launcher-action" type="button" data-switch="clipboard">
+              <img src="./icons/clipboard-compare.svg" alt="" />
+              <span>剪贴板</span>
+              <kbd>V</kbd>
+            </button>
+          </div>
+          <button class="icon-button launcher-settings" type="button" data-switch="settings" aria-label="打开快捷键设置">
+            <img src="./icons/hotkeys.svg" alt="" />
+          </button>
+        </section>
+
+        <section class="muse-window window-idea" data-view="idea" aria-label="Muse 灵感捕捉">
+          <header class="window-titlebar">
+            <div class="window-identity">
+              <span class="feature-icon"><img src="./icons/idea.svg" alt="" /></span>
+              <div>
+                <strong>记录灵感</strong>
+                <span>想到就记，不打断当下</span>
+              </div>
+            </div>
+            <div class="window-state"><span class="status-dot"></span>本地已就绪</div>
+            <button class="icon-button" type="button" aria-label="关闭窗口">×</button>
+          </header>
+          <div class="idea-editor">
+            <textarea aria-label="灵感内容">把每个快捷入口设计成独立的小窗口，而不是再做一个复杂的效率工作台。</textarea>
+            <div class="idea-tools">
+              <div class="tool-group">
+                <button class="tool-button" type="button" aria-label="添加标签">#</button>
+                <button class="tool-button" type="button" aria-label="添加附件">＋</button>
+                <button class="tool-button" type="button" aria-label="语音输入">⌁</button>
+                <span class="draft-state">草稿已保存</span>
+              </div>
+              <button class="primary-button" type="button">
+                收好
+                <kbd>⌘ ↵</kbd>
+              </button>
+            </div>
+          </div>
+          <footer class="window-footnote">
+            <span>轻 Markdown</span>
+            <span>source: muse · idea</span>
+            <span>Esc 隐藏</span>
+          </footer>
+        </section>
+
+        <section class="muse-window window-tasks" data-view="tasks" aria-label="Muse 任务与工作留痕">
+          <header class="workspace-header">
+            <div class="window-identity">
+              <span class="feature-icon"><img src="./icons/task-trace.svg" alt="" /></span>
+              <div>
+                <strong>任务留痕</strong>
+                <span>要求、过程与交付放在一起</span>
+              </div>
+            </div>
+            <label class="search-control">
+              <span>⌕</span>
+              <input type="search" value="首页发布" aria-label="搜索任务与来源" />
+              <kbd>⌘ K</kbd>
+            </label>
+            <button class="primary-button compact" type="button">＋ 新任务</button>
+            <button class="icon-button" type="button" aria-label="更多操作">•••</button>
+          </header>
+          <div class="task-workspace">
+            <aside class="task-list-pane">
+              <div class="segment-tabs" role="tablist" aria-label="任务筛选">
+                <button class="is-active" type="button">进行中 <span>3</span></button>
+                <button type="button">等待 <span>1</span></button>
+                <button type="button">完成</button>
+              </div>
+              <div class="task-group-label"><span>今天</span><span>3</span></div>
+              <button class="task-row is-selected" type="button">
+                <span class="task-status is-doing"></span>
+                <span class="task-row-copy">
+                  <strong>确认新版首页发布清单</strong>
+                  <small>林然 · 钉钉消息 · 今天 18:00</small>
+                </span>
+                <span class="evidence-count">4</span>
+              </button>
+              <button class="task-row" type="button">
+                <span class="task-status"></span>
+                <span class="task-row-copy">
+                  <strong>整理客户反馈并回复</strong>
+                  <small>邮件 · 明天 10:00</small>
+                </span>
+                <span class="evidence-count">2</span>
+              </button>
+              <button class="task-row" type="button">
+                <span class="task-status is-waiting"></span>
+                <span class="task-row-copy">
+                  <strong>核对七月发票数据</strong>
+                  <small>等待财务确认</small>
+                </span>
+                <span class="evidence-count">3</span>
+              </button>
+              <div class="task-group-label subtle"><span>稍后</span><span>2</span></div>
+              <button class="task-row" type="button">
+                <span class="task-status"></span>
+                <span class="task-row-copy">
+                  <strong>更新入职说明文档</strong>
+                  <small>周三 · 低优先级</small>
+                </span>
+                <span class="evidence-count">1</span>
+              </button>
+              <button class="quiet-create" type="button">＋ 从当前剪贴板新建任务</button>
+            </aside>
+
+            <article class="task-detail-pane">
+              <header class="task-detail-header">
+                <div class="task-title-block">
+                  <div class="task-kicker">
+                    <span class="badge badge-doing">进行中</span>
+                    <span>产品发布</span>
+                    <span>今天 18:00 截止</span>
+                  </div>
+                  <h1>确认新版首页发布清单</h1>
+                  <p>确保桌面端与移动端首屏文案、埋点和回滚方案全部就绪。</p>
+                </div>
+                <div class="avatar-stack" aria-label="参与人：你、林然">
+                  <span>你</span><span>林</span><button type="button" aria-label="添加参与人">＋</button>
+                </div>
+              </header>
+
+              <section class="source-panel">
+                <div class="section-heading">
+                  <span>原始要求</span>
+                  <button type="button">查看来源 ↗</button>
+                </div>
+                <blockquote>
+                  “首页今天必须发出。上线前请确认移动端断点、按钮埋点和旧版回滚包，完成后把检查结果发我。”
+                </blockquote>
+                <div class="source-meta">
+                  <span class="source-app">钉</span>
+                  <span>林然 · 钉钉</span>
+                  <span>7月26日 09:42</span>
+                  <span>已保留原文</span>
+                </div>
+              </section>
+
+              <section class="activity-section">
+                <div class="section-heading">
+                  <span>工作时间线</span>
+                  <button type="button">仅看证据</button>
+                </div>
+                <ol class="activity-list">
+                  <li class="activity-item">
+                    <span class="activity-node node-message"></span>
+                    <div>
+                      <strong>任务由钉钉消息建立</strong>
+                      <p>自动带入原始要求并记录提出人。</p>
+                    </div>
+                    <time>09:44</time>
+                  </li>
+                  <li class="activity-item">
+                    <span class="activity-node node-file"></span>
+                    <div>
+                      <strong>添加检查表 <em>release-checklist.xlsx</em></strong>
+                      <p>12 项中已完成 9 项 · 文件版本 v3</p>
+                    </div>
+                    <time>11:18</time>
+                  </li>
+                  <li class="activity-item">
+                    <span class="activity-node node-note"></span>
+                    <div>
+                      <strong>进展更新</strong>
+                      <p>移动端 390px 断点已修复，等待埋点在预发布环境回传。</p>
+                    </div>
+                    <time>14:26</time>
+                  </li>
+                  <li class="activity-item is-next">
+                    <span class="activity-node"></span>
+                    <div>
+                      <strong>下一步</strong>
+                      <p>验证埋点后附上回滚包，补充完成说明。</p>
+                    </div>
+                    <time>待处理</time>
+                  </li>
+                </ol>
+              </section>
+
+              <footer class="task-compose">
+                <button class="tool-button" type="button" aria-label="添加附件">＋</button>
+                <input type="text" placeholder="记录进展、粘贴消息或拖入文件…" aria-label="记录任务进展" />
+                <button class="secondary-button" type="button">完成任务</button>
+                <button class="primary-button compact" type="button">记录</button>
+              </footer>
+            </article>
+          </div>
+        </section>
+
+        <section class="muse-window window-meeting" data-view="meeting" aria-label="Muse 会议录音与摘要">
+          <header class="workspace-header meeting-header">
+            <div class="window-identity">
+              <span class="feature-icon recording"><img src="./icons/meeting.svg" alt="" /></span>
+              <div>
+                <strong>产品周会</strong>
+                <span><span class="record-dot"></span>正在录音 · 本地转写</span>
+              </div>
+            </div>
+            <div class="meeting-timer">00:18:42</div>
+            <div class="waveform" aria-label="音量波形">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+            <button class="secondary-button" type="button">◇ 标记重点</button>
+            <button class="stop-button" type="button"><span></span>停止</button>
+          </header>
+
+          <div class="meeting-mode-tabs" role="tablist" aria-label="会议视图">
+            <button class="is-active" type="button" data-meeting-mode="live">实时转写</button>
+            <button type="button" data-meeting-mode="summary">会后摘要</button>
+            <span>麦克风：系统默认</span>
+          </div>
+
+          <div class="meeting-body meeting-live is-visible" data-meeting-panel="live">
+            <div class="transcript-stream">
+              <div class="transcript-line">
+                <time>18:06</time>
+                <span class="speaker speaker-a">林</span>
+                <p><strong>林然</strong> 首页今天必须发出，移动端断点和按钮埋点需要在发布前再确认一次。</p>
+              </div>
+              <div class="transcript-line is-current">
+                <time>18:19</time>
+                <span class="speaker speaker-b">我</span>
+                <p><strong>我</strong> 390 像素断点已经修复。埋点等预发布环境回传，之后把检查表和回滚包一起发出。</p>
+              </div>
+              <div class="transcript-line">
+                <time>18:35</time>
+                <span class="speaker speaker-c">周</span>
+                <p><strong>周凯</strong> 我来确认埋点，最晚四点半给结果。</p>
+              </div>
+            </div>
+            <aside class="meeting-markers">
+              <div class="section-heading"><span>重点</span><button type="button">＋</button></div>
+              <button type="button"><time>08:14</time><span>发布范围确认</span></button>
+              <button type="button"><time>18:19</time><span>行动项</span></button>
+              <p>停止录音后自动生成摘要与任务建议。</p>
+            </aside>
+          </div>
+
+          <div class="meeting-body meeting-summary" data-meeting-panel="summary">
+            <section class="summary-copy">
+              <div class="section-heading"><span>会议摘要</span><button type="button">整理到 Quill ↗</button></div>
+              <h2>新版首页按原计划今日发布</h2>
+              <ul>
+                <li><button type="button">08:14</button> 桌面端内容已确认，发布范围不再增加。</li>
+                <li><button type="button">18:19</button> 移动端 390px 断点已修复，需补齐埋点验证。</li>
+                <li><button type="button">26:02</button> 回滚包与检查表随发布结果一同留档。</li>
+              </ul>
+              <div class="summary-risk"><strong>待确认</strong> 预发布环境的按钮埋点尚未回传。</div>
+            </section>
+            <aside class="action-items">
+              <div class="section-heading"><span>行动项</span><span>2 项</span></div>
+              <label>
+                <input type="checkbox" checked />
+                <span><strong>确认按钮埋点回传</strong><small>周凯 · 今天 16:30</small></span>
+              </label>
+              <label>
+                <input type="checkbox" checked />
+                <span><strong>发送发布检查结果</strong><small>我 · 今天 18:00</small></span>
+              </label>
+              <button class="primary-button full" type="button">创建 2 个任务</button>
+            </aside>
+          </div>
+        </section>
+
+        <section class="muse-window window-clipboard" data-view="clipboard" aria-label="Muse 剪贴板比较">
+          <header class="workspace-header">
+            <div class="window-identity">
+              <span class="feature-icon"><img src="./icons/clipboard-compare.svg" alt="" /></span>
+              <div>
+                <strong>剪贴板比较</strong>
+                <span>本机临时 · 24 小时后自动清理</span>
+              </div>
+            </div>
+            <span class="privacy-chip">未同步</span>
+            <button class="secondary-button" type="button">暂停监听</button>
+            <button class="icon-button is-pinned" type="button" aria-label="取消置顶">⌖</button>
+          </header>
+          <div class="clipboard-workspace">
+            <aside class="clipboard-history">
+              <div class="history-heading">
+                <span>最近复制</span>
+                <button type="button">清空</button>
+              </div>
+              <button class="clip-row is-selected" type="button">
+                <span class="clip-source">A</span>
+                <span><strong>新版报价条目</strong><small>Excel · 14:32 · 6 行</small></span>
+                <span class="pin-mark">◆</span>
+              </button>
+              <button class="clip-row is-selected second" type="button">
+                <span class="clip-source">B</span>
+                <span><strong>客户确认版本</strong><small>钉钉 · 14:35 · 6 行</small></span>
+                <span class="pin-mark">◆</span>
+              </button>
+              <button class="clip-row" type="button">
+                <span class="clip-source muted">3</span>
+                <span><strong>https://nexus.local/...</strong><small>Edge · 14:28</small></span>
+              </button>
+              <button class="clip-row" type="button">
+                <span class="clip-source muted">4</span>
+                <span><strong>交付范围说明</strong><small>Word · 14:20 · 132 字</small></span>
+              </button>
+              <button class="quiet-create" type="button">＋ 粘贴为新条目</button>
+            </aside>
+
+            <section class="compare-pane">
+              <div class="compare-toolbar">
+                <div class="segment-tabs compact-tabs">
+                  <button class="is-active" type="button">逐词</button>
+                  <button type="button">逐行</button>
+                  <button type="button">仅差异</button>
+                </div>
+                <span>发现 3 处差异</span>
+                <button type="button">交换 A / B</button>
+                <button type="button">•••</button>
+              </div>
+              <div class="compare-grid">
+                <article class="compare-column">
+                  <header><span class="clip-source">A</span><strong>新版报价条目</strong><button type="button">复制</button></header>
+                  <ol>
+                    <li><span>基础服务：</span><strong>￥12,800</strong></li>
+                    <li><span>交付周期：</span><mark class="removed">10 个工作日</mark></li>
+                    <li><span>数据迁移：</span><strong>包含 1 次</strong></li>
+                    <li><span>驻场支持：</span><mark class="removed">2 天</mark></li>
+                    <li><span>售后服务：</span><mark class="removed">3 个月</mark></li>
+                    <li><span>付款方式：</span><strong>5 / 5</strong></li>
+                  </ol>
+                </article>
+                <article class="compare-column">
+                  <header><span class="clip-source second">B</span><strong>客户确认版本</strong><button type="button">复制</button></header>
+                  <ol>
+                    <li><span>基础服务：</span><strong>￥12,800</strong></li>
+                    <li><span>交付周期：</span><mark class="added">12 个工作日</mark></li>
+                    <li><span>数据迁移：</span><strong>包含 1 次</strong></li>
+                    <li><span>驻场支持：</span><mark class="added">3 天</mark></li>
+                    <li><span>售后服务：</span><mark class="added">6 个月</mark></li>
+                    <li><span>付款方式：</span><strong>5 / 5</strong></li>
+                  </ol>
+                </article>
+              </div>
+              <footer class="compare-footer">
+                <span>条目仅保存在本机，除非你主动保存或绑定任务。</span>
+                <button class="secondary-button" type="button">绑定到任务</button>
+                <button class="primary-button compact" type="button">保存比较结果</button>
+              </footer>
+            </section>
+          </div>
+        </section>
+
+        <section class="muse-window window-settings" data-view="settings" aria-label="Muse 快捷键设置">
+          <header class="window-titlebar settings-titlebar">
+            <div class="window-identity">
+              <span class="feature-icon"><img src="./icons/hotkeys.svg" alt="" /></span>
+              <div>
+                <strong>快捷键</strong>
+                <span>每个功能都能一步直达</span>
+              </div>
+            </div>
+            <button class="icon-button" type="button" aria-label="关闭窗口">×</button>
+          </header>
+          <div class="settings-layout">
+            <aside class="settings-nav">
+              <button class="is-active" type="button">快捷键</button>
+              <button type="button">浮层</button>
+              <button type="button">会议</button>
+              <button type="button">剪贴板</button>
+              <button type="button">隐私</button>
+            </aside>
+            <section class="hotkey-settings">
+              <header>
+                <div>
+                  <h1>功能快捷键</h1>
+                  <p>在任何应用中直接打开对应的小窗口。</p>
+                </div>
+                <button class="secondary-button" type="button">恢复默认</button>
+              </header>
+              <div class="hotkey-list">
+                <div class="hotkey-row">
+                  <span class="mini-feature"><img src="./icons/muse-app-icon.svg" alt="" /></span>
+                  <span><strong>打开 Muse</strong><small>显示四个功能入口</small></span>
+                  <button class="keybinding" type="button"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>Space</kbd></button>
+                </div>
+                <div class="hotkey-row">
+                  <span class="mini-feature"><img src="./icons/idea.svg" alt="" /></span>
+                  <span><strong>记录灵感</strong><small>直接聚焦输入框</small></span>
+                  <button class="keybinding" type="button"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>I</kbd></button>
+                </div>
+                <div class="hotkey-row">
+                  <span class="mini-feature"><img src="./icons/task-trace.svg" alt="" /></span>
+                  <span><strong>新建任务</strong><small>带入当前剪贴板作为来源</small></span>
+                  <button class="keybinding" type="button"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>T</kbd></button>
+                </div>
+                <div class="hotkey-row">
+                  <span class="mini-feature"><img src="./icons/meeting.svg" alt="" /></span>
+                  <span><strong>开始 / 停止会议</strong><small>再次按下即停止</small></span>
+                  <button class="keybinding" type="button"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>R</kbd></button>
+                </div>
+                <div class="hotkey-row">
+                  <span class="mini-feature"><img src="./icons/clipboard-compare.svg" alt="" /></span>
+                  <span><strong>剪贴板比较</strong><small>显示并置顶窗口</small></span>
+                  <button class="keybinding" type="button"><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>V</kbd></button>
+                </div>
+              </div>
+              <footer class="settings-footnote"><span class="status-dot"></span>所有快捷键均可用，未发现系统冲突。</footer>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <footer class="prototype-footer">
+        <span>使用顶部标签切换界面；会议页可切换“实时转写 / 会后摘要”。</span>
+        <span>设计基线 · 2026-07-26</span>
+      </footer>
+    </div>
+    <script src="./muse.js"></script>
+  </body>
+</html>
