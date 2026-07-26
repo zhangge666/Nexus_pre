@@ -77,7 +77,8 @@ nav { display: grid; gap: 2px; }
 .service-status-retry { width: 24px; height: 24px; margin-left: auto; }
 .is-spinning { animation: service-spin 700ms linear infinite; }
 @keyframes service-spin { to { transform: rotate(360deg); } }
-.collection-form { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; margin: 6px 8px 0; }
+/* 底部预留全局焦点环空间，避免被集合导航的 overflow 裁切。 */
+.collection-form { display: grid; grid-template-columns: minmax(0, 1fr) 28px; gap: 4px; margin: 6px 8px 4px; }
 .collection-form input { min-width: 0; height: 28px; padding: 0 7px; font-size: 11px; border: 1px solid hsl(var(--border)); border-radius: var(--radius); color: hsl(var(--foreground)); background: hsl(var(--surface)); font: inherit; }
 .collection-form button { display: grid; place-items: center; border-radius: var(--radius); color: hsl(var(--foreground-secondary)); background: transparent; }
 .collection-form button:hover { background: hsl(var(--surface-hover)); }
