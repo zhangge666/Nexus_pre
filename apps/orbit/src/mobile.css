@@ -1,0 +1,212 @@
+/** 本文件仅定义 Orbit Android 外壳与系统安全区适配，桌面布局保持由 orbit.css 管理。 */
+
+.mobile-root {
+  --mobile-tabbar-height: 64px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.mobile-workspace {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+.mobile-tabbar {
+  position: relative;
+  z-index: 60;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  min-height: calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0));
+  padding: 6px 4px env(safe-area-inset-bottom, 0);
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--surface) / 0.96);
+  backdrop-filter: blur(18px);
+}
+
+.mobile-tab {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-muted));
+  font-size: 10px;
+  font-weight: 500;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-tab::before {
+  position: absolute;
+  top: 2px;
+  width: 24px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  content: "";
+}
+
+.mobile-tab.active {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-active));
+}
+
+.mobile-tab.active::before {
+  background: hsl(var(--primary));
+}
+
+.mobile-tab:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.mobile-root .page-layout-content {
+  padding-bottom: calc(32px + env(safe-area-inset-bottom, 0));
+}
+
+.mobile-root .settings-layout {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.mobile-root .settings-nav {
+  display: flex;
+  flex: 0 0 auto;
+  width: 100%;
+  padding: 4px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-right: 0;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  scrollbar-width: none;
+}
+
+.mobile-root .settings-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-root .settings-nav-group {
+  display: contents;
+}
+
+.mobile-root .settings-nav-label {
+  display: none;
+}
+
+.mobile-root .settings-nav-item {
+  flex: 0 0 auto;
+  width: auto;
+  min-height: 44px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.mobile-root .settings-content {
+  flex: 1 0 auto;
+  max-width: none;
+  padding: 20px 16px 32px;
+  overflow: visible;
+}
+
+.mobile-root .setting-row {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mobile-root .setting-control,
+.mobile-root .settings-select,
+.mobile-root .settings-input:not(.short) {
+  width: 100%;
+}
+
+.mobile-root .topbar {
+  min-height: 56px;
+  padding: 8px 16px;
+}
+
+.mobile-root .topbar h1 {
+  font-size: 18px;
+}
+
+.mobile-root .global-inspector {
+  position: fixed;
+  z-index: 80;
+  top: auto;
+  right: 0;
+  bottom: calc(var(--mobile-tabbar-height) + env(safe-area-inset-bottom, 0));
+  left: 0;
+  width: 100%;
+  min-width: 0;
+  max-height: min(72vh, 640px);
+  height: auto;
+  min-height: 220px;
+  overflow: hidden;
+  border-top: 1px solid hsl(var(--border-strong));
+  border-left: 0;
+  background: hsl(var(--surface-elevated));
+  box-shadow: var(--shadow-md);
+  transform: translateY(0);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), visibility 180ms;
+}
+
+.mobile-root .global-inspector.is-collapsed {
+  width: 100%;
+  min-width: 0;
+  visibility: hidden;
+  transform: translateY(calc(100% + 16px));
+}
+
+.mobile-root .global-inspector-header {
+  min-height: 48px;
+  padding: 0 8px 0 16px;
+}
+
+.mobile-root .global-inspector-header::before {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: hsl(var(--border-strong));
+  content: "";
+  transform: translateX(-50%);
+}
+
+.mobile-root .global-inspector-body {
+  max-height: calc(min(72vh, 640px) - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mobile-root .inspector-close {
+  display: grid;
+}
+
+.mobile-root button,
+.mobile-root a,
+.mobile-root input,
+.mobile-root select {
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-root .global-inspector {
+    transition: none;
+  }
+}

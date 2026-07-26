@@ -255,6 +255,8 @@ export interface OrbitSettings {
   sync: {
     mode: SyncMode;
     relayEndpoint: string;
+    accessToken: string;
+    hasAccessToken: boolean;
     conflictStrategy: "auto" | "manual";
   };
   appearance: {
@@ -265,7 +267,7 @@ export interface OrbitSettings {
 
 /** 本地 Memory Protocol 服务的可展示诊断状态。 */
 export interface ServiceStatus {
-  role: "holder" | "client";
+  role: "holder" | "client" | "remote";
   endpoint: string;
   available: boolean;
   message: string | null;

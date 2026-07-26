@@ -1,14 +1,15 @@
 /** 本文件实现 Orbit 的设置工作台，集中管理搜索、问答、复习、关联与外观偏好。 */
 import type React from "react";
 import { useEffect, useState } from "react";
-import { BrainCircuit, Info, Layers, Link2, MessageCircle, Palette, Search } from "lucide-react";
+import { BrainCircuit, Cloud, Info, Layers, Link2, MessageCircle, Palette, Search } from "lucide-react";
 import { getSettings, saveSettings } from "../core";
 import type { OrbitSettings } from "../core";
 import { useInspector } from "../components/Inspector";
 import { PageLayout } from "../components/PageLayout";
 import { Topbar } from "../components/Topbar";
+import { isAndroidPlatform } from "../platform";
 
-type SettingsSection = "search" | "rag" | "cards" | "review" | "links" | "appearance" | "about";
+type SettingsSection = "search" | "rag" | "cards" | "review" | "links" | "sync" | "appearance" | "about";
 
 interface SettingsSectionMeta {
   key: SettingsSection;
@@ -23,6 +24,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
   cards: { key: "cards", label: "卡片", description: "设置知识卡片的生成方式与默认归档位置。", icon: <Layers size={15} /> },
   review: { key: "review", label: "复习调度", description: "配置间隔复习算法、每日限额与到期提醒。", icon: <BrainCircuit size={15} /> },
   links: { key: "links", label: "关联", description: "控制自动关联、去重提示与知识图谱密度。", icon: <Link2 size={15} /> },
+  sync: { key: "sync", label: "移动连接", description: "配置 Android 访问的远程加密记忆服务。", icon: <Cloud size={15} /> },
   appearance: { key: "appearance", label: "外观", description: "选择 Orbit 在当前设备上使用的显示主题。", icon: <Palette size={15} /> },
   about: { key: "about", label: "关于 Orbit", description: "查看版本、数据位置与默认隐私策略。", icon: <Info size={15} /> },
 };
@@ -30,7 +32,7 @@ const SECTIONS: Record<SettingsSection, SettingsSectionMeta> = {
 const SECTION_GROUPS: { label: string; items: SettingsSection[] }[] = [
   { label: "智能", items: ["search", "rag"] },
   { label: "学习", items: ["cards", "review", "links"] },
-  { label: "应用", items: ["appearance", "about"] },
+  { label: "应用", items: isAndroidPlatform() ? ["sync", "appearance", "about"] : ["appearance", "about"] },
 ];
 
 /** 渲染受控开关，并将状态变化交给设置页统一保存。 */
@@ -164,6 +166,27 @@ export default function SettingsPage(): React.JSX.Element {
       <SettingRow label="自动关联" description="为语义相近的记忆建立 related 关联。" id="auto-link"><Toggle id="auto-link" value={settings.links.autoLink} onChange={(value) => update("links", { autoLink: value })} /></SettingRow>
       <SettingRow label={`去重提示阈值 ${settings.links.dedupeThreshold.toFixed(2)}`} description="相似度达到该阈值时提示合并。" id="dedupe"><input id="dedupe" className="settings-slider" type="range" min={0.6} max={1} step={0.01} value={settings.links.dedupeThreshold} onChange={(event) => update("links", { dedupeThreshold: Number(event.target.value) })} /></SettingRow>
       <SettingRow label={`图谱显示密度 ${settings.links.graphDensity.toFixed(1)}`} id="density"><input id="density" className="settings-slider" type="range" min={0} max={1} step={0.1} value={settings.links.graphDensity} onChange={(event) => update("links", { graphDensity: Number(event.target.value) })} /></SettingRow>
+    </SettingsSectionLayout>;
+
+    if (section === "sync") return <SettingsSectionLayout meta={SECTIONS.sync}>
+      <SettingRow label="连接方式" description="Android 不启动本地协议服务，只连接端到端云或自托管 HTTPS 服务。" id="sync-mode">
+        <div className="radio-group segments-2">
+          <label className={`radio-option${settings.sync.mode === "e2e_cloud" ? " active" : ""}`}><input id="sync-mode" type="radio" name="sync-mode" checked={settings.sync.mode === "e2e_cloud"} onChange={() => update("sync", { mode: "e2e_cloud" })} />端到端云</label>
+          <label className={`radio-option${settings.sync.mode === "self_hosted" ? " active" : ""}`}><input type="radio" name="sync-mode" checked={settings.sync.mode === "self_hosted"} onChange={() => update("sync", { mode: "self_hosted" })} />自托管</label>
+        </div>
+      </SettingRow>
+      <SettingRow label="远程服务地址" description="发布版本必须使用 HTTPS；开发构建可连接调试用 HTTP 地址。" id="relay-endpoint">
+        <input id="relay-endpoint" type="url" inputMode="url" className="settings-input" value={settings.sync.relayEndpoint} onChange={(event) => update("sync", { relayEndpoint: event.target.value })} placeholder="https://sync.example.com" />
+      </SettingRow>
+      <SettingRow label="访问令牌" description={settings.sync.hasAccessToken ? "令牌已载入当前安全会话；留空可继续使用。" : "由远程 Orbit 服务签发，不会写入普通设置文件。"} id="sync-access-token">
+        <input id="sync-access-token" type="password" autoComplete="off" className="settings-input" value={settings.sync.accessToken} onChange={(event) => update("sync", { accessToken: event.target.value })} placeholder={settings.sync.hasAccessToken ? "已配置（不回显）" : "粘贴远程访问令牌"} />
+      </SettingRow>
+      <SettingRow label="冲突处理" id="sync-conflict">
+        <select id="sync-conflict" className="settings-select" value={settings.sync.conflictStrategy} onChange={(event) => update("sync", { conflictStrategy: event.target.value as OrbitSettings["sync"]["conflictStrategy"] })}>
+          <option value="auto">自动合并</option>
+          <option value="manual">冲突时询问</option>
+        </select>
+      </SettingRow>
     </SettingsSectionLayout>;
 
     if (section === "appearance") return <SettingsSectionLayout meta={SECTIONS.appearance}>

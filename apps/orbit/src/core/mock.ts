@@ -462,7 +462,13 @@ export const mockSettings: OrbitSettings = {
     reminderEnabled: true,
   },
   links: { autoLink: true, dedupeThreshold: 0.85, graphDensity: 0.6 },
-  sync: { mode: "local", relayEndpoint: "", conflictStrategy: "auto" },
+  sync: {
+    mode: "local",
+    relayEndpoint: "",
+    accessToken: "",
+    hasAccessToken: false,
+    conflictStrategy: "auto",
+  },
   appearance: { theme: "dark", language: "zh-CN" },
 };
 

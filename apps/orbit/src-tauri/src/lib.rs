@@ -1,4 +1,4 @@
-//! 本文件装配 Orbit Tauri 运行时、本地服务持有者仲裁以及统一 HTTP 协议访问。
+//! 本文件装配 Orbit 桌面本地服务、Android 远程客户端以及统一 HTTP 协议访问。
 
 mod credentials;
 
@@ -8,35 +8,43 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use chrono::{Local, Timelike};
 use futures_util::StreamExt;
-use nexus_core::{Collection, HashEmbedder, Link, LinkRelation, MemoryStore};
-use nexus_protocol::dto::{ListMemoriesResponse, MemoryResponse};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use tauri::{Emitter, Manager, State};
+#[cfg(not(mobile))]
+use tauri_plugin_notification::NotificationExt;
+
+#[cfg(not(mobile))]
+use chrono::{Local, Timelike};
+#[cfg(not(mobile))]
+use nexus_core::{HashEmbedder, MemoryStore};
+#[cfg(not(mobile))]
 use nexus_protocol::{
     CapabilityGrant, LocalServiceClaim, ProtocolState, Scope, serve_with_shutdown,
     shared_nexus_data_dir,
 };
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tauri::{Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
 
-/// 持有 Orbit 使用的本地协议客户端以及当前持有服务的可选关闭信号。
+/// 持有 Orbit 使用的协议客户端、连接信息以及当前持有服务的可选关闭信号。
 struct OrbitState {
     client: reqwest::Client,
-    endpoint: String,
-    token: String,
+    endpoint: Mutex<String>,
+    token: Mutex<String>,
     role: ServiceRole,
     shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     settings_path: PathBuf,
     settings: Arc<Mutex<serde_json::Value>>,
 }
 
-/// 表示当前 Orbit 是本地服务持有者还是连接既有服务的客户端。
-#[derive(Clone, Copy, Serialize)]
+/// 表示当前 Orbit 使用桌面本地服务还是 Android 远程服务。
+#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum ServiceRole {
+    #[cfg(not(mobile))]
     Holder,
+    #[cfg(not(mobile))]
     Client,
+    #[cfg(mobile)]
+    Remote,
 }
 
 /// 表示前端状态栏展示本地服务健康度所需的最小诊断信息。
@@ -65,7 +73,13 @@ fn default_settings() -> serde_json::Value {
         "cards": {"generationMode": "ai", "provider": "local", "maxCardsPerNote": 10, "defaultDeck": "默认"},
         "review": {"algorithm": "fsrs", "dailyNewLimit": 20, "dailyReviewLimit": 100, "reminderTime": "08:00", "reminderEnabled": true, "lastDesktopReminderDate": ""},
         "links": {"autoLink": true, "dedupeThreshold": 0.85, "graphDensity": 0.6},
-        "sync": {"mode": "local", "relayEndpoint": "", "conflictStrategy": "auto"},
+        "sync": {
+            "mode": "local",
+            "relayEndpoint": "",
+            "accessToken": "",
+            "hasAccessToken": false,
+            "conflictStrategy": "auto"
+        },
         "appearance": {"theme": "dark", "language": "zh-CN"}
     })
 }
@@ -81,6 +95,8 @@ fn load_settings(path: &Path) -> serde_json::Value {
     // API Key 永远不从磁盘恢复；应用重启后云 Provider 需重新输入自带 Key。
     set_json_string(&mut settings, "/rag/apiKey", "");
     set_json_bool(&mut settings, "/rag/hasApiKey", false);
+    set_json_string(&mut settings, "/sync/accessToken", "");
+    set_json_bool(&mut settings, "/sync/hasAccessToken", false);
     settings
 }
 
@@ -114,30 +130,47 @@ fn set_json_bool(value: &mut serde_json::Value, pointer: &str, next: bool) {
     }
 }
 
-/// 返回不会暴露 API Key 的设置副本，并用 `hasApiKey` 告知当前进程是否已配置。
+/// 返回不会暴露敏感凭据的设置副本，并用状态字段告知是否已配置。
 fn public_settings(settings: &serde_json::Value) -> serde_json::Value {
     let mut public = settings.clone();
+    #[cfg(not(mobile))]
     let provider = json_string(settings, "/rag/provider");
+    #[cfg(not(mobile))]
     let has_api_key = settings
         .pointer("/rag/apiKey")
         .and_then(serde_json::Value::as_str)
         .is_some_and(|value| !value.is_empty())
         || credentials::load_api_key(&provider).is_some();
+    #[cfg(mobile)]
+    let has_api_key = false;
     set_json_string(&mut public, "/rag/apiKey", "");
     set_json_bool(&mut public, "/rag/hasApiKey", has_api_key);
+    #[cfg(mobile)]
+    let has_access_token = settings
+        .pointer("/sync/accessToken")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.is_empty())
+        || credentials::load_sync_token().is_some();
+    #[cfg(not(mobile))]
+    let has_access_token = false;
+    set_json_string(&mut public, "/sync/accessToken", "");
+    set_json_bool(&mut public, "/sync/hasAccessToken", has_access_token);
     public
 }
 
-/// 持久化设置时剔除敏感 Key 和仅在进程内成立的 Key 状态。
+/// 持久化设置时剔除敏感凭据和仅在进程内成立的凭据状态。
 fn persist_settings(path: &Path, settings: &serde_json::Value) -> Result<(), String> {
     let mut safe = settings.clone();
     set_json_string(&mut safe, "/rag/apiKey", "");
     set_json_bool(&mut safe, "/rag/hasApiKey", false);
+    set_json_string(&mut safe, "/sync/accessToken", "");
+    set_json_bool(&mut safe, "/sync/hasAccessToken", false);
     let content = serde_json::to_vec_pretty(&safe).map_err(|error| error.to_string())?;
     fs::write(path, content).map_err(|error| error.to_string())
 }
 
 /// 准备产品族共享目录，并在首次升级时复制 Orbit 旧目录中的数据库与媒体。
+#[cfg(not(mobile))]
 fn prepare_shared_data_dir(app_data_dir: &Path) -> io::Result<PathBuf> {
     let shared_dir = shared_nexus_data_dir(app_data_dir);
     fs::create_dir_all(&shared_dir)?;
@@ -155,6 +188,7 @@ fn prepare_shared_data_dir(app_data_dir: &Path) -> io::Result<PathBuf> {
 }
 
 /// 递归复制尚未存在的媒体目录，避免共享目录迁移破坏历史附件引用。
+#[cfg(not(mobile))]
 fn copy_directory_if_missing(source: &Path, target: &Path) -> io::Result<()> {
     if !source.exists() || target.exists() {
         return Ok(());
@@ -173,11 +207,54 @@ fn copy_directory_if_missing(source: &Path, target: &Path) -> io::Result<()> {
 }
 
 impl OrbitState {
+    /// 返回当前协议端点；Android 尚未配置远程地址时给出可操作错误。
+    fn endpoint(&self) -> Result<String, String> {
+        let endpoint = self
+            .endpoint
+            .lock()
+            .map_err(|_| "Orbit 连接状态不可用".to_owned())?
+            .trim()
+            .trim_end_matches('/')
+            .to_owned();
+        if endpoint.is_empty() {
+            Err("尚未配置远程服务地址，请先前往设置完成移动连接".into())
+        } else {
+            Ok(endpoint)
+        }
+    }
+
+    /// 返回当前协议访问令牌；Android 远程模式不允许匿名访问。
+    fn token(&self) -> Result<String, String> {
+        let token = self
+            .token
+            .lock()
+            .map_err(|_| "Orbit 连接状态不可用".to_owned())?
+            .trim()
+            .to_owned();
+        #[cfg(mobile)]
+        {
+            if token.is_empty() {
+                Err("尚未配置远程访问令牌，请先前往设置完成移动连接".into())
+            } else {
+                Ok(token)
+            }
+        }
+        #[cfg(not(mobile))]
+        {
+            Ok(token)
+        }
+    }
+
+    /// 拼接规范化协议路径，避免各请求重复处理端点尾部斜杠。
+    fn protocol_url(&self, path: &str) -> Result<String, String> {
+        Ok(format!("{}{}", self.endpoint()?, path))
+    }
+
     /// 通过本地 Memory Protocol 创建手动记忆。
     async fn create_memory(&self, content: String) -> Result<MemorySummary, String> {
         let created: CreatedMemory = self
             .send_json(
-                self.client.post(format!("{}/v1/memories", self.endpoint)),
+                self.client.post(self.protocol_url("/v1/memories")?),
                 serde_json::json!({
                     "source": "orbit",
                     "kind": "note",
@@ -198,7 +275,7 @@ impl OrbitState {
     async fn search_memory(&self, query: String, mode: String) -> Result<Vec<MemoryHit>, String> {
         let response: SearchResponse = self
             .send_json(
-                self.client.post(format!("{}/v1/search", self.endpoint)),
+                self.client.post(self.protocol_url("/v1/search")?),
                 serde_json::json!({"text": query, "mode": mode, "limit": 20}),
             )
             .await?;
@@ -217,7 +294,7 @@ impl OrbitState {
         );
         let response: ListMemoriesResponse = self
             .send_json(
-                self.client.get(format!("{}{}", self.endpoint, path)),
+                self.client.get(self.protocol_url(&path)?),
                 serde_json::json!({}),
             )
             .await?;
@@ -240,10 +317,8 @@ impl OrbitState {
         for memory in &memories {
             let links: Vec<Link> = self
                 .send_json(
-                    self.client.get(format!(
-                        "{}/v1/links?memory_id={}",
-                        self.endpoint, memory.id
-                    )),
+                    self.client
+                        .get(self.protocol_url(&format!("/v1/links?memory_id={}", memory.id))?),
                     serde_json::json!({}),
                 )
                 .await?;
@@ -295,10 +370,8 @@ impl OrbitState {
     ) -> Result<Vec<MemorySummary>, String> {
         let ids: Vec<String> = self
             .send_json(
-                self.client.get(format!(
-                    "{}/v1/collections/{collection_id}/memories",
-                    self.endpoint
-                )),
+                self.client
+                    .get(self.protocol_url(&format!("/v1/collections/{collection_id}/memories"))?),
                 serde_json::json!({}),
             )
             .await?;
@@ -314,7 +387,7 @@ impl OrbitState {
         let response: MemoryResponse = self
             .send_json(
                 self.client
-                    .get(format!("{}/v1/memories/{id}", self.endpoint)),
+                    .get(self.protocol_url(&format!("/v1/memories/{id}"))?),
                 serde_json::json!({}),
             )
             .await?;
@@ -331,7 +404,7 @@ impl OrbitState {
         let response: MemoryResponse = self
             .send_json(
                 self.client
-                    .patch(format!("{}/v1/memories/{id}", self.endpoint)),
+                    .patch(self.protocol_url(&format!("/v1/memories/{id}"))?),
                 serde_json::json!({"title": title, "content": content}),
             )
             .await?;
@@ -341,7 +414,7 @@ impl OrbitState {
     /// 读取集合树需要的全部集合。
     async fn list_collections(&self) -> Result<Vec<Collection>, String> {
         self.send_json(
-            self.client.get(format!("{}/v1/collections", self.endpoint)),
+            self.client.get(self.protocol_url("/v1/collections")?),
             serde_json::json!({}),
         )
         .await
@@ -350,8 +423,7 @@ impl OrbitState {
     /// 创建集合并返回可立即插入侧边栏的数据。
     async fn create_collection(&self, name: String) -> Result<Collection, String> {
         self.send_json(
-            self.client
-                .post(format!("{}/v1/collections", self.endpoint)),
+            self.client.post(self.protocol_url("/v1/collections")?),
             serde_json::json!({"name": name}),
         )
         .await
@@ -364,10 +436,9 @@ impl OrbitState {
         memory_id: String,
     ) -> Result<(), String> {
         self.send_json::<serde_json::Value>(
-            self.client.put(format!(
-                "{}/v1/collections/{collection_id}/memories/{memory_id}",
-                self.endpoint
-            )),
+            self.client.put(self.protocol_url(&format!(
+                "/v1/collections/{collection_id}/memories/{memory_id}"
+            ))?),
             serde_json::json!({}),
         )
         .await
@@ -377,7 +448,7 @@ impl OrbitState {
     /// 返回 Memory Protocol 中真实登记的本地应用连接。
     async fn list_connected_apps(&self) -> Result<Vec<ConnectedApp>, String> {
         self.send_json(
-            self.client.get(format!("{}/v1/connections", self.endpoint)),
+            self.client.get(self.protocol_url("/v1/connections")?),
             serde_json::json!({}),
         )
         .await
@@ -387,7 +458,7 @@ impl OrbitState {
     async fn revoke_app(&self, token_id: String) -> Result<(), String> {
         self.send_json::<serde_json::Value>(
             self.client
-                .delete(format!("{}/v1/connections/{token_id}", self.endpoint)),
+                .delete(self.protocol_url(&format!("/v1/connections/{token_id}"))?),
             serde_json::json!({}),
         )
         .await
@@ -397,7 +468,7 @@ impl OrbitState {
     /// 返回当前已经到期的真实 FSRS 复习队列。
     async fn get_review_queue(&self) -> Result<Vec<ReviewCard>, String> {
         self.send_json(
-            self.client.get(format!("{}/v1/reviews/due", self.endpoint)),
+            self.client.get(self.protocol_url("/v1/reviews/due")?),
             serde_json::json!({}),
         )
         .await
@@ -406,7 +477,7 @@ impl OrbitState {
     /// 返回全部知识卡片及其派生来源。
     async fn list_review_cards(&self) -> Result<Vec<ReviewCard>, String> {
         self.send_json(
-            self.client.get(format!("{}/v1/reviews", self.endpoint)),
+            self.client.get(self.protocol_url("/v1/reviews")?),
             serde_json::json!({}),
         )
         .await
@@ -415,8 +486,7 @@ impl OrbitState {
     /// 返回真实复习统计。
     async fn get_review_stats(&self) -> Result<ReviewStats, String> {
         self.send_json(
-            self.client
-                .get(format!("{}/v1/reviews/stats", self.endpoint)),
+            self.client.get(self.protocol_url("/v1/reviews/stats")?),
             serde_json::json!({}),
         )
         .await
@@ -426,7 +496,7 @@ impl OrbitState {
     async fn grade_card(&self, memory_id: String, rating: String) -> Result<GradeResult, String> {
         self.send_json(
             self.client
-                .post(format!("{}/v1/reviews/{memory_id}/grade", self.endpoint)),
+                .post(self.protocol_url(&format!("/v1/reviews/{memory_id}/grade"))?),
             serde_json::json!({"rating": rating}),
         )
         .await
@@ -435,7 +505,7 @@ impl OrbitState {
     /// 创建一张手动知识卡片。
     async fn create_card(&self, request: CreateCardRequest) -> Result<ReviewCard, String> {
         self.send_json(
-            self.client.post(format!("{}/v1/cards", self.endpoint)),
+            self.client.post(self.protocol_url("/v1/cards")?),
             serde_json::json!({
                 "card_front": request.card_front,
                 "card_back": request.card_back,
@@ -453,8 +523,7 @@ impl OrbitState {
         request: GenerateCardsRequest,
     ) -> Result<Vec<ReviewCard>, String> {
         self.send_json(
-            self.client
-                .post(format!("{}/v1/cards/generate", self.endpoint)),
+            self.client.post(self.protocol_url("/v1/cards/generate")?),
             serde_json::json!({
                 "source_memory_id": request.source_memory_id,
                 "instruction": request.instruction,
@@ -473,7 +542,7 @@ impl OrbitState {
         scope: Option<AskScope>,
     ) -> Result<AskResponse, String> {
         self.send_json(
-            self.client.post(format!("{}/v1/ask", self.endpoint)),
+            self.client.post(self.protocol_url("/v1/ask")?),
             serde_json::json!({"question": question, "scope": scope}),
         )
         .await
@@ -489,8 +558,8 @@ impl OrbitState {
     ) -> Result<(), String> {
         let response = self
             .client
-            .post(format!("{}/v1/ask/stream", self.endpoint))
-            .bearer_auth(&self.token)
+            .post(self.protocol_url("/v1/ask/stream")?)
+            .bearer_auth(self.token()?)
             .json(&serde_json::json!({"question": question, "scope": scope}))
             .send()
             .await
@@ -498,7 +567,7 @@ impl OrbitState {
         let status = response.status();
         if !status.is_success() {
             let message = response.text().await.unwrap_or_default();
-            return Err(format!("本地记忆服务返回 {status}: {message}"));
+            return Err(format!("记忆服务返回 {status}: {message}"));
         }
 
         let mut bytes = response.bytes_stream();
@@ -523,6 +592,7 @@ impl OrbitState {
     }
 
     /// 从系统凭据库恢复上次的 Provider 配置，使应用重启后无需重新输入云端 Key。
+    #[cfg(not(mobile))]
     async fn restore_completion(&self) -> Result<(), String> {
         let settings = self
             .settings
@@ -546,7 +616,9 @@ impl OrbitState {
             .lock()
             .map_err(|_| "Orbit 设置状态不可用".to_owned())?
             .clone();
+        #[cfg(not(mobile))]
         let current_provider = json_string(&current, "/rag/provider");
+        #[cfg(not(mobile))]
         let current_key = {
             let in_memory = json_string(&current, "/rag/apiKey");
             if in_memory.is_empty() {
@@ -555,18 +627,39 @@ impl OrbitState {
                 in_memory
             }
         };
+        #[cfg(not(mobile))]
         let submitted_key = patch
             .pointer("/rag/apiKey")
             .and_then(serde_json::Value::as_str)
             .unwrap_or_default()
             .trim()
             .to_owned();
+        #[cfg(mobile)]
+        let current_access_token = {
+            let in_memory = json_string(&current, "/sync/accessToken");
+            if in_memory.is_empty() {
+                credentials::load_sync_token().unwrap_or_default()
+            } else {
+                in_memory
+            }
+        };
+        #[cfg(mobile)]
+        let submitted_access_token = patch
+            .pointer("/sync/accessToken")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
         let mut next = current;
         merge_json(&mut next, &patch);
+
+        #[cfg(not(mobile))]
         let provider = json_string(&next, "/rag/provider");
-        let endpoint = matches!(provider.as_str(), "custom" | "ollama")
+        #[cfg(not(mobile))]
+        let provider_endpoint = matches!(provider.as_str(), "custom" | "ollama")
             .then(|| json_string(&next, "/rag/customEndpoint"))
             .filter(|value| !value.is_empty());
+        #[cfg(not(mobile))]
         let api_key = if !provider_uses_api_key(&provider) {
             String::new()
         } else if !submitted_key.is_empty() {
@@ -576,79 +669,161 @@ impl OrbitState {
         } else {
             credentials::load_api_key(&provider).unwrap_or_default()
         };
-        if provider_requires_api_key(&provider, endpoint.as_deref()) && api_key.is_empty() {
+        #[cfg(not(mobile))]
+        if provider_requires_api_key(&provider, provider_endpoint.as_deref()) && api_key.is_empty()
+        {
             return Err(format!("请为 {provider} 填写 API Key"));
         }
+        #[cfg(not(mobile))]
         set_json_string(&mut next, "/rag/apiKey", &api_key);
 
-        let status: CompletionStatus = self
-            .send_json(
-                self.client.post(format!("{}/v1/completion", self.endpoint)),
-                serde_json::json!({
-                    "provider": provider,
-                    "api_key": (!api_key.is_empty()).then(|| api_key.clone()),
-                    "model": json_string(&next, "/rag/model"),
-                    "endpoint": endpoint,
-                }),
-            )
-            .await?;
-        if status.provider != provider
-            || status.sends_data_remote
-                != provider_sends_data_remote(&provider, endpoint.as_deref())
+        #[cfg(mobile)]
         {
-            return Err("本地服务未激活所选 Completion Provider".into());
+            let mode = json_string(&next, "/sync/mode");
+            if mode == "local" {
+                return Err("Android 必须选择端到端云同步或自托管连接".into());
+            }
+            let remote_endpoint =
+                normalize_remote_endpoint(&json_string(&next, "/sync/relayEndpoint"))?;
+            let access_token = if !submitted_access_token.is_empty() {
+                submitted_access_token
+            } else {
+                current_access_token
+            };
+            if access_token.is_empty() {
+                return Err("请填写远程访问令牌".into());
+            }
+
+            let previous_endpoint = self.endpoint().unwrap_or_default();
+            let previous_token = self.token().unwrap_or_default();
+            *self
+                .endpoint
+                .lock()
+                .map_err(|_| "Orbit 连接状态不可用".to_owned())? = remote_endpoint.clone();
+            *self
+                .token
+                .lock()
+                .map_err(|_| "Orbit 连接状态不可用".to_owned())? = access_token.clone();
+            let status = self.service_status().await;
+            if !status.available {
+                *self
+                    .endpoint
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_endpoint;
+                *self
+                    .token
+                    .lock()
+                    .map_err(|_| "Orbit 连接状态不可用".to_owned())? = previous_token;
+                return Err(status
+                    .message
+                    .unwrap_or_else(|| "无法连接远程记忆服务".into()));
+            }
+            credentials::save_sync_token(&access_token)?;
+            set_json_string(&mut next, "/sync/relayEndpoint", &remote_endpoint);
+            set_json_string(&mut next, "/sync/accessToken", "");
+            set_json_bool(&mut next, "/sync/hasAccessToken", true);
+            set_json_string(&mut next, "/rag/apiKey", "");
+            persist_settings(&self.settings_path, &next)?;
+            *self
+                .settings
+                .lock()
+                .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
+            return Ok(());
         }
-        if provider_uses_api_key(&provider) && !api_key.is_empty() {
-            credentials::save_api_key(&provider, &api_key)?;
+
+        #[cfg(not(mobile))]
+        {
+            let status: CompletionStatus = self
+                .send_json(
+                    self.client.post(self.protocol_url("/v1/completion")?),
+                    serde_json::json!({
+                        "provider": provider,
+                        "api_key": (!api_key.is_empty()).then(|| api_key.clone()),
+                        "model": json_string(&next, "/rag/model"),
+                        "endpoint": provider_endpoint,
+                    }),
+                )
+                .await?;
+            if status.provider != provider
+                || status.sends_data_remote
+                    != provider_sends_data_remote(&provider, provider_endpoint.as_deref())
+            {
+                return Err("本地服务未激活所选 Completion Provider".into());
+            }
+            if provider_uses_api_key(&provider) && !api_key.is_empty() {
+                credentials::save_api_key(&provider, &api_key)?;
+            }
+            // Completion 已完成进程内切换，后续设置更新会按 Provider 从凭据库重新取得 Key。
+            set_json_string(&mut next, "/rag/apiKey", "");
+            persist_settings(&self.settings_path, &next)?;
+            *self
+                .settings
+                .lock()
+                .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
+            Ok(())
         }
-        // Completion 已完成进程内切换，后续设置更新会按 Provider 从凭据库重新取得 Key。
-        set_json_string(&mut next, "/rag/apiKey", "");
-        persist_settings(&self.settings_path, &next)?;
-        *self
-            .settings
-            .lock()
-            .map_err(|_| "Orbit 设置状态不可用".to_owned())? = next;
-        Ok(())
     }
 
-    /// 探测已发现的回环服务，供前端在失败时显示可操作的本地诊断信息。
+    /// 探测当前本地或远程协议服务，供前端显示可操作的连接诊断。
     async fn service_status(&self) -> ServiceStatus {
+        let endpoint = match self.endpoint() {
+            Ok(endpoint) => endpoint,
+            Err(message) => {
+                return ServiceStatus {
+                    role: self.role,
+                    endpoint: String::new(),
+                    available: false,
+                    message: Some(message),
+                };
+            }
+        };
+        let token = match self.token() {
+            Ok(token) => token,
+            Err(message) => {
+                return ServiceStatus {
+                    role: self.role,
+                    endpoint,
+                    available: false,
+                    message: Some(message),
+                };
+            }
+        };
         let response = self
             .client
-            .get(format!("{}/v1/capabilities", self.endpoint))
-            .bearer_auth(&self.token)
+            .get(format!("{endpoint}/v1/capabilities"))
+            .bearer_auth(token)
             .send()
             .await;
         match response {
             Ok(response) if response.status().is_success() => ServiceStatus {
                 role: self.role,
-                endpoint: self.endpoint.clone(),
+                endpoint,
                 available: true,
                 message: None,
             },
             Ok(response) => ServiceStatus {
                 role: self.role,
-                endpoint: self.endpoint.clone(),
+                endpoint,
                 available: false,
-                message: Some(format!("本地服务返回 {}", response.status())),
+                message: Some(format!("记忆服务返回 {}", response.status())),
             },
             Err(error) => ServiceStatus {
                 role: self.role,
-                endpoint: self.endpoint.clone(),
+                endpoint,
                 available: false,
-                message: Some(format!("无法连接本地服务：{error}")),
+                message: Some(format!("无法连接记忆服务：{error}")),
             },
         }
     }
 
-    /// 发送带本地 capability token 的 JSON 请求并解析成功响应。
+    /// 发送带 capability token 的 JSON 请求并解析成功响应。
     async fn send_json<T: DeserializeOwned>(
         &self,
         request: reqwest::RequestBuilder,
         body: serde_json::Value,
     ) -> Result<T, String> {
         let response = request
-            .bearer_auth(&self.token)
+            .bearer_auth(self.token()?)
             .json(&body)
             .send()
             .await
@@ -656,7 +831,7 @@ impl OrbitState {
         let status = response.status();
         if !status.is_success() {
             let message = response.text().await.unwrap_or_default();
-            return Err(format!("本地记忆服务返回 {status}: {message}"));
+            return Err(format!("记忆服务返回 {status}: {message}"));
         }
         if status == reqwest::StatusCode::NO_CONTENT {
             return serde_json::from_value(serde_json::Value::Null)
@@ -676,6 +851,20 @@ fn json_string(value: &serde_json::Value, pointer: &str) -> String {
         .to_owned()
 }
 
+/// 校验并规范化 Android 远程端点；发布构建只允许 HTTPS。
+#[cfg(any(mobile, test))]
+fn normalize_remote_endpoint(endpoint: &str) -> Result<String, String> {
+    let endpoint = endpoint.trim().trim_end_matches('/');
+    let url = reqwest::Url::parse(endpoint).map_err(|_| "远程服务地址不是有效 URL".to_owned())?;
+    if url.host_str().is_none() {
+        return Err("远程服务地址缺少主机名".into());
+    }
+    if url.scheme() != "https" && !(cfg!(debug_assertions) && url.scheme() == "http") {
+        return Err("发布版本的远程服务必须使用 HTTPS".into());
+    }
+    Ok(endpoint.to_owned())
+}
+
 /// 将核心关联枚举映射为前端图谱使用的稳定 snake_case 字符串。
 fn graph_relation(relation: LinkRelation) -> &'static str {
     match relation {
@@ -687,11 +876,13 @@ fn graph_relation(relation: LinkRelation) -> &'static str {
 }
 
 /// 判断 Provider 是否需要由系统凭据库维护 API Key，纯本地模式永远不读取或写入密钥。
+#[cfg(not(mobile))]
 fn provider_uses_api_key(provider: &str) -> bool {
     matches!(provider, "claude" | "openai" | "custom")
 }
 
 /// 判断自定义端点是否严格指向回环地址；本机 OpenAI-compatible 服务允许无 Key。
+#[cfg(not(mobile))]
 fn is_loopback_endpoint(endpoint: Option<&str>) -> bool {
     endpoint
         .and_then(|value| reqwest::Url::parse(value.trim()).ok())
@@ -705,18 +896,21 @@ fn is_loopback_endpoint(endpoint: Option<&str>) -> bool {
 }
 
 /// 判断切换 Provider 前是否必须输入 Key，避免对 Ollama 与本机兼容端点产生无效阻塞。
+#[cfg(not(mobile))]
 fn provider_requires_api_key(provider: &str, endpoint: Option<&str>) -> bool {
     matches!(provider, "claude" | "openai")
         || (provider == "custom" && !is_loopback_endpoint(endpoint))
 }
 
 /// 映射 Provider 的实际数据流向，供保存设置后校验本地服务是否按预期生效。
+#[cfg(not(mobile))]
 fn provider_sends_data_remote(provider: &str, endpoint: Option<&str>) -> bool {
     matches!(provider, "claude" | "openai")
         || (provider == "custom" && !is_loopback_endpoint(endpoint))
 }
 
 /// 判断当前本地日期是否已到设置的提醒时刻，并原子认领当天唯一一次桌面通知。
+#[cfg(not(mobile))]
 fn claim_desktop_reminder(
     settings: &mut serde_json::Value,
     current_date: &str,
@@ -750,6 +944,7 @@ fn claim_desktop_reminder(
 }
 
 /// 返回到期扫描使用的 Unix 毫秒时间。
+#[cfg(not(mobile))]
 fn unix_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -783,6 +978,59 @@ impl Drop for OrbitState {
             let _ = sender.send(());
         }
     }
+}
+
+/// 表示 Orbit 从远程 Memory Protocol 读取的最小记忆响应，避免移动端链接本地核心数据库。
+#[derive(Debug, Deserialize)]
+struct MemoryResponse {
+    id: String,
+    source: String,
+    kind: String,
+    title: Option<String>,
+    content: String,
+    content_format: String,
+    tags: Vec<String>,
+    pinned: bool,
+    archived: bool,
+    created_at: i64,
+    updated_at: i64,
+    captured_at: Option<i64>,
+}
+
+/// 表示远程记忆列表中 Orbit 实际消费的字段。
+#[derive(Debug, Deserialize)]
+struct ListMemoriesResponse {
+    items: Vec<MemoryResponse>,
+}
+
+/// 表示集合接口的跨平台传输结构，并统一输出前端使用的 camelCase 字段。
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Collection {
+    id: String,
+    name: String,
+    icon: Option<String>,
+    #[serde(alias = "parent_id")]
+    parent_id: Option<String>,
+    sort: i64,
+}
+
+/// 表示知识图谱聚合所需的最小关联响应。
+#[derive(Debug, Deserialize)]
+struct Link {
+    from_id: String,
+    to_id: String,
+    relation: LinkRelation,
+}
+
+/// 表示 Memory Protocol 支持的稳定关联类型。
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LinkRelation {
+    References,
+    DerivedFrom,
+    Related,
+    Duplicate,
 }
 
 /// 表示前端写入成功后需要展示的记忆标识与时间。
@@ -962,6 +1210,7 @@ struct AskStreamEvent {
 }
 
 /// 表示 Completion 配置成功后的非敏感状态。
+#[cfg(not(mobile))]
 #[derive(Debug, Deserialize)]
 struct CompletionStatus {
     provider: String,
@@ -1031,12 +1280,12 @@ impl From<MemoryResponse> for MemorySummary {
     /// 将协议记忆响应收窄为 Orbit 当前界面需要的字段。
     fn from(memory: MemoryResponse) -> Self {
         Self {
-            id: memory.id.to_string(),
+            id: memory.id,
             source: memory.source,
-            kind: format!("{:?}", memory.kind).to_lowercase(),
+            kind: memory.kind,
             title: memory.title,
             content: memory.content,
-            content_format: format!("{:?}", memory.content_format).to_lowercase(),
+            content_format: memory.content_format,
             tags: memory.tags,
             pinned: memory.pinned,
             archived: memory.archived,
@@ -1287,7 +1536,7 @@ fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn st
     Ok(())
 }
 
-/// 初始化持有者或客户端角色，并启动 Orbit Tauri 运行时。
+/// 按桌面本地服务或 Android 远程客户端角色启动 Orbit Tauri 运行时。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1296,117 +1545,157 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             configure_macos_window_surface(app)?;
             let app_data_dir = app.path().app_data_dir()?;
-            let data_dir = prepare_shared_data_dir(&app_data_dir)?;
-            let settings_path = data_dir.join("orbit-settings.json");
-            let settings = Arc::new(Mutex::new(load_settings(&settings_path)));
-            let claim = tauri::async_runtime::block_on(LocalServiceClaim::acquire(&data_dir))?;
-            let state = match claim {
-                LocalServiceClaim::Holder {
-                    lease,
-                    listener,
-                    discovery,
-                } => {
-                    let store = Arc::new(
-                        MemoryStore::open(data_dir.join("nexus.db"))
-                            .map_err(|error| std::io::Error::other(error.to_string()))?,
-                    );
-                    let embedder = Arc::new(HashEmbedder::default());
-                    let event_subscription = store
-                        .subscribe()
-                        .map_err(|error| std::io::Error::other(error.to_string()))?;
-                    let event_app = app.handle().clone();
-                    // 核心事件只在事务提交后广播，前端刷新不会读取半成品。
-                    tauri::async_runtime::spawn_blocking(move || {
-                        while let Some(event) = event_subscription.recv() {
-                            if event_app.emit("memory-changed", event).is_err() {
-                                break;
-                            }
-                        }
-                    });
-                    let reminder_store = Arc::clone(&store);
-                    let reminder_app = app.handle().clone();
-                    let reminder_settings = Arc::clone(&settings);
-                    let reminder_settings_path = settings_path.clone();
-                    // 持有者每分钟扫描一次到期状态；核心去重字段确保同一调度周期只发一次事件。
-                    tauri::async_runtime::spawn(async move {
-                        let mut interval =
-                            tokio::time::interval(std::time::Duration::from_secs(60));
-                        loop {
-                            interval.tick().await;
-                            let store = Arc::clone(&reminder_store);
-                            let due_count = tauri::async_runtime::spawn_blocking(move || {
-                                store.notify_due_reviews(unix_millis(), 200)?;
-                                Ok::<usize, nexus_core::CoreError>(
-                                    store.reviews_due(unix_millis(), 200)?.len(),
-                                )
-                            })
-                            .await
-                            .ok()
-                            .and_then(Result::ok)
-                            .unwrap_or(0);
-                            if due_count == 0 {
-                                continue;
-                            }
-                            let now = Local::now();
-                            let should_notify =
-                                reminder_settings.lock().ok().is_some_and(|mut settings| {
-                                    if !claim_desktop_reminder(
-                                        &mut settings,
-                                        &now.format("%F").to_string(),
-                                        now.hour(),
-                                        now.minute(),
-                                    ) {
-                                        return false;
-                                    }
-                                    let _ = persist_settings(&reminder_settings_path, &settings);
-                                    true
-                                });
-                            if should_notify {
-                                let _ = reminder_app
-                                    .notification()
-                                    .builder()
-                                    .title("Orbit · 复习提醒")
-                                    .body(format!("今天有 {due_count} 张卡片等待复习"))
-                                    .show();
-                            }
-                        }
-                    });
-                    let grant = CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
-                    let protocol_state = ProtocolState::from_shared(store, embedder, grant);
-                    let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
-                    tauri::async_runtime::spawn(async move {
-                        // 服务任务持有租约，服务异常退出时立即释放锁供其他实例接管。
-                        let _lease = lease;
-                        let result = serve_with_shutdown(listener, protocol_state, async {
-                            let _ = shutdown_receiver.await;
-                        })
-                        .await;
-                        if let Err(error) = result {
-                            eprintln!("本地记忆服务退出: {error}");
-                        }
-                    });
-                    OrbitState {
-                        client: reqwest::Client::new(),
-                        endpoint: discovery.endpoint,
-                        token: discovery.token,
-                        role: ServiceRole::Holder,
-                        shutdown: Mutex::new(Some(shutdown_sender)),
-                        settings_path,
-                        settings: Arc::clone(&settings),
-                    }
-                }
-                LocalServiceClaim::Client(discovery) => OrbitState {
+
+            #[cfg(mobile)]
+            let (settings_path, settings) = {
+                fs::create_dir_all(&app_data_dir)?;
+                let settings_path = app_data_dir.join("orbit-settings.json");
+                let settings = Arc::new(Mutex::new(load_settings(&settings_path)));
+                (settings_path, settings)
+            };
+
+            #[cfg(not(mobile))]
+            let (data_dir, settings_path, settings) = {
+                let data_dir = prepare_shared_data_dir(&app_data_dir)?;
+                let settings_path = data_dir.join("orbit-settings.json");
+                let settings = Arc::new(Mutex::new(load_settings(&settings_path)));
+                (data_dir, settings_path, settings)
+            };
+
+            #[cfg(mobile)]
+            let state = {
+                let current_settings = settings
+                    .lock()
+                    .map_err(|_| io::Error::other("Orbit 设置状态不可用"))?
+                    .clone();
+                OrbitState {
                     client: reqwest::Client::new(),
-                    endpoint: discovery.endpoint,
-                    token: discovery.token,
-                    role: ServiceRole::Client,
+                    endpoint: Mutex::new(json_string(&current_settings, "/sync/relayEndpoint")),
+                    token: Mutex::new(credentials::load_sync_token().unwrap_or_default()),
+                    role: ServiceRole::Remote,
                     shutdown: Mutex::new(None),
                     settings_path,
                     settings: Arc::clone(&settings),
-                },
+                }
+            };
+
+            #[cfg(not(mobile))]
+            let state = {
+                let claim = tauri::async_runtime::block_on(LocalServiceClaim::acquire(&data_dir))?;
+                match claim {
+                    LocalServiceClaim::Holder {
+                        lease,
+                        listener,
+                        discovery,
+                    } => {
+                        let store = Arc::new(
+                            MemoryStore::open(data_dir.join("nexus.db"))
+                                .map_err(|error| std::io::Error::other(error.to_string()))?,
+                        );
+                        let embedder = Arc::new(HashEmbedder::default());
+                        let event_subscription = store
+                            .subscribe()
+                            .map_err(|error| std::io::Error::other(error.to_string()))?;
+                        let event_app = app.handle().clone();
+                        // 核心事件只在事务提交后广播，前端刷新不会读取半成品。
+                        tauri::async_runtime::spawn_blocking(move || {
+                            while let Some(event) = event_subscription.recv() {
+                                if event_app.emit("memory-changed", event).is_err() {
+                                    break;
+                                }
+                            }
+                        });
+                        let reminder_store = Arc::clone(&store);
+                        let reminder_app = app.handle().clone();
+                        let reminder_settings = Arc::clone(&settings);
+                        let reminder_settings_path = settings_path.clone();
+                        // 持有者每分钟扫描一次到期状态；核心去重字段确保同一调度周期只发一次事件。
+                        tauri::async_runtime::spawn(async move {
+                            let mut interval =
+                                tokio::time::interval(std::time::Duration::from_secs(60));
+                            loop {
+                                interval.tick().await;
+                                let store = Arc::clone(&reminder_store);
+                                let due_count = tauri::async_runtime::spawn_blocking(move || {
+                                    store.notify_due_reviews(unix_millis(), 200)?;
+                                    Ok::<usize, nexus_core::CoreError>(
+                                        store.reviews_due(unix_millis(), 200)?.len(),
+                                    )
+                                })
+                                .await
+                                .ok()
+                                .and_then(Result::ok)
+                                .unwrap_or(0);
+                                if due_count == 0 {
+                                    continue;
+                                }
+                                let now = Local::now();
+                                let should_notify =
+                                    reminder_settings.lock().ok().is_some_and(|mut settings| {
+                                        if !claim_desktop_reminder(
+                                            &mut settings,
+                                            &now.format("%F").to_string(),
+                                            now.hour(),
+                                            now.minute(),
+                                        ) {
+                                            return false;
+                                        }
+                                        let _ =
+                                            persist_settings(&reminder_settings_path, &settings);
+                                        true
+                                    });
+                                if should_notify {
+                                    let _ = reminder_app
+                                        .notification()
+                                        .builder()
+                                        .title("Orbit · 复习提醒")
+                                        .body(format!("今天有 {due_count} 张卡片等待复习"))
+                                        .show();
+                                }
+                            }
+                        });
+                        let grant =
+                            CapabilityGrant::new(discovery.token.clone(), [Scope::Admin], None);
+                        let protocol_state = ProtocolState::from_shared(store, embedder, grant);
+                        let (shutdown_sender, shutdown_receiver) = tokio::sync::oneshot::channel();
+                        tauri::async_runtime::spawn(async move {
+                            // 服务任务持有租约，服务异常退出时立即释放锁供其他实例接管。
+                            let _lease = lease;
+                            let result = serve_with_shutdown(listener, protocol_state, async {
+                                let _ = shutdown_receiver.await;
+                            })
+                            .await;
+                            if let Err(error) = result {
+                                eprintln!("本地记忆服务退出: {error}");
+                            }
+                        });
+                        OrbitState {
+                            client: reqwest::Client::new(),
+                            endpoint: Mutex::new(discovery.endpoint),
+                            token: Mutex::new(discovery.token),
+                            role: ServiceRole::Holder,
+                            shutdown: Mutex::new(Some(shutdown_sender)),
+                            settings_path,
+                            settings: Arc::clone(&settings),
+                        }
+                    }
+                    LocalServiceClaim::Client(discovery) => OrbitState {
+                        client: reqwest::Client::new(),
+                        endpoint: Mutex::new(discovery.endpoint),
+                        token: Mutex::new(discovery.token),
+                        role: ServiceRole::Client,
+                        shutdown: Mutex::new(None),
+                        settings_path,
+                        settings: Arc::clone(&settings),
+                    },
+                }
             };
             let state = Arc::new(state);
+
+            #[cfg(not(mobile))]
             let restored_state = Arc::clone(&state);
+
+            #[cfg(not(mobile))]
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = restored_state.restore_completion().await {
                     eprintln!("恢复 Completion Provider 失败: {error}");
@@ -1476,6 +1765,19 @@ mod tests {
         )));
     }
 
+    /// 验证移动端远程地址会移除尾部斜杠，并在发布规则下拒绝非 HTTPS 地址。
+    #[test]
+    fn normalizes_android_remote_endpoint() {
+        assert_eq!(
+            normalize_remote_endpoint("https://sync.example.com/").unwrap(),
+            "https://sync.example.com"
+        );
+        assert!(normalize_remote_endpoint("not-a-url").is_err());
+        if !cfg!(debug_assertions) {
+            assert!(normalize_remote_endpoint("http://sync.example.com").is_err());
+        }
+    }
+
     /// 验证 Tauri SSE 桥接器可跨网络分片保留残片，并只在帧完整时输出 data。
     #[test]
     fn parses_complete_sse_data_without_losing_partial_frames() {
@@ -1494,16 +1796,24 @@ mod tests {
     fn excludes_api_key_from_ipc_and_persisted_settings() {
         let mut settings = default_settings();
         set_json_string(&mut settings, "/rag/apiKey", "process-only-secret");
+        set_json_string(
+            &mut settings,
+            "/sync/accessToken",
+            "process-only-sync-token",
+        );
 
         let public = public_settings(&settings);
         assert_eq!(public["rag"]["apiKey"], "");
         assert_eq!(public["rag"]["hasApiKey"], true);
+        assert_eq!(public["sync"]["accessToken"], "");
+        assert_eq!(public["sync"]["hasAccessToken"], false);
 
         let directory = tempfile::tempdir().expect("应创建临时设置目录");
         let path = directory.path().join("orbit-settings.json");
         persist_settings(&path, &settings).expect("非敏感设置应持久化");
         let persisted = fs::read_to_string(path).expect("应读取已持久化设置");
         assert!(!persisted.contains("process-only-secret"));
+        assert!(!persisted.contains("process-only-sync-token"));
     }
 
     /// 验证升级到共享目录时保留旧 Orbit 数据库和媒体文件。
@@ -1543,8 +1853,8 @@ mod tests {
         let settings_dir = tempfile::tempdir().expect("应创建临时设置目录");
         let state = OrbitState {
             client: reqwest::Client::new(),
-            endpoint,
-            token,
+            endpoint: Mutex::new(endpoint),
+            token: Mutex::new(token),
             role: ServiceRole::Holder,
             shutdown: Mutex::new(None),
             settings_path: settings_dir.path().join("orbit-settings.json"),
@@ -1641,8 +1951,12 @@ mod tests {
         assert!(state.service_status().await.available);
         let registration = state
             .client
-            .post(format!("{}/v1/connections", state.endpoint))
-            .bearer_auth(&state.token)
+            .post(
+                state
+                    .protocol_url("/v1/connections")
+                    .expect("协议地址应有效"),
+            )
+            .bearer_auth(state.token().expect("协议令牌应可读取"))
             .json(&serde_json::json!({
                 "app_id": "com.nexus.muse",
                 "name": "Muse",

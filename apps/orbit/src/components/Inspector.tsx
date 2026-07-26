@@ -70,11 +70,14 @@ export function useInspector(): InspectorState {
 
 /** 渲染固定于应用布局右侧的可收起检查器容器。 */
 export function InspectorPanel(): React.JSX.Element {
-  const { open, title, content } = useInspector();
+  const { open, title, content, close } = useInspector();
   return (
     <aside className={`global-inspector${open ? "" : " is-collapsed"}`} aria-label="全局检查器" aria-hidden={!open}>
       <div className="global-inspector-header">
         <h2>{title}</h2>
+        <button type="button" className="icon-button inspector-close" aria-label="关闭检查器" onClick={close}>
+          <X size={15} aria-hidden="true" />
+        </button>
       </div>
       <div className="global-inspector-body">
         {content ?? (

@@ -93,3 +93,34 @@ pnpm --filter @nexus/orbit android:dev
 - M5–M7 不执行 `tauri ios init/dev/build`，不创建或维护 Xcode 工程，不处理签名、Provisioning Profile、App Store、WKWebView、Keychain、iOS 本地通知或 iPhone/iPad 专属界面。
 - 当前共享类型、页面和传输契约应保持平台中立，但不得为了尚未开始的 iOS 工作给 Android 主链路增加并行实现或条件分支。
 - Android、外联能力和产品族协作稳定后，M8 再复用移动共享层完成 iOS 平台边界、真机验收与发布准备；M8 是现有路线图的最后阶段。
+
+## 7. Android 当前交付状态（2026-07-26）
+
+### 7.1 本阶段已完成
+
+- 新增 Android 专用 `MobileShell`：采用全屏内容区、五项底部导航和详情底部 Sheet，不复用桌面三栏拖拽外壳。
+- 完成状态栏、底部手势区安全边距、触摸目标、键盘焦点和 `prefers-reduced-motion` 适配。
+- Android 运行时不再启动本地 Memory Protocol、不参与桌面服务持有者仲裁、不打开桌面共享数据库，也不启动桌面常驻提醒扫描。
+- Android 仅通过远程 Memory Protocol 工作；发布构建强制 HTTPS，调试构建允许 HTTP，并在保存连接前调用 `/v1/capabilities` 校验端点和令牌。
+- 新增“移动连接”设置，支持端到端云、自托管地址、访问令牌和冲突处理；访问令牌不写入普通 JSON 设置文件。
+- 将 `nexus-core`、`nexus-protocol`、SQLite 和本地嵌入相关依赖限制在桌面目标，Android 二进制不再链接本地数据库与协议服务实现。
+- 桌面入口仍挂载原 `App`/`WorkspaceShell`，Android 构建通过平台常量挂载 `MobileApp`，两套外壳保持边界隔离。
+
+### 7.2 已执行验证
+
+- `cargo test -p orbit-app`：覆盖设置脱敏、远程端点规范化、本地协议读写、SSE 分片和桌面提醒等回归测试。
+- `cargo check -p orbit-app`：桌面 Rust 运行时检查通过。
+- `pnpm --filter @nexus/orbit build`：桌面前端构建通过。
+- `VITE_NEXUS_PLATFORM=android pnpm --filter @nexus/orbit build`：Android 外壳前端构建通过。
+- Android Rust `aarch64-linux-android` release 库已成功编译；本机已生成未签名 APK 和 AAB，正式分发仍需签名配置。
+
+### 7.3 M5 Android 后续内容
+
+- 接入 Android Keystore 支持的持久凭据实现，使远程访问令牌可跨重启恢复；当前令牌仅保证不落普通设置文件。
+- 实现受系统安全区保护的加密本地缓存、离线只读浏览、重连增量同步和缓存清理策略。
+- 完成设备配对、端到端加密密钥交换、撤销设备与冲突解决闭环。
+- 接入 Android 通知权限、复习提醒调度、应用前后台切换和省电策略。
+- 在真实手机与平板上完成返回手势、软键盘、长列表性能、弱网恢复、深色/亮色主题和无障碍验收。
+- 配置正式签名、版本号、渠道构建与发布流水线。
+
+以上后续项只针对 Android；iOS 仍按第 6 节延后到最终 M8。
