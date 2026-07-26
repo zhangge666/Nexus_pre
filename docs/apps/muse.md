@@ -9,7 +9,7 @@ Muse 是 Nexus 产品家族「捕获层」中最轻、最快的一员。一个�
 - `kind` = `idea`（灵感）/ `voice`（语音）/ `note`（较长速记）
 - 平台目标：完整产品覆盖 Windows + macOS，移动端后续跟进（见 [architecture.md](../architecture.md) §5.2 平台矩阵）。具体交付顺序以 [roadmap.md](../roadmap.md) 为准。
 
-> **当前排期边界**：路线图 M3 只从 Muse 提取一个“文字输入 → Memory Protocol 写入 → Orbit 即时可见”的最小来源适配器，用于验证 Orbit 的跨应用接入能力。全局热键、托盘、语音、收件箱、冷启动优化和移动端均属于最后阶段 M7 的 Muse 产品化，不是 M3 的交付范围。
+> **当前排期边界**：路线图 M3 只从 Muse 提取一个“文字输入 → Memory Protocol 写入 → Orbit 即时可见”的最小来源适配器，用于验证 Orbit 的跨应用接入能力。全局热键、托盘、语音、收件箱、冷启动优化和移动端均属于 M7 的 Muse 产品化，不是 M3 的交付范围。
 
 ---
 

@@ -1,18 +1,18 @@
-# Orbit M5 多端（移动端）开发注意
+# Orbit M5 Android 移动端开发注意
 
-本文档记录 M5 移动端（Android/iOS）的技术选型结论、可行性边界、界面适配策略与风险清单，供进入 M5 前对齐。
+本文档记录 M5 Android 移动端的技术选型结论、可行性边界、界面适配策略与风险清单，供进入 M5 前对齐。Orbit iOS 保留为最终平台目标，但不在 M5–M7 开发，统一放到路线图最后的 M8 收口。
 
-> 关联：里程碑定义见 [roadmap.md](roadmap.md#m5--多端)；跨端与平台适配层设计见 [architecture.md](architecture.md)。
+> 关联：里程碑定义见 [roadmap.md](roadmap.md#m5--android-多端)；跨端与平台适配层设计见 [architecture.md](architecture.md)。
 
 ## 0. 一句话结论
 
-M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 打包 Android/iOS，界面**复用页面与 `@nexus/ui`、只分叉布局外壳**。移动端是随身客户端：本地负责加密缓存、离线查看和解密展示；写入、编辑、AI 问答均调用远程 HTTPS API，不监听本地端口，也不作为其他 Nexus 软件的服务端。Tauri 能交付"视觉精美 + 过渡丝滑"的效果，但受 WebView 天花板约束；真遇到原生手感瓶颈时，按架构预案把**个别页面**下沉到原生视图，不推翻整体。
+M5 用 **Tauri 2.0 + 现有 React/TS/Vite 前端** 先交付 Android，界面**复用页面与 `@nexus/ui`、只分叉布局外壳**。Android 客户端本地负责加密缓存、离线查看和解密展示；写入、编辑、AI 问答均调用远程 HTTPS API，不监听本地端口，也不作为其他 Nexus 软件的服务端。Tauri 能交付"视觉精美 + 过渡丝滑"的效果，但受 WebView 天花板约束；真遇到原生手感瓶颈时，按架构预案把**个别页面**下沉到原生视图，不推翻整体。iOS 在 M8 复用已稳定的移动共享层，不与当前 Android 开发并行。
 
 ## 1. 技术选型（已锁定，非开放选择）
 
-- **外壳：Tauri 2.0**。选它而非 Flutter/Electron 的核心理由是"一套代码同时覆盖桌面 + iOS/Android"，正好满足 Orbit"移动端是硬需求"。见 [architecture.md](architecture.md) §2.1、§2.6。
+- **外壳：Tauri 2.0**。选它而非 Flutter/Electron 的核心理由是共享桌面与移动端的大部分代码；当前只交付 Android，iOS 延后到 M8。见 [architecture.md](architecture.md) §2.1、§2.6。
 - **界面：React + TypeScript + Vite**，复用现有 `@nexus/ui` 设计系统与 `core/*`（api、events、types）。
-- **渲染**：Android 走系统 WebView（基于 Chromium），iOS 走 WKWebView。**不是原生渲染**——这是后续所有性能判断的前提。
+- **渲染**：M5 Android 走系统 WebView（基于 Chromium），**不是原生渲染**——这是当前所有性能判断的前提；WKWebView 相关适配留到 M8。
 - **已有脚手架**：`apps/orbit/src-tauri/icons/android/` 的 mipmap 资源、`crates/platform/platform-mobile` 空壳已建好，等 M5 填充。
 - **本地边界**：移动端不启动 `nexus-protocol`、不监听回环 HTTP/TCP 端口、不参与桌面应用间仲裁；Tauri IPC 仅供同一 App 的 WebView 与 Rust 侧通信。
 - **AI 与编辑**：移动端不链接 ONNX Runtime 或执行本地嵌入。记忆写入、编辑、AI 问答通过携带用户授权的远程 HTTPS API 完成；接口失败时保留输入并给出重试入口。
@@ -84,6 +84,12 @@ pnpm --filter @nexus/orbit android:dev
 
 ## 5. 桌面端回归护栏
 
-- 移动端合入后，桌面端 `verify:orbit-m4`（含前端类型检查、构建、Rust 测试与 Clippy）必须保持全绿。
+- Android 移动端合入后，桌面端 `verify:orbit-m4`（含前端类型检查、构建、Rust 测试与 Clippy）必须保持全绿。
 - 任何对 `@nexus/ui` 共享组件的改动，需同时在桌面与移动两套外壳下自测。
 - 严禁为移动端在共享组件内引入平台条件分支；平台差异一律走外壳层或 `platform-mobile`。
+
+## 6. iOS 延后边界（路线图最后阶段）
+
+- M5–M7 不执行 `tauri ios init/dev/build`，不创建或维护 Xcode 工程，不处理签名、Provisioning Profile、App Store、WKWebView、Keychain、iOS 本地通知或 iPhone/iPad 专属界面。
+- 当前共享类型、页面和传输契约应保持平台中立，但不得为了尚未开始的 iOS 工作给 Android 主链路增加并行实现或条件分支。
+- Android、外联能力和产品族协作稳定后，M8 再复用移动共享层完成 iOS 平台边界、真机验收与发布准备；M8 是现有路线图的最后阶段。

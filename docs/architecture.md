@@ -160,9 +160,9 @@ pub trait ScreenCapturer {
 | Echo | ✅ | ✅ | ⏳ | ➖ | ➖ | 屏幕抓取以桌面为主 |
 | Muse | ✅ | ✅ | ⏳ | ⭐ | ⭐ | 移动端为理想速记场景（二期） |
 | Quill | ✅ | ✅ | ⏳ | ⏳ | ⏳ | 桌面优先，移动端阅读为主 |
-| Orbit | ✅ | ✅ | ⏳ | ✅ | ✅ | **移动端为硬需求** |
+| Orbit | ✅ | ✅ | ⏳ | ⏳ | ✅ | Android 在 M5 交付；iOS 保留为硬需求并在 M8 最后收口 |
 
-✅=正式交付目标　⭐=高优先级目标　⏳=后续　➖=暂不适用。该表描述最终平台覆盖，不代表开发顺序；具体排期以 [roadmap.md](roadmap.md) 为准。
+✅=当前路线正式交付　⭐=高优先级目标　⏳=后续　➖=暂不适用。Orbit 当前只推进 Android，iOS 不在 M5–M7 开发，统一放到路线图最后的 M8；具体排期以 [roadmap.md](roadmap.md) 为准。
 
 ### 5.3 一个记忆库，多个客户端
 
@@ -180,7 +180,7 @@ pub trait ScreenCapturer {
 
 | 风险 | 影响 | 对策 |
 |------|------|------|
-| Tauri 移动端成熟度 | Orbit 移动端受阻 | 平台适配层隔离；必要时局部原生；优先验证 iOS/Android 关键路径 |
+| Tauri 移动端成熟度 | Orbit 移动端受阻 | 平台适配层隔离；M5 优先验证 Android 关键路径，M8 再处理 iOS；必要时局部原生 |
 | 本地共享记忆库并发 | 多 App 同时写冲突 | 单一持有者 + Protocol 中介，写操作串行化，CRDT 兜底 |
 | 屏幕抓取权限（Echo） | macOS/移动端权限复杂 | 首启引导授权；无权限时降级为手动截图 |
 | 本地 AI 体积/性能 | 影响轻量目标 | 模型按需下载；低配设备默认走云端；量化模型 |
@@ -190,9 +190,9 @@ pub trait ScreenCapturer {
 
 ## 7. 构建、质量与发布
 
-- **CI**：Rust `cargo test/clippy` + 前端 `vitest/eslint`；跨平台矩阵构建（GitHub Actions runner 覆盖 Win/mac，移动端用对应 runner）。
+- **CI**：Rust `cargo test/clippy` + 前端 `vitest/eslint`；跨平台矩阵构建先覆盖 Win/mac 与 Android，iOS runner 和签名验证延后到 M8。
 - **测试策略**：`nexus-core` 单元测试全覆盖核心算法（检索、加密、同步）；Protocol 有契约测试；App 层做关键流程 E2E。
-- **发布**：桌面走 Tauri updater（增量更新，签名）；移动端走 App Store / Google Play；SDK 走 npm / PyPI。
+- **发布**：桌面走 Tauri updater（增量更新，签名）；M5 Android 走 Google Play，App Store 发布准备延后到 M8；SDK 走 npm / PyPI。
 - **可观测性**：本地优先前提下，遥测默认关闭、可选开启且匿名。
 
 ---
