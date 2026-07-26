@@ -2,7 +2,7 @@
 
 本文档记录 M5 Android 移动端的技术选型结论、可行性边界、界面适配策略与风险清单，供进入 M5 前对齐。Orbit iOS 保留为最终平台目标，但不在 M5–M7 开发，统一放到路线图最后的 M8 收口。
 
-> 关联：里程碑定义见 [roadmap.md](roadmap.md#m5--android-多端)；跨端与平台适配层设计见 [architecture.md](architecture.md)。
+> 关联：里程碑定义见 [roadmap.md](roadmap.md#m5--android-多端)；跨端与平台适配层设计见 [architecture.md](architecture.md)；Android 版本、签名和真机操作见 [android-release.md](android-release.md)。
 
 ## 0. 一句话结论
 
@@ -135,8 +135,10 @@ pnpm --filter @nexus/orbit android:dev
 - `cargo test -p nexus-relay`：覆盖中继零明文、双设备并发收敛、全部有效设备确认后清除墓碑、恢复登记、配对与撤销。
 - `cargo clippy -p orbit-app --target aarch64-linux-android --all-targets -- -D warnings`：当前冲突处理与 WorkManager 版本通过 Android arm64 严格交叉检查。
 - `:app:compileUniversalDebugKotlin`：JDK 21、Android SDK/NDK 30 环境下 Kotlin 全应用编译通过。
-- `pnpm --filter @nexus/orbit android:build -- --target aarch64 --apk --ci`：当前提交完整 release 构建通过，产物为 `apps/orbit/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk`。
-- 使用本机 Android 调试证书另行生成 `app-universal-release-preview-signed.apk`，`apksigner verify` 已确认 APK Signature Scheme v2/v3 有效；该包只用于本地安装预览，不能作为正式渠道签名。
+- `pnpm verify:orbit-m5`：统一执行 `nexus-sync`、`nexus-relay`、`orbit-app` 测试，桌面/Android arm64 Clippy、Android 前端生产构建和 Kotlin 编译，当前全部通过。
+- `scripts/build-orbit-android-release.ps1 -PreviewSigning`：默认 `aarch64`、`armv7`、`x86_64` 三 ABI 的通用 release APK/AAB 构建通过；产物保存到 `dist/orbit-android/0.1.0-1000/`。
+- 发布脚本已验证 APK zipalign、APK Signature Scheme v2/v3、AAB JAR 签名及签名条目，并校验 `com.nexus.orbit`、`versionName=0.1.0`、`versionCode=1000` 和 APK/AAB SHA-256。预览包使用 Android debug keystore，只用于本地安装，不能作为正式渠道签名。
+- `scripts/verify-orbit-android-device.ps1` 已通过 APK 元数据和“无在线授权设备时安全中止”分支验证；当前 `adb devices` 没有在线设备，故未把安装启动或 WorkManager 状态误记为已通过。
 - 冲突检查器已在 1280px 桌面、1024px 窄桌面和 390px Android 视口验收：无横向溢出，版本列表独立滚动，墓碑、恢复、手工合并、禁用、焦点和键盘页签状态可用。
 
 ### 7.3 M5 Android 剩余发布与真机验收
@@ -145,6 +147,6 @@ pnpm --filter @nexus/orbit android:dev
 - 在 Doze、后台冻结、进程被系统回收和网络恢复场景中确认 WorkManager 周期任务、即时任务、指数退避与缓存互斥行为符合预期。
 - E2E 云模式不向中继发送明文，因此复习、卡片、语义检索和 AI 问答只在自托管 Memory Protocol 模式开放；若未来要求零知识模式提供这些能力，必须新增本地索引/本地调度或由用户明确授权的端侧 Provider，不能回退为中继明文处理。
 - 在真实手机与平板上完成返回手势、软键盘、长列表性能、弱网恢复、深色/亮色主题和无障碍验收。
-- 当前同时保留 unsigned release 原件与调试证书预览签名包；正式交付仍需配置持久化签名密钥、版本号、AAB/渠道构建、Play 发布凭据与发布流水线。
+- 本地发布流水线已经支持从环境变量读取正式密钥、临时版本覆盖、APK/AAB 双产物、验签、元数据检查和 SHA-256 清单；正式交付仍需配置并备份持久化签名密钥，用正式证书重跑验收，并补齐 Play 发布凭据、内部测试轨道和渠道上传。
 
 以上后续项只针对 Android；iOS 仍按第 6 节延后到最终 M8。
