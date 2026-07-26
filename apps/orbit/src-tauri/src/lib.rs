@@ -1267,7 +1267,7 @@ fn configure_macos_window_surface(app: &mut tauri::App) -> Result<(), Box<dyn st
         .get_webview_window("main")
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "未找到 Orbit 主窗口"))?;
     // Tauri 的 transparent 只会清除窗口底板，不会为 WebView 内容建立裁切蒙版。
-    // 因此同时在原生内容层启用圆角和裁切，保证窗口边缘与前端 --radius-xl 一致。
+    // 因此同时在原生内容层启用圆角和裁切，由原生窗口单独负责外层圆角。
     // SAFETY: 指针由当前 Tauri 主窗口返回，setup 在主线程且窗口生命周期内完成配置。
     let native_window: &NSWindow = unsafe { &*window.ns_window()?.cast() };
     native_window.setOpaque(false);

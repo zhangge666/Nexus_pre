@@ -54,7 +54,6 @@
   --radius: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
-  --radius-xl: 16px;
   --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28);
   --shadow-md: 0 10px 28px -8px rgb(0 0 0 / 0.48);
 }
