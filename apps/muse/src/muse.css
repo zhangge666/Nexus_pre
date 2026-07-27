@@ -1,9 +1,15 @@
 /** 本文件实现 Muse 多页面桌面壳、自定义标题栏与紧凑本地工作区视觉。 */
 
-body {
-  min-height: 100vh;
+html,
+body,
+#root {
+  height: 100%;
   overflow: hidden;
-  background: hsl(var(--background));
+  background: transparent;
+}
+
+body {
+  min-height: 100%;
 }
 
 button,
@@ -35,6 +41,10 @@ kbd {
   border: 1px solid hsl(var(--border-strong));
   color: hsl(var(--foreground));
   background: hsl(var(--background));
+}
+
+.muse-app--macos {
+  border-radius: var(--radius-lg);
 }
 
 .app-titlebar {
@@ -111,6 +121,34 @@ kbd {
 .window-controls .close-control:hover {
   color: hsl(var(--primary-foreground));
   background: hsl(var(--danger));
+}
+
+.window-controls--macos {
+  align-self: auto;
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.window-controls--macos button {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.window-controls--macos .window-control--close {
+  background: hsl(var(--danger));
+}
+
+.window-controls--macos .window-control--minimize {
+  background: hsl(var(--warning));
+}
+
+.window-controls--macos .window-control--maximize {
+  background: hsl(var(--success));
+}
+
+.window-controls--macos button:hover {
+  filter: brightness(1.12);
 }
 
 .app-body {

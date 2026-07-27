@@ -11,6 +11,10 @@
   background: hsl(var(--background));
 }
 
+.tool-window--macos {
+  border-radius: var(--radius-lg);
+}
+
 .tool-titlebar {
   display: flex;
   min-width: 0;
@@ -81,6 +85,21 @@
 .tool-titlebar > button:hover {
   color: hsl(var(--primary-foreground));
   background: hsl(var(--danger));
+}
+
+.tool-titlebar > .tool-close-control--macos {
+  display: grid;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  padding: 0;
+  border-radius: 50%;
+  background: hsl(var(--danger));
+}
+
+.tool-titlebar > .tool-close-control--macos:hover {
+  filter: brightness(1.12);
 }
 
 .tool-content {

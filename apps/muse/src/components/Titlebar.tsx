@@ -5,6 +5,7 @@ import { Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "../api";
 import museIcon from "../assets/muse-app-icon.svg";
+import { isMacOS } from "../core/platform";
 
 /** 执行 Tauri 窗口动作；浏览器预览中保持静默。 */
 async function runWindowAction(action: "minimize" | "maximize" | "close"): Promise<void> {
@@ -15,10 +16,41 @@ async function runWindowAction(action: "minimize" | "maximize" | "close"): Promi
   if (action === "close") await window.close();
 }
 
+/** 渲染 Windows 风格的右侧最小化、最大化与关闭控件。 */
+function WindowsWindowControls(): React.JSX.Element {
+  return (
+    <div className="window-controls" onDoubleClick={(event) => event.stopPropagation()}>
+      <button type="button" onClick={() => void runWindowAction("minimize")} aria-label="最小化">
+        <Minus size={14} aria-hidden="true" />
+      </button>
+      <button type="button" onClick={() => void runWindowAction("maximize")} aria-label="最大化或还原">
+        <Square size={11} aria-hidden="true" />
+      </button>
+      <button className="close-control" type="button" onClick={() => void runWindowAction("close")} aria-label="关闭">
+        <X size={14} aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+/** 渲染 macOS 约定的左侧交通灯窗口控件。 */
+function MacWindowControls(): React.JSX.Element {
+  return (
+    <div className="window-controls window-controls--macos" onDoubleClick={(event) => event.stopPropagation()}>
+      <button className="window-control--close" type="button" onClick={() => void runWindowAction("close")} aria-label="关闭" />
+      <button className="window-control--minimize" type="button" onClick={() => void runWindowAction("minimize")} aria-label="最小化" />
+      <button className="window-control--maximize" type="button" onClick={() => void runWindowAction("maximize")} aria-label="全屏或还原" />
+    </div>
+  );
+}
+
 /** 渲染可拖动标题栏，并使用正式 Muse 图标。 */
 export function Titlebar(): React.JSX.Element {
+  const macOS = isMacOS();
+
   return (
     <header className="app-titlebar" data-tauri-drag-region onDoubleClick={() => void runWindowAction("maximize")}>
+      {macOS ? <MacWindowControls /> : null}
       <div className="titlebar-brand" data-tauri-drag-region>
         <img src={museIcon} alt="" />
         <strong data-tauri-drag-region>Muse</strong>
@@ -28,17 +60,7 @@ export function Titlebar(): React.JSX.Element {
         <span className="status-dot" />
         本地模式
       </div>
-      <div className="window-controls" onDoubleClick={(event) => event.stopPropagation()}>
-        <button type="button" onClick={() => void runWindowAction("minimize")} aria-label="最小化">
-          <Minus size={14} aria-hidden="true" />
-        </button>
-        <button type="button" onClick={() => void runWindowAction("maximize")} aria-label="最大化或还原">
-          <Square size={11} aria-hidden="true" />
-        </button>
-        <button className="close-control" type="button" onClick={() => void runWindowAction("close")} aria-label="关闭">
-          <X size={14} aria-hidden="true" />
-        </button>
-      </div>
+      {macOS ? null : <WindowsWindowControls />}
     </header>
   );
 }

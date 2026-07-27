@@ -20,16 +20,22 @@ nexus-protocol = { path = "../../../crates/nexus-protocol" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["macos-private-api"] }
 tokio = { version = "1", features = ["sync"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2.3.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSColor", "NSView", "NSWindow", "objc2-quartz-core"] }
+objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["CALayer", "objc2-core-foundation"] }
 
 [dev-dependencies]
 nexus-core = { path = "../../../crates/nexus-core" }
 tempfile = "3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
-[lints]
-workspace = true
+[lints.rust]
+missing_docs = "warn"
+# macOS 仅通过 Tauri 提供的原生窗口指针配置透明窗口的圆角裁切。
+unsafe_code = "allow"

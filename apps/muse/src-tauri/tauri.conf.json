@@ -10,6 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "main",
@@ -20,6 +21,7 @@
         "minHeight": 520,
         "center": true,
         "decorations": false,
+        "transparent": true,
         "resizable": true,
         "shadow": true,
         "theme": "Dark"
@@ -33,6 +35,7 @@
         "center": true,
         "visible": false,
         "decorations": false,
+        "transparent": true,
         "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
@@ -48,6 +51,7 @@
         "center": true,
         "visible": false,
         "decorations": false,
+        "transparent": true,
         "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
@@ -63,6 +67,7 @@
         "center": true,
         "visible": false,
         "decorations": false,
+        "transparent": true,
         "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
@@ -80,6 +85,7 @@
         "center": true,
         "visible": false,
         "decorations": false,
+        "transparent": true,
         "resizable": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,

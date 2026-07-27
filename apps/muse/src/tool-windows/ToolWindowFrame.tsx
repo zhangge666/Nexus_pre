@@ -3,6 +3,7 @@
 import React, { type ReactNode } from "react";
 import { X } from "lucide-react";
 import museIcon from "../assets/muse-app-icon.svg";
+import { isMacOS } from "../core/platform";
 import { hideToolWindow } from "./lifecycle";
 
 interface ToolWindowFrameProps {
@@ -23,9 +24,14 @@ export function ToolWindowFrame({
   tone = "default",
   children,
 }: ToolWindowFrameProps): React.JSX.Element {
+  const macOS = isMacOS();
+
   return (
-    <div className={`tool-window tool-window--${tone}`}>
+    <div className={`tool-window tool-window--${tone}${macOS ? " tool-window--macos" : ""}`}>
       <header className="tool-titlebar" data-tauri-drag-region>
+        {macOS ? (
+          <button className="tool-close-control--macos" type="button" onClick={() => void hideToolWindow()} aria-label={`隐藏${title}窗口`} />
+        ) : null}
         <img src={museIcon} alt="" data-tauri-drag-region />
         <span className="tool-symbol" aria-hidden="true">{icon}</span>
         <div className="tool-title-copy" data-tauri-drag-region>
@@ -33,9 +39,7 @@ export function ToolWindowFrame({
           <span data-tauri-drag-region>{subtitle}</span>
         </div>
         <kbd data-tauri-drag-region>{shortcut}</kbd>
-        <button type="button" onClick={() => void hideToolWindow()} aria-label={`隐藏${title}窗口`}>
-          <X size={14} aria-hidden="true" />
-        </button>
+        {macOS ? null : <button type="button" onClick={() => void hideToolWindow()} aria-label={`隐藏${title}窗口`}><X size={14} aria-hidden="true" /></button>}
       </header>
       <main className="tool-content">{children}</main>
     </div>

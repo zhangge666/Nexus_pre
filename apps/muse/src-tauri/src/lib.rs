@@ -1,6 +1,6 @@
 //! 本文件实现 Muse 多窗口快捷唤起，以及可选 Orbit 服务的发现、授权登记与灵感同步命令。
 
-use std::{path::PathBuf, sync::Mutex};
+use std::{io, path::PathBuf, sync::Mutex};
 
 use nexus_protocol::{ServiceDiscovery, discover_local_service, shared_nexus_data_dir};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -13,6 +13,36 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutS
 
 #[cfg(desktop)]
 const TOOL_WINDOW_LABELS: [&str; 4] = ["idea", "task", "meeting", "clipboard"];
+
+/// 在 macOS 中让所有透明 Muse 窗口的原生内容层按圆角裁切。
+#[cfg(target_os = "macos")]
+fn configure_macos_window_surfaces(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use objc2_app_kit::{NSColor, NSWindow};
+
+    for label in ["main", "idea", "task", "meeting", "clipboard"] {
+        let window = app
+            .get_webview_window(label)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("未找到 Muse 窗口：{label}")))?;
+        // Tauri 的 transparent 只会清除窗口底板；内容层仍需原生裁切，才能不露出矩形 WebView 边缘。
+        // SAFETY: 指针由当前 Tauri 窗口返回，setup 在主线程且窗口生命周期内完成配置。
+        let native_window: &NSWindow = unsafe { &*window.ns_window()?.cast() };
+        native_window.setOpaque(false);
+        let clear_color = NSColor::clearColor();
+        native_window.setBackgroundColor(Some(&clear_color));
+        native_window.setHasShadow(true);
+
+        let content_view = native_window
+            .contentView()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("未找到 Muse 窗口内容层：{label}")))?;
+        content_view.setWantsLayer(true);
+        let content_layer = content_view
+            .layer()
+            .ok_or_else(|| io::Error::other(format!("无法为 Muse 窗口创建内容图层：{label}")))?;
+        content_layer.setCornerRadius(16.0);
+        content_layer.setMasksToBounds(true);
+    }
+    Ok(())
+}
 
 /// 保存 Muse 当前进程获授的可选 Orbit capability token。
 #[derive(Clone)]
@@ -268,6 +298,9 @@ pub fn run() {
     );
 
     let builder = builder.setup(|app| {
+        #[cfg(target_os = "macos")]
+        configure_macos_window_surfaces(app)?;
+
         let data_dir = shared_nexus_data_dir(app.path().app_data_dir()?);
         app.manage(MuseState {
             client: reqwest::Client::new(),
