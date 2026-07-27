@@ -795,9 +795,7 @@ kbd {
   flex: 1;
   grid-template-columns: 268px minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-lg);
-  background: hsl(var(--surface));
+  border-top: 1px solid hsl(var(--border));
 }
 
 .task-master {
@@ -1154,9 +1152,7 @@ kbd {
   flex: 1;
   grid-template-columns: 230px minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-lg);
-  background: hsl(var(--surface));
+  border-top: 1px solid hsl(var(--border));
 }
 
 .meeting-list {
@@ -1534,9 +1530,7 @@ kbd {
   flex: 1;
   grid-template-columns: 240px minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius-lg);
-  background: hsl(var(--surface));
+  border-top: 1px solid hsl(var(--border));
 }
 
 .clipboard-list {
