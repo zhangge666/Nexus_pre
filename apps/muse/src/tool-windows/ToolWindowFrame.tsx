@@ -27,7 +27,7 @@ export function ToolWindowFrame({
   const macOS = isMacOS();
 
   return (
-    <div className={`tool-window tool-window--${tone}${macOS ? " tool-window--macos" : ""}`}>
+    <div className={`tool-window tool-window--${tone}`}>
       <header className="tool-titlebar" data-tauri-drag-region>
         {macOS ? (
           <button className="tool-close-control--macos" type="button" onClick={() => void hideToolWindow()} aria-label={`隐藏${title}窗口`} />

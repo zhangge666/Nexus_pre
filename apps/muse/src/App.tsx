@@ -4,7 +4,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { Titlebar } from "./components/Titlebar";
 import { isTauriRuntime, connectService, getConnectionStatus, submitIdea, type ConnectionStatus } from "./api";
-import { isMacOS } from "./core/platform";
 import type { MuseView } from "./core/types";
 import { useMuseWorkspace } from "./core/workspace";
 import { ClipboardPage } from "./pages/ClipboardPage";
@@ -28,7 +27,6 @@ function errorMessage(error: unknown): string {
 
 /** 渲染 Muse 可独立运行的多页面桌面应用。 */
 export function App(): React.JSX.Element {
-  const macOS = isMacOS();
   const [activeView, setActiveView] = useState<MuseView>("today");
   const [connection, setConnection] = useState<ConnectionStatus>(initialConnection);
   const [connecting, setConnecting] = useState(false);
@@ -130,7 +128,7 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <div className={`muse-app${macOS ? " muse-app--macos" : ""}`}>
+    <div className="muse-app">
       <Titlebar />
       <div className="app-body">
         <Sidebar activeView={activeView} taskCount={activeTaskCount} onNavigate={setActiveView} />

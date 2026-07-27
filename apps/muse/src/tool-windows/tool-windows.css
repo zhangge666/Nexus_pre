@@ -6,13 +6,8 @@
   height: 100vh;
   grid-template-rows: 40px minmax(0, 1fr);
   overflow: hidden;
-  border: 1px solid hsl(var(--border-strong));
   color: hsl(var(--foreground));
   background: hsl(var(--background));
-}
-
-.tool-window--macos {
-  border-radius: var(--radius-lg);
 }
 
 .tool-titlebar {
