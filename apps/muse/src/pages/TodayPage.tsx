@@ -22,7 +22,7 @@ export function TodayPage({ ideas, tasks, onAddIdea, onNavigate }: TodayPageProp
     <div className="page page-today">
       <PageHeader
         eyebrow="今天"
-        title="需要 Muse 帮你接住什么？"
+        title="今天"
         description="记录灵感、继续任务或开始一场会议。内容默认只保存在本机。"
       />
 

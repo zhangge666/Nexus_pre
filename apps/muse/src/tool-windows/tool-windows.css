@@ -394,7 +394,7 @@
   background: hsl(var(--surface) / 0.62);
 }
 
-.meeting-actions {
+.meeting-tool .meeting-actions {
   display: flex;
   gap: 6px;
 }

@@ -33,7 +33,7 @@ export function Sidebar({ activeView, taskCount, onNavigate }: SidebarProps): Re
       <div className="sidebar-product">
         <img src={museIcon} alt="" />
         <div>
-          <strong>我的 Muse</strong>
+          <strong>Muse</strong>
           <span>所有内容保存在本机</span>
         </div>
       </div>
