@@ -1966,9 +1966,9 @@ kbd {
   line-height: 1.45;
 }
 
-/* Muse v2：用连续工作区与弱分隔线替代卡片堆叠，保持与首页方案一致。 */
+/* Muse 首页以连续工作区组织信息，避免将页面内容误读为新的独立窗口。 */
 .muse-app {
-  background: hsl(var(--background));
+  background: hsl(var(--surface));
 }
 
 .app-titlebar {
@@ -1982,8 +1982,31 @@ kbd {
   display: none;
 }
 
+/* macOS 的交通灯悬置在侧栏上方，避免产生第二层“应用标题栏”的错觉。 */
+.muse-app:has(.window-controls--macos) {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.muse-app:has(.window-controls--macos) .app-titlebar {
+  position: absolute;
+  z-index: 2;
+  width: 240px;
+  height: 52px;
+  border-bottom: 0;
+  background: transparent;
+}
+
+.muse-app:has(.window-controls--macos) .app-body {
+  grid-row: 1;
+}
+
+.muse-app:has(.window-controls--macos) .window-controls--macos {
+  gap: 9px;
+  padding: 0 28px;
+}
+
 .app-body {
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
 }
 
 .app-sidebar {
@@ -1992,45 +2015,49 @@ kbd {
 }
 
 .sidebar-product {
-  min-height: 72px;
-  gap: 10px;
-  padding: 14px 16px;
+  min-height: 96px;
+  gap: 12px;
+  padding: 20px 20px 16px;
   border-bottom: 0;
 }
 
+.muse-app:has(.window-controls--macos) .sidebar-product {
+  min-height: 128px;
+  padding-top: 76px;
+}
+
 .sidebar-product img {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
 }
 
 .sidebar-product strong {
   color: hsl(var(--foreground));
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 650;
+  letter-spacing: -0.025em;
 }
 
 .sidebar-product span {
-  font-size: 10px;
+  display: none;
 }
 
 .sidebar-nav {
-  gap: 3px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 8px 16px;
 }
 
 .sidebar-label {
-  padding: 10px 8px 5px;
-  font-size: 10px;
-  letter-spacing: 0.02em;
+  display: none;
 }
 
 .sidebar-nav button,
 .sidebar-settings {
-  min-height: 34px;
-  gap: 9px;
-  padding: 0 9px;
+  min-height: 40px;
+  gap: 12px;
+  padding: 0 12px;
   color: hsl(var(--foreground-muted));
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .sidebar-nav button:hover,
@@ -2045,33 +2072,33 @@ kbd {
 
 .sidebar-nav button.is-active::before,
 .sidebar-settings.is-active::before {
-  inset: 8px auto 8px -12px;
+  inset: 8px auto 8px -16px;
 }
 
 .sidebar-settings {
-  margin: 0 12px 12px;
+  margin: 0 16px 16px;
 }
 
 .local-mode-note {
-  margin: 8px 12px 10px;
-  padding: 8px 9px;
-  border-color: hsl(var(--success) / 0.12);
-  background: hsl(var(--success) / 0.035);
+  margin: 8px 16px 12px;
+  padding: 12px;
+  border-color: hsl(var(--border-subtle));
+  background: transparent;
 }
 
 .app-workspace {
   background:
-    radial-gradient(circle at 78% 0%, hsl(var(--primary) / 0.045), transparent 38%),
+    radial-gradient(circle at 78% 0%, hsl(var(--primary) / 0.055), transparent 42%),
     hsl(var(--background));
 }
 
 .page {
-  padding: 28px 32px 24px;
+  padding: 40px 48px 28px;
 }
 
 .page-header {
-  min-height: 76px;
-  padding-bottom: 20px;
+  min-height: 72px;
+  padding-bottom: 24px;
 }
 
 .page-eyebrow {
@@ -2080,7 +2107,7 @@ kbd {
 }
 
 .page-header h1 {
-  font-size: 25px;
+  font-size: 28px;
   font-weight: 650;
   letter-spacing: -0.025em;
 }
@@ -2096,18 +2123,18 @@ kbd {
 
 .primary-button,
 .secondary-button {
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: 11px;
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 12px;
 }
 
 .page-today .page-header {
   min-height: auto;
-  padding-bottom: 20px;
+  padding-bottom: 24px;
 }
 
 .page-today .page-header h1 {
-  font-size: 30px;
+  font-size: 32px;
 }
 
 .page-today .page-header p {
@@ -2115,31 +2142,70 @@ kbd {
 }
 
 .today-capture {
-  margin-bottom: 22px;
+  margin-bottom: 36px;
 }
 
 .page-today .idea-composer {
+  position: relative;
   border-color: hsl(var(--border));
   border-radius: var(--radius-md);
-  background: hsl(var(--surface) / 0.52);
+  background: hsl(var(--surface) / 0.4);
   box-shadow: none;
 }
 
 .page-today .idea-composer.is-compact textarea {
+  display: block;
   height: 68px;
-  padding: 15px 16px;
+  padding: 20px 60px 20px 50px;
   background: transparent;
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1.4;
 }
 
 .page-today .idea-composer footer {
-  min-height: 40px;
-  padding: 5px 9px;
+  position: absolute;
+  top: 0;
+  right: 8px;
+  min-height: 68px;
+  padding: 0;
+  border-top: 0;
+}
+
+.page-today .compact-composer-icon {
+  position: absolute;
+  top: 24px;
+  left: 18px;
+  z-index: 1;
+  color: hsl(var(--foreground-secondary));
+}
+
+.page-today .idea-composer.is-compact .composer-tools {
+  display: none;
+}
+
+.page-today .idea-composer.is-compact .primary-button {
+  width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+}
+
+.page-today .idea-composer.is-compact .primary-button:not(:disabled):hover {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+}
+
+.page-today .idea-composer.is-compact .primary-button span,
+.page-today .idea-composer.is-compact .primary-button kbd {
+  display: none;
 }
 
 .today-grid {
   gap: 0;
   border-top: 1px solid hsl(var(--border));
+  grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
 }
 
 .page-today .content-section {
@@ -2153,41 +2219,69 @@ kbd {
 }
 
 .page-today .section-header {
-  min-height: 58px;
-  padding: 12px 14px;
+  min-height: 68px;
+  padding: 16px 18px;
   border-bottom-color: hsl(var(--border-subtle));
+}
+
+.page-today .section-header > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .page-today .section-header h2 {
   color: hsl(var(--foreground));
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .page-today .section-header span,
 .page-today .section-header > button {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .page-today .dense-row,
 .page-today .recent-stream article {
-  min-height: 62px;
-  padding: 10px 14px;
+  min-height: 64px;
+  padding: 12px 18px;
+}
+
+.page-today .dense-row {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: 12px;
 }
 
 .page-today .row-copy strong,
 .page-today .recent-stream p {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .page-today .row-copy small,
 .page-today .row-meta small,
 .page-today .recent-stream small {
-  font-size: 9px;
+  font-size: 11px;
+}
+
+.page-today .recent-stream article {
+  grid-template-columns: 52px 32px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.page-today .stream-time {
+  color: hsl(var(--foreground-muted));
+  text-align: right;
 }
 
 .page-today .today-footer {
-  padding-top: 18px;
-  font-size: 10px;
+  padding-top: 24px;
+  font-size: 11px;
+}
+
+.today-quick-action kbd {
+  border-color: hsl(var(--primary-foreground) / 0.18);
+  color: hsl(var(--primary-foreground) / 0.78);
+  background: hsl(var(--primary-foreground) / 0.1);
+  box-shadow: none;
 }
 
 .task-workspace,
