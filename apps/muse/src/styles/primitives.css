@@ -1,0 +1,405 @@
+/** 本文件定义主窗口页面共享的按钮、输入、标题、面板与列表原语。 */
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.status-dot--success {
+  background: hsl(var(--success));
+  box-shadow: 0 0 0 3px hsl(var(--success) / 0.08);
+}
+
+kbd,
+code {
+  font-family: "Geist Mono", "JetBrains Mono", monospace;
+  font-weight: 400;
+}
+
+kbd {
+  color: hsl(var(--foreground-muted));
+}
+
+.primary-button,
+.secondary-button,
+.text-button,
+.inline-create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: var(--radius);
+}
+
+.primary-button {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  border: 1px solid hsl(var(--primary));
+}
+
+.primary-button:hover:not(:disabled) {
+  background: hsl(var(--primary-hover));
+  border-color: hsl(var(--primary-hover));
+}
+
+.secondary-button {
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border-strong));
+}
+
+.secondary-button:hover:not(:disabled) {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.text-button,
+.inline-create {
+  padding: 0;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.text-button:hover,
+.inline-create:hover {
+  color: hsl(var(--primary-hover));
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 76px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.page-header__copy {
+  min-width: 0;
+}
+
+.page-eyebrow {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 11px;
+  color: hsl(var(--foreground-muted));
+}
+
+.page-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.page-title-row h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.page-title-row p {
+  overflow: hidden;
+  margin: 0;
+  font-size: 12px;
+  color: hsl(var(--foreground-muted));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.workspace-panel,
+.content-section,
+.settings-section {
+  min-width: 0;
+  background: hsl(var(--surface) / 0.58);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+}
+
+.panel-heading,
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.panel-heading > div,
+.section-header > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-heading h2,
+.section-header h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.panel-heading span,
+.section-header span {
+  font-size: 11px;
+  color: hsl(var(--foreground-muted));
+}
+
+.linear-list {
+  min-width: 0;
+}
+
+.linear-row {
+  display: grid;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  color: hsl(var(--foreground-secondary));
+  text-align: left;
+  background: transparent;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.linear-row:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.linear-row:last-child {
+  border-bottom: 0;
+}
+
+.row-primary {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--muted));
+  border-radius: var(--radius-sm);
+}
+
+.row-icon--accent {
+  color: hsl(var(--primary-hover));
+  background: hsl(var(--primary) / 0.1);
+}
+
+.tag,
+.sync-badge,
+.local-chip,
+.status-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: fit-content;
+  min-height: 20px;
+  padding: 0 7px;
+  font-size: 10px;
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--muted));
+  border-radius: var(--radius-sm);
+}
+
+.panel-empty,
+.empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 20px;
+  font-size: 12px;
+  color: hsl(var(--foreground-muted));
+  text-align: center;
+}
+
+.panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 8px 14px;
+  color: hsl(var(--foreground-muted));
+  border-top: 1px solid hsl(var(--border));
+}
+
+.panel-footer > span {
+  font-size: 11px;
+}
+
+.idea-composer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+}
+
+.idea-composer:focus-within {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 2px hsl(var(--ring) / 0.12);
+}
+
+.idea-composer textarea {
+  width: 100%;
+  min-height: 92px;
+  padding: 14px;
+  resize: vertical;
+  color: hsl(var(--foreground));
+  line-height: 1.55;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.idea-composer textarea::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: hsl(var(--foreground-muted));
+}
+
+.idea-composer footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+  padding: 6px 8px 6px 12px;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.composer-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.composer-tools button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+  border-radius: var(--radius);
+}
+
+.composer-tools button:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.composer-tools span {
+  margin-left: 6px;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.idea-composer .primary-button kbd {
+  color: hsl(var(--primary-foreground) / 0.72);
+}
+
+.idea-composer.is-compact {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px 0 14px;
+}
+
+.idea-composer.is-compact .compact-composer-icon {
+  color: hsl(var(--primary-hover));
+}
+
+.idea-composer.is-compact textarea {
+  min-height: 42px;
+  max-height: 84px;
+  padding: 11px 12px;
+  resize: none;
+  line-height: 20px;
+}
+
+.idea-composer.is-compact footer {
+  min-height: 0;
+  padding: 0;
+  border-top: 0;
+}
+
+.idea-composer.is-compact .composer-tools button {
+  display: none;
+}
+
+.idea-composer.is-compact .composer-tools span {
+  margin: 0 10px 0 0;
+  white-space: nowrap;
+}
+
+.idea-composer.is-compact .primary-button {
+  min-width: 74px;
+}
+
+.task-ring {
+  width: 14px;
+  height: 14px;
+  border: 1px solid hsl(var(--foreground-muted));
+  border-radius: 50%;
+}
+
+.task-ring.is-doing {
+  border-color: hsl(var(--primary));
+  box-shadow: inset 0 0 0 3px hsl(var(--primary) / 0.18);
+}
+
+.task-ring.is-waiting {
+  border-color: hsl(var(--warning));
+}
+
+.task-ring.is-done {
+  background: hsl(var(--success));
+  border-color: hsl(var(--success));
+}
+
+.inline-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.inline-search input {
+  width: 144px;
+  font-size: 11px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}

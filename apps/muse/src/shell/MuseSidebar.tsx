@@ -1,60 +1,64 @@
-/** 本文件实现 Muse 正式应用的紧凑页面导航与本地状态入口。 */
+/** 本文件负责 Muse 主窗口的全局导航、命令入口与可选 Orbit 状态。 */
 
 import React from "react";
+import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
   CheckSquare2,
   ClipboardCopy,
-  Search,
   Lightbulb,
   Mic2,
+  Search,
   Settings2,
 } from "lucide-react";
-import type { MuseView } from "../core/types";
 import museIcon from "../assets/muse-app-icon.svg";
 import { isMacOS } from "../core/platform";
+import type { MuseView } from "../core/types";
 
-interface SidebarProps {
+interface MuseSidebarProps {
   activeView: MuseView;
   taskCount: number;
   onNavigate: (view: MuseView) => void;
   onOpenCommand: () => void;
 }
 
-const primaryItems = [
-  { id: "today" as const, label: "今天", icon: CalendarDays },
-  { id: "ideas" as const, label: "灵感", icon: Lightbulb },
-  { id: "tasks" as const, label: "任务留痕", icon: CheckSquare2 },
-  { id: "meetings" as const, label: "会议", icon: Mic2 },
-  { id: "clipboard" as const, label: "剪贴板", icon: ClipboardCopy },
+interface SidebarItem {
+  id: Exclude<MuseView, "settings">;
+  label: string;
+  icon: LucideIcon;
+}
+
+const sidebarItems: SidebarItem[] = [
+  { id: "today", label: "今天", icon: CalendarDays },
+  { id: "ideas", label: "灵感", icon: Lightbulb },
+  { id: "tasks", label: "任务", icon: CheckSquare2 },
+  { id: "meetings", label: "会议", icon: Mic2 },
+  { id: "clipboard", label: "剪贴板", icon: ClipboardCopy },
 ];
 
-/** 渲染低噪声侧栏，并把设置固定在底部。 */
-export function Sidebar({
+/** 渲染紧凑的工作区导航，并把低频设置固定到底部。 */
+export function MuseSidebar({
   activeView,
   taskCount,
   onNavigate,
   onOpenCommand,
-}: SidebarProps): React.JSX.Element {
+}: MuseSidebarProps): React.JSX.Element {
   return (
-    <aside className="app-sidebar">
+    <aside className="muse-sidebar">
       <div className="sidebar-product">
         <img src={museIcon} alt="" />
-        <div>
-          <strong>Muse</strong>
-          <span>所有内容保存在本机</span>
-        </div>
+        <strong>Muse</strong>
       </div>
 
       <button className="sidebar-command" type="button" onClick={onOpenCommand}>
         <Search size={14} aria-hidden="true" />
-        <span>快速打开</span>
+        <span>搜索或快速创建</span>
         <kbd>{isMacOS() ? "⌘ K" : "Ctrl K"}</kbd>
       </button>
 
-      <nav className="sidebar-nav" aria-label="Muse 页面">
+      <nav className="sidebar-nav" aria-label="Muse 工作区">
         <span className="sidebar-label">工作区</span>
-        {primaryItems.map(({ id, label, icon: Icon }) => (
+        {sidebarItems.map(({ id, label, icon: Icon }) => (
           <button
             className={activeView === id ? "is-active" : ""}
             key={id}
@@ -69,13 +73,13 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-spacer" />
-      <div className="local-mode-note">
-        <span className="status-dot" />
-        <div>
-          <strong>独立运行中</strong>
-          <span>Orbit 是可选连接</span>
-        </div>
-      </div>
+      <button className="sidebar-orbit" type="button" onClick={() => onNavigate("settings")}>
+        <span className="orbit-symbol">O</span>
+        <span>
+          <strong>Orbit · 未连接</strong>
+          <small>Muse 正在独立运行</small>
+        </span>
+      </button>
       <button
         className={`sidebar-settings ${activeView === "settings" ? "is-active" : ""}`}
         type="button"

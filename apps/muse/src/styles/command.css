@@ -1,0 +1,126 @@
+/** 本文件定义键盘优先的命令面板及其焦点层级。 */
+
+.command-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: start center;
+  padding-top: min(18vh, 152px);
+  background: hsl(var(--background) / 0.72);
+}
+
+.command-panel {
+  width: min(600px, calc(100vw - 32px));
+  overflow: hidden;
+  background: hsl(var(--surface-elevated));
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.command-search {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  color: hsl(var(--foreground-muted));
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.command-search input {
+  height: 42px;
+  color: hsl(var(--foreground));
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.command-search kbd,
+.command-list kbd,
+.command-panel footer kbd {
+  padding: 2px 5px;
+  font-size: 10px;
+  background: hsl(var(--muted));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-sm);
+}
+
+.command-list {
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+
+.command-list button {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 4px 10px;
+  color: hsl(var(--foreground-secondary));
+  text-align: left;
+  background: transparent;
+  border-radius: var(--radius);
+}
+
+.command-list button:hover,
+.command-list button.is-current {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-active));
+}
+
+.command-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: hsl(var(--primary-hover));
+  background: hsl(var(--primary) / 0.09);
+  border-radius: var(--radius);
+}
+
+.command-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.command-copy strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.command-copy small {
+  overflow: hidden;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-empty {
+  margin: 0;
+  padding: 24px;
+  font-size: 12px;
+  color: hsl(var(--foreground-muted));
+  text-align: center;
+}
+
+.command-panel footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+  border-top: 1px solid hsl(var(--border));
+}
+
+.command-panel footer span:last-child {
+  margin-left: auto;
+}

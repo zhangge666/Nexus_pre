@@ -1,0 +1,277 @@
+/** 本文件集中处理 Muse 在窄桌面与移动预览中的布局降级。 */
+
+@media (max-width: 1080px) {
+  .muse-shell {
+    grid-template-columns: 204px minmax(0, 1fr);
+  }
+
+  .today-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail-main {
+    border-right: 0;
+  }
+
+  .task-context {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid hsl(var(--border));
+  }
+
+  .meeting-summary-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .meeting-summary {
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .settings-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .page {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .task-workspace,
+  .meeting-workspace,
+  .clipboard-workspace {
+    margin-right: -16px;
+    margin-left: -16px;
+  }
+
+  .task-workspace {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .task-context {
+    grid-template-columns: 1fr;
+  }
+
+  .task-heading-meta .saved-label {
+    display: none;
+  }
+
+  .clipboard-workspace {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 719px) {
+  .muse-app {
+    border-radius: 0;
+  }
+
+  .muse-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .muse-sidebar {
+    display: block;
+    padding: 6px 8px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .sidebar-product,
+  .sidebar-command,
+  .sidebar-label,
+  .sidebar-spacer,
+  .sidebar-orbit,
+  .sidebar-settings {
+    display: none;
+  }
+
+  .sidebar-nav {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(64px, 1fr));
+    gap: 4px;
+    margin: 0;
+  }
+
+  .sidebar-nav button {
+    grid-template-columns: 14px auto;
+    justify-content: center;
+    width: auto;
+    gap: 4px;
+    padding: 0 4px;
+  }
+
+  .sidebar-nav button span {
+    font-size: 12px;
+  }
+
+  .sidebar-nav button small {
+    display: none;
+  }
+
+  .sidebar-nav button.is-active::before {
+    inset: auto 10px 0;
+    width: auto;
+    height: 2px;
+  }
+
+  .page-header {
+    min-height: 64px;
+  }
+
+  .page-title-row p {
+    display: none;
+  }
+
+  .today-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-overview-row {
+    grid-template-columns: 14px minmax(120px, 1fr) 62px;
+  }
+
+  .task-overview-row code,
+  .task-overview-row time {
+    display: none;
+  }
+
+  .meeting-overview-row {
+    grid-template-columns: 24px minmax(140px, 1fr) 74px;
+  }
+
+  .meeting-overview-row > span:nth-last-child(-n + 2) {
+    display: none;
+  }
+
+  .task-workspace,
+  .meeting-workspace,
+  .clipboard-workspace {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .task-master,
+  .meeting-list,
+  .clipboard-list {
+    max-height: 224px;
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .task-detail-header {
+    min-height: 0;
+  }
+
+  .task-detail-layout {
+    min-height: 0;
+  }
+
+  .focus-button {
+    display: none;
+  }
+
+  .meeting-player {
+    grid-template-columns: 30px minmax(120px, 1fr) auto;
+  }
+
+  .meeting-player .audio-track,
+  .meeting-player > button:last-child {
+    display: none;
+  }
+
+  .compare-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .compare-columns article {
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .task-workspace,
+  .meeting-workspace,
+  .clipboard-workspace {
+    margin-right: -12px;
+    margin-left: -12px;
+  }
+
+  .titlebar-save-state {
+    display: none;
+  }
+
+  .idea-composer.is-compact .composer-tools span,
+  .idea-composer.is-compact .primary-button kbd {
+    display: none;
+  }
+
+  .idea-composer.is-compact .primary-button {
+    min-width: 48px;
+  }
+
+  .task-create-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .task-create-bar input:nth-of-type(2) {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .task-detail-header,
+  .task-detail-main {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .task-heading-meta {
+    flex-wrap: wrap;
+  }
+
+  .task-update {
+    grid-template-columns: 14px minmax(100px, 1fr) auto;
+  }
+
+  .task-update .secondary-button {
+    display: none;
+  }
+
+  .task-context {
+    padding: 12px;
+  }
+
+  .settings-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-section > header {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .settings-section > header > button {
+    display: none;
+  }
+
+  .connection-card {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .connection-card > button {
+    grid-column: 1 / -1;
+  }
+}

@@ -2,8 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { CommandPalette } from "./components/CommandPalette";
-import { Sidebar } from "./components/Sidebar";
-import { Titlebar } from "./components/Titlebar";
 import { isTauriRuntime, connectService, getConnectionStatus, submitIdea, type ConnectionStatus } from "./api";
 import type { MuseView } from "./core/types";
 import { useMuseWorkspace } from "./core/workspace";
@@ -13,7 +11,8 @@ import { MeetingsPage } from "./pages/MeetingsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { TodayPage } from "./pages/TodayPage";
-import "./muse.css";
+import { MuseShell } from "./shell/MuseShell";
+import "./styles/index.css";
 
 const initialConnection: ConnectionStatus = {
   state: "disconnected",
@@ -146,23 +145,19 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <div className="muse-app">
-      <Titlebar />
-      <div className="app-body">
-        <Sidebar
-          activeView={activeView}
-          taskCount={activeTaskCount}
-          onNavigate={setActiveView}
-          onOpenCommand={() => setCommandOpen(true)}
-        />
-        <main className="app-workspace">{renderPage()}</main>
-      </div>
+    <MuseShell
+      activeView={activeView}
+      taskCount={activeTaskCount}
+      onNavigate={setActiveView}
+      onOpenCommand={() => setCommandOpen(true)}
+    >
+      {renderPage()}
       <CommandPalette
         activeView={activeView}
         open={commandOpen}
         onClose={closeCommand}
         onNavigate={setActiveView}
       />
-    </div>
+    </MuseShell>
   );
 }

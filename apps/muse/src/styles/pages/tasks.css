@@ -1,0 +1,526 @@
+/** 本文件定义任务列表、详情时间线与右侧上下文三层结构。 */
+
+.page-tasks {
+  padding-bottom: 0;
+}
+
+.task-create-bar {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.2fr) auto auto;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.task-create-bar input,
+.task-search,
+.task-update,
+.meeting-title-input {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.task-create-bar input {
+  height: 32px;
+  padding: 0 10px;
+  outline: 0;
+}
+
+.task-create-bar input:focus {
+  border-color: hsl(var(--ring));
+}
+
+.task-workspace {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+  margin: 0 -24px;
+}
+
+.task-master {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: hsl(var(--surface) / 0.58);
+  border-right: 1px solid hsl(var(--border));
+}
+
+.task-search {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  margin: 12px;
+  padding: 0 8px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-search input {
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.task-search kbd {
+  font-size: 9px;
+}
+
+.task-filter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px 8px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.task-filter button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+  border-radius: var(--radius);
+}
+
+.task-filter button:hover,
+.task-filter button.is-active {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.task-filter span {
+  color: hsl(var(--foreground-muted));
+}
+
+.task-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.task-list-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 56px;
+  padding: 7px 12px;
+  color: hsl(var(--foreground-secondary));
+  text-align: left;
+  background: transparent;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.task-list-row:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.task-list-row.is-selected {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-active));
+}
+
+.task-list-row.is-selected::before {
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 2px;
+  content: "";
+  background: hsl(var(--primary));
+  border-radius: var(--radius-sm);
+}
+
+.task-list-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.task-list-copy strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-list-copy small,
+.task-list-row code {
+  font-size: 9px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.task-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 104px;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.task-heading-copy {
+  min-width: 0;
+}
+
+.task-code {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-detail-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.task-heading-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-heading-meta > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.saved-label {
+  color: hsl(var(--success)) !important;
+}
+
+.priority-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: hsl(var(--warning));
+  border-radius: 50%;
+}
+
+.status-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 7px;
+  font-size: 10px;
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius);
+}
+
+.status-button.is-doing {
+  color: hsl(var(--primary-hover));
+}
+
+.focus-button {
+  margin-top: 4px;
+  flex: 0 0 auto;
+}
+
+.task-detail-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 292px;
+  min-height: calc(100% - 104px);
+}
+
+.task-detail-main {
+  min-width: 0;
+  padding: 16px 20px 20px;
+  border-right: 1px solid hsl(var(--border));
+}
+
+.task-source,
+.timeline-section,
+.context-section {
+  min-width: 0;
+  background: hsl(var(--surface) / 0.44);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+}
+
+.task-source > header,
+.timeline-section > header,
+.context-section > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.task-source h3,
+.timeline-section h3,
+.context-section h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.task-source > p {
+  max-width: 720px;
+  margin: 0;
+  padding: 14px 14px 8px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: hsl(var(--foreground-secondary));
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 14px 14px;
+}
+
+.attachment-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 9px;
+  font-size: 11px;
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.attachment-list button:hover {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border-strong));
+}
+
+.timeline-section {
+  margin-top: 14px;
+}
+
+.task-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-timeline li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  gap: 10px;
+  min-height: 64px;
+  padding: 12px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.task-timeline li:last-child {
+  border-bottom: 0;
+}
+
+.task-timeline li:not(:last-child)::after {
+  position: absolute;
+  top: 38px;
+  bottom: -14px;
+  left: 23px;
+  width: 1px;
+  content: "";
+  background: hsl(var(--border-strong));
+}
+
+.timeline-icon {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface-elevated));
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: 50%;
+}
+
+.timeline-icon.is-source,
+.timeline-icon.is-note {
+  color: hsl(var(--primary-hover));
+}
+
+.task-timeline li > div {
+  min-width: 0;
+}
+
+.task-timeline strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.task-timeline p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-timeline time {
+  font-size: 9px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-update {
+  display: grid;
+  grid-template-columns: 14px minmax(120px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: 14px;
+  padding: 5px 6px 5px 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-update input {
+  height: 30px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.task-context {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  background: hsl(var(--surface) / 0.24);
+}
+
+.task-meta-list {
+  margin: 0;
+  padding: 6px 12px;
+}
+
+.task-meta-list > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  min-height: 34px;
+}
+
+.task-meta-list dt,
+.task-meta-list dd {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 10px;
+}
+
+.task-meta-list dt {
+  color: hsl(var(--foreground-muted));
+}
+
+.task-meta-list dd {
+  color: hsl(var(--foreground-secondary));
+}
+
+.meeting-link-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) 14px;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  min-height: 38px;
+  margin: 8px;
+  padding: 0 8px;
+  font-size: 10px;
+  color: hsl(var(--foreground-secondary));
+  text-align: left;
+  background: hsl(var(--surface));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.meeting-link-row:hover {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--border-strong));
+}
+
+.meeting-link-row .is-open {
+  transform: rotate(90deg);
+}
+
+.meeting-summary-popover {
+  padding: 10px 12px 12px;
+  margin: 0 8px 8px;
+  background: hsl(var(--surface-elevated));
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.meeting-summary-popover strong {
+  font-size: 11px;
+}
+
+.meeting-summary-popover ul {
+  margin: 8px 0 10px;
+  padding-left: 16px;
+  font-size: 10px;
+  line-height: 1.55;
+  color: hsl(var(--foreground-muted));
+}
+
+.meeting-summary-popover .primary-button {
+  width: 100%;
+}
+
+.context-section > header > span {
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-actions label {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 10px;
+  color: hsl(var(--foreground-secondary));
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.task-actions input {
+  width: 13px;
+  height: 13px;
+  accent-color: hsl(var(--primary));
+}
+
+.task-actions .inline-create {
+  margin: 6px 12px;
+}

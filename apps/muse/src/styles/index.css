@@ -1,0 +1,11 @@
+/** 本文件只负责按层级聚合 Muse 主窗口样式，避免重新形成单体样式文件。 */
+
+@import "./app.css";
+@import "./titlebar.css";
+@import "./sidebar.css";
+@import "./primitives.css";
+@import "./command.css";
+@import "./pages/today.css";
+@import "./pages/tasks.css";
+@import "./pages/library.css";
+@import "./responsive.css";

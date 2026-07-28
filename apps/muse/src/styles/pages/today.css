@@ -1,0 +1,123 @@
+/** 本文件定义“今天”工作区的快速捕捉、双栏概览和会议列表。 */
+
+.page-today {
+  max-width: 1320px;
+  margin: 0 auto;
+}
+
+.today-capture {
+  margin-top: 18px;
+}
+
+.today-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.task-overview-row {
+  grid-template-columns: 14px minmax(140px, 1fr) 58px 64px 84px;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px;
+}
+
+.task-overview-row code {
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.task-overview-row time,
+.idea-overview-row time {
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+  text-align: right;
+}
+
+.status-label {
+  padding: 0;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.status-label.is-doing {
+  color: hsl(var(--primary-hover));
+}
+
+.status-label.is-waiting {
+  color: hsl(var(--warning));
+}
+
+.today-task-panel > .inline-create {
+  margin: 6px 14px 8px;
+}
+
+.idea-overview-row {
+  grid-template-columns: 24px minmax(120px, 1fr) auto 54px;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 12px;
+}
+
+.today-meeting-panel {
+  margin-top: 14px;
+}
+
+.meeting-overview-row {
+  grid-template-columns: 24px minmax(160px, 1.2fr) 70px 84px minmax(90px, 0.7fr);
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 14px;
+}
+
+.meeting-overview-row .row-primary {
+  display: grid;
+  gap: 2px;
+}
+
+.meeting-overview-row .row-primary strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.meeting-overview-row .row-primary small,
+.meeting-overview-row > span:not(.row-icon):not(.row-primary) {
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.meeting-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--success)) !important;
+}
+
+.today-status {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 40px;
+  margin-top: auto;
+  padding-top: 14px;
+  font-size: 10px;
+  color: hsl(var(--foreground-muted));
+}
+
+.today-status span,
+.today-status button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.today-status button {
+  margin-left: auto;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.today-status button:hover {
+  color: hsl(var(--foreground-secondary));
+}

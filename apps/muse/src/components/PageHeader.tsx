@@ -5,7 +5,7 @@ import React, { type ReactNode } from "react";
 interface PageHeaderProps {
   eyebrow?: string;
   title: string;
-  description: string;
+  description?: string;
   actions?: ReactNode;
 }
 
@@ -13,10 +13,12 @@ interface PageHeaderProps {
 export function PageHeader({ eyebrow, title, description, actions }: PageHeaderProps): React.JSX.Element {
   return (
     <header className="page-header">
-      <div>
+      <div className="page-header__copy">
         {eyebrow ? <span className="page-eyebrow">{eyebrow}</span> : null}
-        <h1>{title}</h1>
-        <p>{description}</p>
+        <div className="page-title-row">
+          <h1>{title}</h1>
+          {description ? <p>{description}</p> : null}
+        </div>
       </div>
       {actions ? <div className="page-actions">{actions}</div> : null}
     </header>

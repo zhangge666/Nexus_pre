@@ -1,0 +1,61 @@
+/** 本文件定义 Muse 窗口底板、主壳布局和工作区滚动边界。 */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  background: transparent;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  color: hsl(var(--foreground-disabled));
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+input,
+textarea {
+  min-width: 0;
+}
+
+.muse-app {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-lg);
+}
+
+.muse-shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  height: calc(100% - 40px);
+  min-height: 0;
+}
+
+.app-workspace {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 44% -20%, hsl(var(--primary) / 0.055), transparent 36%),
+    hsl(var(--background));
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 100%;
+  padding: 0 24px 20px;
+}
