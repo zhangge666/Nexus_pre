@@ -5,17 +5,20 @@ import {
   CalendarDays,
   CheckSquare2,
   ClipboardCopy,
+  Search,
   Lightbulb,
   Mic2,
   Settings2,
 } from "lucide-react";
 import type { MuseView } from "../core/types";
 import museIcon from "../assets/muse-app-icon.svg";
+import { isMacOS } from "../core/platform";
 
 interface SidebarProps {
   activeView: MuseView;
   taskCount: number;
   onNavigate: (view: MuseView) => void;
+  onOpenCommand: () => void;
 }
 
 const primaryItems = [
@@ -27,7 +30,12 @@ const primaryItems = [
 ];
 
 /** 渲染低噪声侧栏，并把设置固定在底部。 */
-export function Sidebar({ activeView, taskCount, onNavigate }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  activeView,
+  taskCount,
+  onNavigate,
+  onOpenCommand,
+}: SidebarProps): React.JSX.Element {
   return (
     <aside className="app-sidebar">
       <div className="sidebar-product">
@@ -37,6 +45,12 @@ export function Sidebar({ activeView, taskCount, onNavigate }: SidebarProps): Re
           <span>所有内容保存在本机</span>
         </div>
       </div>
+
+      <button className="sidebar-command" type="button" onClick={onOpenCommand}>
+        <Search size={14} aria-hidden="true" />
+        <span>快速打开</span>
+        <kbd>{isMacOS() ? "⌘ K" : "Ctrl K"}</kbd>
+      </button>
 
       <nav className="sidebar-nav" aria-label="Muse 页面">
         <span className="sidebar-label">工作区</span>

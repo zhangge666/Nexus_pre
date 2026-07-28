@@ -1,6 +1,7 @@
 /** 本文件组合 Muse 自定义桌面壳、独立页面与可选 Orbit 同步能力。 */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { CommandPalette } from "./components/CommandPalette";
 import { Sidebar } from "./components/Sidebar";
 import { Titlebar } from "./components/Titlebar";
 import { isTauriRuntime, connectService, getConnectionStatus, submitIdea, type ConnectionStatus } from "./api";
@@ -28,6 +29,7 @@ function errorMessage(error: unknown): string {
 /** 渲染 Muse 可独立运行的多页面桌面应用。 */
 export function App(): React.JSX.Element {
   const [activeView, setActiveView] = useState<MuseView>("today");
+  const [commandOpen, setCommandOpen] = useState(false);
   const [connection, setConnection] = useState<ConnectionStatus>(initialConnection);
   const [connecting, setConnecting] = useState(false);
   const {
@@ -54,6 +56,20 @@ export function App(): React.JSX.Element {
       .catch((error) => {
         setConnection({ ...initialConnection, message: errorMessage(error) });
       });
+  }, []);
+
+  const closeCommand = useCallback(() => setCommandOpen(false), []);
+
+  useEffect(() => {
+    /** 在主窗口任意位置使用 Command/Ctrl + K 打开功能导航。 */
+    function handleCommandShortcut(event: KeyboardEvent): void {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLocaleLowerCase() !== "k") return;
+      event.preventDefault();
+      setCommandOpen((current) => !current);
+    }
+
+    window.addEventListener("keydown", handleCommandShortcut);
+    return () => window.removeEventListener("keydown", handleCommandShortcut);
   }, []);
 
   /** 连接可选 Orbit 服务，失败时不影响本机数据。 */
@@ -121,6 +137,8 @@ export function App(): React.JSX.Element {
       <TodayPage
         ideas={workspace.ideas}
         tasks={workspace.tasks}
+        meetings={workspace.meetings}
+        clipboard={workspace.clipboard}
         onAddIdea={handleAddIdea}
         onNavigate={setActiveView}
       />
@@ -131,9 +149,20 @@ export function App(): React.JSX.Element {
     <div className="muse-app">
       <Titlebar />
       <div className="app-body">
-        <Sidebar activeView={activeView} taskCount={activeTaskCount} onNavigate={setActiveView} />
+        <Sidebar
+          activeView={activeView}
+          taskCount={activeTaskCount}
+          onNavigate={setActiveView}
+          onOpenCommand={() => setCommandOpen(true)}
+        />
         <main className="app-workspace">{renderPage()}</main>
       </div>
+      <CommandPalette
+        activeView={activeView}
+        open={commandOpen}
+        onClose={closeCommand}
+        onNavigate={setActiveView}
+      />
     </div>
   );
 }

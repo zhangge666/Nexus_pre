@@ -32,6 +32,11 @@ export function IdeaComposer({ compact = false, inputRef, onSubmit }: IdeaCompos
         ref={inputRef}
         value={content}
         onChange={(event) => setContent(event.target.value)}
+        onKeyDown={(event) => {
+          if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return;
+          event.preventDefault();
+          event.currentTarget.form?.requestSubmit();
+        }}
         placeholder="把刚刚想到的内容交给 Muse…"
         aria-label="记录灵感"
       />

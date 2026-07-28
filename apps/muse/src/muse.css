@@ -2485,3 +2485,416 @@ kbd {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* 全局快速打开入口把高频功能压缩到一次键盘操作内。 */
+
+.sidebar-command {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0 16px 10px;
+  padding: 0 9px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface) / 0.42);
+  font-size: 11px;
+  text-align: left;
+}
+
+.sidebar-command:hover {
+  border-color: hsl(var(--border-strong));
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface-hover) / 0.72);
+}
+
+.sidebar-command kbd {
+  box-shadow: none;
+}
+
+.command-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: 92px 16px 16px;
+  background: hsl(var(--background) / 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.command-panel {
+  width: min(480px, 100%);
+  overflow: hidden;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-lg);
+  background: hsl(var(--surface-elevated));
+  box-shadow: var(--shadow-md);
+}
+
+.command-search {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-muted));
+}
+
+.command-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: hsl(var(--foreground));
+  background: transparent;
+  font-size: 13px;
+}
+
+.command-search input::placeholder {
+  color: hsl(var(--foreground-muted));
+}
+
+.command-list {
+  display: grid;
+  gap: 2px;
+  max-height: min(420px, calc(100vh - 220px));
+  overflow: auto;
+  padding: 6px;
+}
+
+.command-list > button {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+  text-align: left;
+}
+
+.command-list > button:hover,
+.command-list > button:focus-visible {
+  background: hsl(var(--surface-hover));
+}
+
+.command-list > button.is-current {
+  background: hsl(var(--surface-active));
+}
+
+.command-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface));
+}
+
+.command-list > button.is-current .command-icon {
+  border-color: hsl(var(--primary) / 0.24);
+  color: hsl(var(--primary-hover));
+  background: hsl(var(--primary) / 0.08);
+}
+
+.command-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.command-copy strong {
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.command-copy small {
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-list > button > kbd {
+  box-shadow: none;
+}
+
+.command-empty {
+  margin: 0;
+  padding: 28px 12px;
+  color: hsl(var(--foreground-muted));
+  font-size: 11px;
+  text-align: center;
+}
+
+.command-panel > footer {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 14px;
+  padding: 0 10px;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.command-panel > footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.command-panel > footer span:last-child {
+  margin-left: auto;
+}
+
+/* “今天”页只保留四个动作入口，并在动作下方承载单一快速输入焦点。 */
+
+.today-launcher {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+  background: hsl(var(--surface) / 0.28);
+}
+
+.today-launcher > button {
+  display: grid;
+  min-width: 0;
+  min-height: 58px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-right: 1px solid hsl(var(--border-subtle));
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+  text-align: left;
+}
+
+.today-launcher > button:last-child {
+  border-right: 0;
+}
+
+.today-launcher > button:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover) / 0.64);
+}
+
+.today-launcher > button.is-primary {
+  background: hsl(var(--primary) / 0.07);
+}
+
+.launcher-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--background) / 0.5);
+}
+
+.today-launcher > button.is-primary .launcher-icon {
+  border-color: hsl(var(--primary) / 0.24);
+  color: hsl(var(--primary-hover));
+  background: hsl(var(--primary) / 0.08);
+}
+
+.today-launcher > button > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.today-launcher strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-launcher small {
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-launcher kbd {
+  display: none;
+}
+
+.today-capture {
+  margin-bottom: 28px;
+}
+
+.page-today .idea-composer {
+  transition: border-color 120ms ease-out, background 120ms ease-out;
+}
+
+.page-today .idea-composer:focus-within {
+  border-color: hsl(var(--primary) / 0.48);
+  background: hsl(var(--surface) / 0.64);
+}
+
+@media (min-width: 1180px) {
+  .today-launcher > button {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .today-launcher kbd {
+    display: inline-block;
+  }
+}
+
+@media (max-width: 820px) {
+  .sidebar-command span,
+  .sidebar-command kbd {
+    display: none;
+  }
+
+  .sidebar-command {
+    grid-template-columns: 1fr;
+    place-items: center;
+    margin: 0 8px 8px;
+    padding: 0;
+  }
+
+  .today-launcher {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .today-launcher > button:nth-child(2) {
+    border-right: 0;
+  }
+
+  .today-launcher > button:nth-child(-n + 2) {
+    border-bottom: 1px solid hsl(var(--border-subtle));
+  }
+}
+
+@media (max-width: 640px) {
+  .muse-app:has(.window-controls--macos) {
+    grid-template-rows: 38px minmax(0, 1fr);
+  }
+
+  .muse-app:has(.window-controls--macos) .app-titlebar {
+    position: relative;
+    width: 100%;
+    height: 38px;
+    border-bottom: 1px solid hsl(var(--border-subtle));
+    background: hsl(var(--background));
+  }
+
+  .muse-app:has(.window-controls--macos) .app-body {
+    grid-row: 2;
+  }
+
+  .muse-app:has(.window-controls--macos) .window-controls--macos {
+    padding: 0 14px;
+  }
+
+  .app-body {
+    display: block;
+    padding-bottom: 68px;
+  }
+
+  .app-sidebar {
+    position: fixed;
+    z-index: 10;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    display: grid;
+    width: auto;
+    min-height: 52px;
+    grid-template-columns: minmax(0, 1fr) 46px;
+    overflow: hidden;
+    border: 1px solid hsl(var(--border-strong));
+    border-radius: var(--radius-lg);
+    background: hsl(var(--surface-elevated) / 0.96);
+    box-shadow: var(--shadow-md);
+    backdrop-filter: blur(10px);
+  }
+
+  .sidebar-product,
+  .sidebar-command,
+  .sidebar-spacer,
+  .local-mode-note {
+    display: none;
+  }
+
+  .sidebar-nav {
+    display: grid;
+    height: 100%;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .sidebar-nav button {
+    display: grid;
+    min-height: 42px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    padding: 0;
+  }
+
+  .sidebar-nav button.is-active::before {
+    inset: auto 12px 0;
+    width: auto;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .sidebar-settings {
+    display: grid;
+    min-height: 42px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    margin: 4px 4px 4px 0;
+    padding: 0;
+  }
+
+  .sidebar-settings.is-active::before {
+    inset: auto 10px 0;
+    width: auto;
+    height: 2px;
+  }
+
+  .today-launcher {
+    margin-bottom: 8px;
+  }
+
+  .today-capture {
+    margin-bottom: 20px;
+  }
+
+  .command-backdrop {
+    align-items: end;
+    padding: 10px 10px 74px;
+  }
+
+  .command-panel {
+    border-radius: var(--radius-lg);
+  }
+
+  .command-panel > footer {
+    display: none;
+  }
+}
