@@ -21,6 +21,9 @@ design/muse/
 ├── index.html                  可交互界面原型
 ├── muse.css                   完整界面样式与响应式规则
 ├── muse.js                    页面切换和会议模式交互
+├── muse-linear-today.png      Linear 式“今天”主工作区视觉基准
+├── muse-linear-task.png       Linear 式任务详情与会议留痕视觉基准
+├── muse-linear-tools.png      Linear 式全局快捷工具窗视觉基准
 ├── icons/
 │   ├── muse-app-icon.svg      Muse“星芒 M”应用图标源文件
 │   ├── muse-app-icon-*.png    32–1024px PNG 导出
@@ -40,6 +43,16 @@ design/muse/
 ```
 
 ## 3. 界面预览
+
+### Linear 式应用基线
+
+![Muse “今天”主工作区](./muse-linear-today.png)
+
+![Muse 任务与会议留痕](./muse-linear-task.png)
+
+![Muse 全局快捷工具窗](./muse-linear-tools.png)
+
+这组三张高保真稿是正式应用新一轮重构的视觉基准：使用石墨色工作台、发丝级分隔、紧凑列表和克制的紫蓝焦点，同时保留 Muse 本地优先、键盘优先和独立品牌。正式实现不复刻其他产品的品牌、图标或专有页面。
 
 ### 快捷启动条
 
