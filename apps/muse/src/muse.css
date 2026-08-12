@@ -2959,6 +2959,452 @@ kbd {
   }
 }
 
+/* Linear 风格剪贴板推进：只保留清单选择、进度、当前项与逐项状态。 */
+
+.clipboard-focus-page {
+  display: grid;
+  height: 100%;
+  grid-template-rows: 46px minmax(0, 1fr);
+  background: hsl(var(--background));
+}
+
+.clipboard-focus-toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--surface) / 0.35);
+}
+
+.clipboard-focus-title {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  color: hsl(var(--foreground));
+}
+
+.clipboard-focus-title svg {
+  color: hsl(var(--primary));
+}
+
+.clipboard-focus-title strong {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.clipboard-source-select {
+  position: relative;
+  display: block;
+  min-width: 0;
+  width: min(250px, 32vw);
+}
+
+.clipboard-source-select select {
+  width: 100%;
+  height: 30px;
+  padding: 0 28px 0 9px;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface-hover) / 0.38);
+  font-size: 10px;
+  font-weight: 500;
+  outline: 0;
+}
+
+.clipboard-source-select select:focus-visible {
+  border-color: hsl(var(--ring));
+  outline: 2px solid hsl(var(--ring) / 0.18);
+  outline-offset: 0;
+}
+
+.clipboard-focus-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.clipboard-focus-actions button,
+.tool-title-actions button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+  transition: color 150ms ease-out, background 150ms ease-out;
+}
+
+.clipboard-focus-actions button:hover,
+.tool-title-actions button:hover,
+.clipboard-focus-actions button.is-active,
+.tool-title-actions button.is-active {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-hover));
+}
+
+.clipboard-focus-progress {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: 62px 68px minmax(0, 1fr) 36px;
+  overflow: hidden;
+  background: hsl(var(--background));
+}
+
+.clipboard-progress-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: center;
+  gap: 8px 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.clipboard-progress-overview > span {
+  color: hsl(var(--foreground-secondary));
+  font-size: 10px;
+}
+
+.clipboard-progress-overview > span strong {
+  color: hsl(var(--foreground));
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.clipboard-progress-overview > small {
+  color: hsl(var(--foreground-muted));
+  font-size: 10px;
+}
+
+.clipboard-progress-overview > div {
+  grid-column: 1 / -1;
+  height: 2px;
+  overflow: hidden;
+  background: hsl(var(--muted));
+}
+
+.clipboard-progress-overview > div > span {
+  display: block;
+  height: 100%;
+  background: hsl(var(--primary));
+  transition: width 150ms ease-out;
+}
+
+.clipboard-current-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--surface) / 0.18);
+}
+
+.clipboard-current-row > span {
+  color: hsl(var(--foreground-muted));
+  font-size: 10px;
+}
+
+.clipboard-current-row > strong {
+  overflow: hidden;
+  color: hsl(var(--foreground));
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboard-current-row > button {
+  min-height: 32px;
+  padding: 0 13px;
+  border-radius: var(--radius-md);
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 550;
+  transition: opacity 150ms ease-out;
+}
+
+.clipboard-current-row > button:hover {
+  background: hsl(var(--primary-hover));
+}
+
+.clipboard-current-row > button:active {
+  opacity: 0.8;
+}
+
+.clipboard-current-row.is-complete {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.clipboard-current-row.is-complete > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--success));
+}
+
+.clipboard-unit-rows {
+  min-height: 0;
+  overflow: auto;
+}
+
+.clipboard-unit-rows > button {
+  display: grid;
+  width: 100%;
+  min-height: 44px;
+  grid-template-columns: 28px minmax(0, 1fr) 52px;
+  align-items: center;
+  gap: 9px;
+  padding: 0 16px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+  text-align: left;
+  transition: color 150ms ease-out, background 150ms ease-out;
+}
+
+.clipboard-unit-rows > button:hover,
+.clipboard-unit-rows > button.is-current {
+  background: hsl(var(--surface-hover) / 0.35);
+}
+
+.clipboard-unit-rows > button > strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboard-unit-rows > button > small {
+  justify-self: end;
+  color: hsl(var(--foreground-disabled));
+  font-size: 9px;
+}
+
+.clipboard-unit-rows > button.is-current > strong {
+  color: hsl(var(--foreground));
+  font-weight: 550;
+}
+
+.clipboard-unit-rows > button.is-current > small {
+  color: hsl(var(--primary));
+}
+
+.clipboard-unit-rows > button.is-done > strong {
+  color: hsl(var(--foreground-muted));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--foreground-disabled));
+}
+
+.clipboard-unit-state {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: 50%;
+  color: hsl(var(--foreground-muted));
+}
+
+.is-done .clipboard-unit-state {
+  border-color: hsl(var(--foreground-muted));
+}
+
+.is-current .clipboard-unit-state {
+  border-color: hsl(var(--primary));
+}
+
+.clipboard-unit-state i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+}
+
+.clipboard-focus-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface) / 0.22);
+  font-size: 9px;
+}
+
+.clipboard-focus-footer > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboard-focus-footer button {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+  font-size: 9px;
+}
+
+.clipboard-focus-footer button:hover {
+  color: hsl(var(--foreground));
+}
+
+.clipboard-focus-empty {
+  display: grid;
+  min-height: 0;
+  height: 100%;
+  place-items: center;
+  padding: 24px;
+  color: hsl(var(--foreground-muted));
+  font-size: 10px;
+  text-align: center;
+}
+
+.clipboard-focus-compare {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: 50px minmax(0, 1fr) 36px;
+  overflow: hidden;
+}
+
+.clipboard-focus-compare > header {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) auto minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.clipboard-focus-compare > header > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+}
+
+.clipboard-focus-compare > header strong {
+  overflow: hidden;
+  color: hsl(var(--foreground-secondary));
+  font-size: 10px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboard-focus-compare > header label select {
+  width: 100%;
+  height: 28px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground-secondary));
+  background: hsl(var(--surface) / 0.5);
+  font-size: 9px;
+}
+
+.clipboard-focus-compare > header small {
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.clipboard-focus-compare-grid {
+  min-height: 0;
+  overflow: auto;
+}
+
+.clipboard-focus-compare-grid > div {
+  display: grid;
+  min-height: 42px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.clipboard-focus-compare-grid > div > span,
+.clipboard-focus-compare-grid > .compare-column-title > strong {
+  min-width: 0;
+  overflow: hidden;
+  padding: 12px 14px;
+  color: hsl(var(--foreground-secondary));
+  font-size: 10px;
+  font-weight: 450;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clipboard-focus-compare-grid > div > * + * {
+  border-left: 1px solid hsl(var(--border));
+}
+
+.clipboard-focus-compare-grid > .compare-column-title {
+  min-height: 36px;
+  background: hsl(var(--surface) / 0.35);
+}
+
+.clipboard-focus-compare-grid > .compare-column-title > strong {
+  padding-block: 10px;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.clipboard-focus-compare-grid > div.is-changed > span {
+  color: hsl(var(--foreground));
+  background: hsl(var(--primary) / 0.055);
+}
+
+.clipboard-focus-compare > footer {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface) / 0.22);
+  font-size: 9px;
+}
+
+@media (max-width: 720px) {
+  .clipboard-focus-toolbar {
+    padding-inline: 10px;
+  }
+
+  .clipboard-focus-title strong {
+    display: none;
+  }
+
+  .clipboard-source-select {
+    width: min(260px, 55vw);
+  }
+
+  .clipboard-current-row {
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding-inline: 10px;
+  }
+
+  .clipboard-current-row > button {
+    padding-inline: 9px;
+  }
+}
+
 /* 设置页主题选择器：所有颜色最终仍映射为设计系统 token。 */
 
 .page-settings {

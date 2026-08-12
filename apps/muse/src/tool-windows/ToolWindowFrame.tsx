@@ -11,6 +11,9 @@ interface ToolWindowFrameProps {
   subtitle: string;
   shortcut: string;
   icon: ReactNode;
+  headerAccessory?: ReactNode;
+  headerActions?: ReactNode;
+  showShortcut?: boolean;
   tone?: "default" | "recording";
   children: ReactNode;
 }
@@ -21,24 +24,29 @@ export function ToolWindowFrame({
   subtitle,
   shortcut,
   icon,
+  headerAccessory,
+  headerActions,
+  showShortcut = true,
   tone = "default",
   children,
 }: ToolWindowFrameProps): React.JSX.Element {
   const macOS = isMacOS();
 
   return (
-    <div className={`tool-window tool-window--${tone}`}>
+    <div className={`tool-window tool-window--${tone}${headerAccessory ? " tool-window--with-accessory" : ""}`}>
       <header className="tool-titlebar" data-tauri-drag-region>
         {macOS ? (
           <button className="tool-close-control--macos" type="button" onClick={() => void hideToolWindow()} aria-label={`隐藏${title}窗口`} />
         ) : null}
         <img src={museIcon} alt="" data-tauri-drag-region />
-        <span className="tool-symbol" aria-hidden="true">{icon}</span>
+        {icon ? <span className="tool-symbol" aria-hidden="true">{icon}</span> : null}
         <div className="tool-title-copy" data-tauri-drag-region>
           <strong data-tauri-drag-region>{title}</strong>
-          <span data-tauri-drag-region>{subtitle}</span>
+          {subtitle ? <span data-tauri-drag-region>{subtitle}</span> : null}
         </div>
-        <kbd data-tauri-drag-region>{shortcut}</kbd>
+        {headerAccessory ? <div className="tool-title-accessory">{headerAccessory}</div> : null}
+        {headerActions ? <div className="tool-title-actions">{headerActions}</div> : null}
+        {showShortcut ? <kbd data-tauri-drag-region>{shortcut}</kbd> : null}
         {macOS ? null : <button type="button" onClick={() => void hideToolWindow()} aria-label={`隐藏${title}窗口`}><X size={14} aria-hidden="true" /></button>}
       </header>
       <main className="tool-content">{children}</main>

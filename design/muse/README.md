@@ -72,7 +72,7 @@ design/muse/
 
 ![Muse 剪贴板比较](./screens/muse-clipboard-compare.png)
 
-默认视图把复制文字按智能、换行或空格拆成工作单元，突出当前项、完成进度与动态完成状态；双栏比较保留为次级标签。所有状态仅保存在本机。
+默认视图使用紧凑 Linear 风格，把历史折叠为顶部清单选择器，只保留完成进度、当前项、“完成并继续”和扁平状态列表；双栏比较由单个图标进入。所有状态仅保存在本机。
 
 ### 快捷键设置
 
@@ -123,7 +123,7 @@ http://127.0.0.1:4178/
 | 灵感 | `idea` / `IdeaToolWindow.tsx` | 自动聚焦、本地保存、失焦隐藏 |
 | 任务 | `task` / `TaskToolWindow.tsx` | 标题与原始要求一次绑定、生成来源留痕 |
 | 会议 | `meeting` / `MeetingToolWindow.tsx` | 计时、文字记录、重点标记；真实录音待接入 |
-| 剪贴板 | `clipboard` / `ClipboardToolWindow.tsx` | 主动读取、拆分、逐项推进、进度持久化与次级双栏比较 |
+| 剪贴板 | `clipboard` / `ClipboardToolWindow.tsx` | `760 × 460` 紧凑窗口、折叠清单选择、逐项推进、进度持久化与次级双栏比较 |
 
 四个窗口分别使用 `?window=idea|task|meeting|clipboard` 进入专用 React 根组件。Tauri 在启动时预创建窗口并用系统级快捷键执行 `show + focus`，工具窗关闭时只隐藏，不再回退到主窗口页面切换。
 

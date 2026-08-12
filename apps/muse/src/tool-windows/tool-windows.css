@@ -848,3 +848,54 @@
 .compare-selector {
   box-sizing: border-box;
 }
+
+/* 剪贴板工具窗复用主页面的 Linear 风格推进核心，并压缩标题栏。 */
+
+.tool-window--with-accessory .tool-title-copy {
+  flex: 0 0 auto;
+}
+
+.tool-title-accessory {
+  min-width: 0;
+  flex: 1;
+}
+
+.tool-title-accessory .clipboard-source-select {
+  width: min(250px, 44vw);
+}
+
+.tool-title-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+}
+
+.tool-title-actions button {
+  width: 28px;
+  height: 28px;
+}
+
+.tool-window--with-accessory .tool-content {
+  background: hsl(var(--background));
+}
+
+.tool-window--with-accessory .clipboard-focus-progress,
+.tool-window--with-accessory .clipboard-focus-compare,
+.tool-window--with-accessory .clipboard-focus-empty {
+  height: 100%;
+}
+
+@media (max-width: 620px) {
+  .tool-titlebar > img {
+    display: none;
+  }
+
+  .tool-window--with-accessory .tool-title-copy strong {
+    font-size: 10px;
+  }
+
+  .tool-title-accessory .clipboard-source-select {
+    width: min(210px, 42vw);
+  }
+}

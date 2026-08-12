@@ -39,8 +39,7 @@ export function App(): React.JSX.Element {
     addTask,
     setTaskStatus,
     addTaskActivity,
-    toggleClipboardPin,
-    clearUnpinnedClipboard,
+    addClipboardItem,
     updateClipboardProgress,
   } = useMuseWorkspace();
 
@@ -112,8 +111,7 @@ export function App(): React.JSX.Element {
       return (
         <ClipboardPage
           items={workspace.clipboard}
-          onTogglePin={toggleClipboardPin}
-          onClearUnpinned={clearUnpinnedClipboard}
+          onAddClipboardItem={addClipboardItem}
           onUpdateProgress={updateClipboardProgress}
         />
       );
