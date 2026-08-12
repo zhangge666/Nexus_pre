@@ -21,7 +21,7 @@ export function IdeasPage({ ideas, onAddIdea }: IdeasPageProps): React.JSX.Eleme
   );
 
   return (
-    <div className="page">
+    <div className="page page-ideas">
       <PageHeader
         eyebrow="灵感"
         title="想到就记"

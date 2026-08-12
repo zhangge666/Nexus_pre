@@ -899,3 +899,166 @@
     width: min(210px, 42vw);
   }
 }
+
+/* Muse 快捷工具窗视觉统一：每个窗口只保留一个主要任务和一组克制操作。 */
+
+.tool-window {
+  grid-template-rows: 38px minmax(0, 1fr);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: hsl(var(--background));
+}
+
+.tool-titlebar {
+  min-height: 38px;
+  padding-left: 10px;
+  border-bottom-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.86);
+}
+
+.tool-titlebar > img {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+}
+
+.tool-symbol {
+  color: hsl(var(--foreground-muted));
+}
+
+.tool-title-copy strong {
+  color: hsl(var(--foreground-secondary));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tool-title-copy span {
+  color: hsl(var(--foreground-disabled));
+}
+
+.tool-titlebar > button {
+  width: 38px;
+  height: 37px;
+}
+
+.tool-primary-button,
+.tool-secondary-button,
+.tool-stop-button {
+  min-height: 30px;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.tool-primary-button {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.tool-primary-button:focus-visible,
+.tool-secondary-button:focus-visible,
+.tool-stop-button:focus-visible,
+.quiet-tools button:focus-visible,
+.tool-titlebar button:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.tool-footer {
+  min-height: 42px;
+  padding: 6px 9px;
+  border-top-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.36);
+}
+
+.idea-tool-form textarea {
+  padding: 15px 17px;
+  background: hsl(var(--background));
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.quiet-tools button {
+  border-radius: var(--radius);
+}
+
+.task-tool-form,
+.meeting-tool {
+  background: hsl(var(--background));
+}
+
+.tool-field > span {
+  color: hsl(var(--foreground-muted));
+  font-weight: 500;
+}
+
+.tool-field input,
+.tool-field textarea,
+.meeting-title-input,
+.meeting-notes {
+  border-color: hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--surface) / 0.34);
+}
+
+.tool-field--title {
+  padding: 10px 12px 0;
+}
+
+.tool-field--source {
+  padding-block: 8px;
+}
+
+.task-meta-grid {
+  gap: 7px;
+}
+
+.meeting-status-row {
+  min-height: 50px;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.meeting-status-row time {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 620;
+}
+
+.meeting-pulse,
+.meeting-status-row .phase-chip {
+  border-radius: var(--radius-sm);
+  background: transparent;
+}
+
+.meeting-title-input {
+  margin-top: 8px;
+}
+
+.meeting-notes {
+  background: transparent;
+}
+
+.meeting-notes:disabled {
+  background: hsl(var(--surface) / 0.18);
+}
+
+.tool-window--with-accessory .tool-content,
+.tool-window--with-accessory .clipboard-focus-progress,
+.tool-window--with-accessory .clipboard-focus-compare,
+.tool-window--with-accessory .clipboard-focus-empty {
+  background: hsl(var(--background));
+}
+
+.tool-title-accessory .clipboard-source-select,
+.tool-title-actions button,
+.clipboard-focus-toolbar button,
+.clipboard-focus-compare select {
+  border-radius: var(--radius);
+}
+
+@media (max-width: 540px) {
+  .meeting-status-row .phase-chip,
+  .meeting-status-row > span:not(.phase-chip) {
+    display: none;
+  }
+}

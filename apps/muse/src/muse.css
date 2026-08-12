@@ -3647,3 +3647,617 @@ kbd {
     grid-template-columns: 1fr;
   }
 }
+
+/* Muse 全界面视觉统一：以扁平、紧凑、内容优先的 Linear 工作台规则收束所有页面。 */
+
+:root {
+  --radius-lg: 8px;
+  --shadow-sm: none;
+  --shadow-md: none;
+}
+
+.muse-app,
+.content-section,
+.idea-composer,
+.settings-section,
+.theme-preview {
+  box-shadow: none;
+}
+
+.muse-app {
+  border: 0;
+}
+
+.app-titlebar {
+  height: 40px;
+  border-bottom-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.9);
+}
+
+.titlebar-brand {
+  flex-basis: 216px;
+  max-width: 216px;
+  padding-left: 12px;
+}
+
+.titlebar-command {
+  height: 28px;
+  border-color: hsl(var(--border));
+  background: hsl(var(--background) / 0.58);
+}
+
+.titlebar-command:focus-visible,
+.quiet-icon-button:focus-visible,
+.sidebar-nav button:focus-visible,
+.sidebar-settings:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.app-body {
+  grid-template-columns: 216px minmax(0, 1fr);
+}
+
+.app-sidebar {
+  padding: 8px 7px 7px;
+  background: hsl(var(--surface) / 0.72);
+}
+
+.sidebar-nav button,
+.sidebar-settings {
+  min-height: 32px;
+  border-radius: var(--radius);
+  font-size: 11px;
+}
+
+.sidebar-nav button.is-active,
+.sidebar-settings.is-active {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-active));
+}
+
+.sidebar-nav button.is-active::before,
+.sidebar-settings.is-active::before {
+  display: none;
+}
+
+.sidebar-nav button.is-active svg,
+.sidebar-settings.is-active svg {
+  color: hsl(var(--primary));
+}
+
+.sidebar-shortcuts {
+  padding-inline: 2px;
+}
+
+.local-mode-note {
+  margin: 0 4px 5px;
+  padding: 8px 7px;
+  border: 0;
+  border-top: 1px solid hsl(var(--border-subtle));
+  border-radius: 0;
+  background: transparent;
+}
+
+.sidebar-settings {
+  margin: 0 1px;
+}
+
+.app-workspace {
+  background: hsl(var(--background));
+}
+
+.page {
+  background: hsl(var(--background));
+}
+
+.page-header,
+.page-tasks > .page-header,
+.page-meetings > .page-header,
+.page-clipboard > .page-header {
+  min-height: 68px;
+  padding: 11px 18px;
+  align-items: center;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  background: hsl(var(--background));
+}
+
+.page-eyebrow {
+  margin-bottom: 2px;
+  color: hsl(var(--foreground-muted));
+  font-size: 9px;
+}
+
+.page-header h1 {
+  font-size: 17px;
+  font-weight: 620;
+}
+
+.page-header p {
+  margin-top: 3px;
+  font-size: 9px;
+}
+
+.primary-button,
+.secondary-button {
+  min-height: 30px;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.primary-button {
+  background: hsl(var(--primary) / 0.9);
+}
+
+.primary-button:focus-visible,
+.secondary-button:focus-visible,
+.inline-search:focus-within,
+.task-search:focus-within,
+.task-create-bar input:focus-visible,
+.task-update input:focus-visible,
+.color-field input:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+/* 聚合工作流：列表和检查器共享同一画布，不再出现内嵌卡片感。 */
+
+.workflow-page {
+  grid-template-columns: minmax(420px, 1fr) 336px;
+}
+
+.workspace-toolbar {
+  height: 52px;
+  padding-inline: 18px;
+}
+
+.quick-action-strip > button {
+  min-height: 58px;
+  background: transparent;
+}
+
+.quick-action-strip > button:hover {
+  background: hsl(var(--surface-hover) / 0.5);
+}
+
+.inline-capture {
+  height: 38px;
+  margin: 12px 18px 6px;
+  border-radius: var(--radius);
+  background: hsl(var(--surface) / 0.44);
+}
+
+.timeline-section {
+  padding-inline: 18px;
+}
+
+.workflow-row {
+  min-height: 58px;
+}
+
+.workflow-row.is-selected {
+  background: hsl(var(--surface-active));
+  box-shadow: none;
+}
+
+.workflow-row.is-selected .row-glyph {
+  border-color: hsl(var(--primary) / 0.62);
+}
+
+.workflow-inspector {
+  background: hsl(var(--surface) / 0.24);
+}
+
+.inspector-scroll {
+  padding: 18px 16px 22px;
+}
+
+.inspector-block {
+  margin-left: 20px;
+  padding: 12px 0;
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  border-radius: 0;
+  background: transparent;
+}
+
+.inspector-block + .inspector-block {
+  margin-top: 4px;
+}
+
+.inspector-composer {
+  border-radius: var(--radius);
+  background: hsl(var(--surface) / 0.55);
+}
+
+.inspector-composer button {
+  border-radius: var(--radius);
+}
+
+/* 灵感：一个捕捉区加一列收件箱，避免卡片层层嵌套。 */
+
+.page-ideas {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  grid-template-rows: 68px auto minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+
+.page-ideas > .page-header {
+  min-height: 68px;
+}
+
+.page-ideas > .idea-composer {
+  margin: 12px 18px;
+}
+
+.idea-composer {
+  border-color: hsl(var(--border));
+  border-radius: var(--radius-md);
+  background: hsl(var(--surface) / 0.42);
+}
+
+.idea-composer textarea {
+  min-height: 80px;
+  padding: 13px 15px;
+  font-size: 12px;
+}
+
+.idea-composer footer {
+  min-height: 38px;
+  padding: 5px 7px 5px 10px;
+  border-top-color: hsl(var(--border-subtle));
+  background: transparent;
+}
+
+.page-ideas > .idea-inbox {
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid hsl(var(--border));
+  border-radius: 0;
+  background: transparent;
+}
+
+.page-ideas .section-header {
+  min-height: 44px;
+  padding: 6px 18px;
+  background: hsl(var(--surface) / 0.22);
+}
+
+.page-ideas .idea-list {
+  height: calc(100% - 44px);
+  overflow: auto;
+}
+
+.idea-row {
+  min-height: 56px;
+  padding: 8px 18px;
+  background: transparent;
+}
+
+.idea-row:hover {
+  background: hsl(var(--surface-hover) / 0.38);
+}
+
+.idea-symbol {
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+}
+
+.sync-badge {
+  background: transparent;
+}
+
+/* 任务：主从视图使用行分隔和固定工具栏，不使用浮动内容卡片。 */
+
+.task-workspace {
+  grid-template-columns: 264px minmax(0, 1fr);
+}
+
+.task-master,
+.meeting-list {
+  background: hsl(var(--surface) / 0.18);
+}
+
+.task-search,
+.inline-search {
+  min-height: 32px;
+  border-radius: var(--radius);
+  background: hsl(var(--surface) / 0.42);
+}
+
+.task-filter {
+  margin: 0 9px 8px;
+  border-color: hsl(var(--border-subtle));
+  border-radius: var(--radius);
+  background: transparent;
+}
+
+.task-filter button.is-active {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-active));
+}
+
+.task-list-row {
+  min-height: 58px;
+  border-top: 0;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+}
+
+.task-list-row.is-selected {
+  background: hsl(var(--surface-active));
+}
+
+.task-list-row.is-selected::before {
+  display: none;
+}
+
+.task-list-row.is-selected .task-ring {
+  border-color: hsl(var(--primary));
+}
+
+.task-detail-header {
+  padding: 15px 18px 12px;
+}
+
+.task-source {
+  margin: 0;
+  padding: 12px 18px;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  border-radius: 0;
+  background: hsl(var(--surface) / 0.12);
+}
+
+.task-source blockquote {
+  max-width: 720px;
+}
+
+.task-detail > .timeline-section {
+  padding: 10px 18px 4px;
+}
+
+.task-update {
+  min-height: 48px;
+  background: hsl(var(--surface) / 0.22);
+}
+
+.task-create-bar {
+  margin: 8px 12px;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+/* 会议：播放器、正文和行动项直接组织在同一详情面板。 */
+
+.meeting-workspace {
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+
+.meeting-list > button:hover {
+  background: hsl(var(--surface-hover) / 0.4);
+}
+
+.meeting-list > button.is-selected {
+  background: hsl(var(--surface-active));
+}
+
+.meeting-list > button.is-selected .meeting-list-icon {
+  border-color: hsl(var(--primary) / 0.42);
+  color: hsl(var(--primary));
+  background: transparent;
+}
+
+.meeting-list-icon {
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.meeting-player {
+  min-height: 56px;
+  padding-inline: 14px;
+}
+
+.play-button {
+  border-radius: var(--radius);
+}
+
+.meeting-player time {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+.meeting-tabs {
+  min-height: 34px;
+  background: hsl(var(--surface) / 0.16);
+}
+
+.meeting-tabs button {
+  position: relative;
+  border-radius: var(--radius-sm);
+}
+
+.meeting-tabs button.is-active {
+  color: hsl(var(--foreground));
+  background: hsl(var(--surface-active));
+}
+
+.meeting-summary {
+  padding: 14px 18px;
+}
+
+.meeting-summary h2 {
+  max-width: 720px;
+  font-size: 13px;
+}
+
+.meeting-risk {
+  border-radius: var(--radius);
+  background: hsl(var(--warning) / 0.035);
+}
+
+.meeting-actions {
+  padding: 12px;
+  background: hsl(var(--surface) / 0.14);
+}
+
+.meeting-detail-footer {
+  background: hsl(var(--surface) / 0.2);
+}
+
+/* 设置：保留主题自定义，但以单层分区和紧凑表格呈现。 */
+
+.page-settings {
+  display: block;
+  padding: 0;
+  overflow: auto;
+}
+
+.page-settings > .page-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 68px;
+}
+
+.page-settings > .theme-section,
+.page-settings > .settings-columns {
+  margin-inline: 18px;
+}
+
+.page-settings > .theme-section {
+  margin-top: 14px;
+  margin-bottom: 12px;
+}
+
+.page-settings > .settings-columns {
+  padding-bottom: 18px;
+}
+
+.settings-section {
+  border-radius: var(--radius-md);
+  background: hsl(var(--surface) / 0.3);
+}
+
+.settings-section > header {
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.settings-section > header > svg {
+  color: hsl(var(--primary));
+}
+
+.theme-preset-list {
+  padding: 8px;
+  background: transparent;
+}
+
+.theme-preset-list > button {
+  border-radius: var(--radius);
+}
+
+.theme-preset-list > button.is-active {
+  border-color: hsl(var(--primary) / 0.34);
+  background: hsl(var(--surface-active));
+  box-shadow: none;
+}
+
+.theme-preview {
+  border-radius: var(--radius);
+}
+
+.active-theme-chip {
+  border-radius: var(--radius);
+}
+
+.color-field-grid {
+  border-radius: var(--radius);
+}
+
+.color-field input[type="color"] {
+  border-radius: var(--radius-sm);
+}
+
+.connection-card {
+  margin: 0;
+  padding: 10px 11px;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  border-radius: 0;
+  background: transparent;
+}
+
+.connection-card.is-connected {
+  border-color: hsl(var(--border-subtle));
+}
+
+.hotkey-row:last-child,
+.setting-row:last-child {
+  border-bottom: 0;
+}
+
+/* 在窄窗口保持单一工作区，避免三栏被强行压缩。 */
+
+@media (max-width: 1080px) {
+  .workflow-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .app-body {
+    grid-template-columns: 58px minmax(0, 1fr);
+  }
+
+  .page-settings > .theme-section,
+  .page-settings > .settings-columns {
+    margin-inline: 12px;
+  }
+}
+
+@media (max-width: 720px) {
+  .page-header,
+  .page-tasks > .page-header,
+  .page-meetings > .page-header,
+  .page-clipboard > .page-header {
+    padding-inline: 12px;
+  }
+
+  .page-header p,
+  .page-eyebrow {
+    display: none;
+  }
+
+  .page-ideas > .idea-composer {
+    margin-inline: 12px;
+  }
+
+  .page-ideas .section-header,
+  .idea-row {
+    padding-inline: 12px;
+  }
+
+  .meeting-summary-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .meeting-actions {
+    border-top: 1px solid hsl(var(--border));
+    border-left: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
