@@ -2897,3 +2897,64 @@ kbd {
   .clipboard-workspace.progress-first { grid-template-columns: minmax(0, 1fr); }
   .clipboard-list { display: none; }
 }
+
+/* 主功能页直接占满工作区，避免外层页面再包裹一层“画中画”画布。 */
+
+.app-workspace {
+  background: hsl(var(--background));
+}
+
+.page-tasks,
+.page-meetings,
+.page-clipboard {
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.page-tasks > .page-header,
+.page-meetings > .page-header,
+.page-clipboard > .page-header {
+  min-height: 76px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 12px 18px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  background: hsl(var(--background));
+}
+
+.page-tasks > .page-header .page-actions,
+.page-meetings > .page-header .page-actions,
+.page-clipboard > .page-header .page-actions {
+  padding-top: 0;
+}
+
+.page-tasks > .task-workspace,
+.page-meetings > .meeting-workspace,
+.page-clipboard > .clipboard-workspace {
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.page-tasks > .task-workspace,
+.page-meetings > .meeting-workspace {
+  border-top: 0;
+}
+
+.page-tasks > .task-create-bar {
+  margin: 8px 12px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 720px) {
+  .page-tasks > .page-header,
+  .page-meetings > .page-header,
+  .page-clipboard > .page-header {
+    min-height: 68px;
+    padding: 10px 12px;
+  }
+}

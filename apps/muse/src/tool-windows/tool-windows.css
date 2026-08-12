@@ -394,7 +394,7 @@
   background: hsl(var(--surface) / 0.62);
 }
 
-.meeting-actions {
+.meeting-tool .meeting-actions {
   display: flex;
   gap: 6px;
 }
@@ -430,12 +430,12 @@
   font-size: 9px;
 }
 
-.clipboard-list {
+.tool-window .clipboard-list {
   height: calc(100% - 46px);
   overflow: auto;
 }
 
-.clipboard-list article {
+.tool-window .clipboard-list article {
   display: grid;
   min-height: 56px;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -443,15 +443,15 @@
   border-bottom: 1px solid hsl(var(--border-subtle));
 }
 
-.clipboard-list article:hover {
+.tool-window .clipboard-list article:hover {
   background: hsl(var(--surface-hover) / 0.64);
 }
 
-.clipboard-list article.is-selected {
+.tool-window .clipboard-list article.is-selected {
   background: hsl(var(--surface-active));
 }
 
-.clip-select {
+.tool-window .clip-select {
   display: grid;
   min-width: 0;
   height: 100%;
@@ -464,25 +464,25 @@
   text-align: left;
 }
 
-.clip-select > span:last-child {
+.tool-window .clip-select > span:last-child {
   display: grid;
   min-width: 0;
   gap: 3px;
 }
 
-.clip-select strong,
-.clip-select small {
+.tool-window .clip-select strong,
+.tool-window .clip-select small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.clip-select strong {
+.tool-window .clip-select strong {
   font-size: 10px;
   font-weight: 550;
 }
 
-.clip-select small {
+.tool-window .clip-select small {
   color: hsl(var(--foreground-muted));
   font-size: 8px;
 }
@@ -509,8 +509,8 @@
   opacity: 0.35;
 }
 
-.clipboard-list article:hover .clip-row-actions,
-.clipboard-list article:focus-within .clip-row-actions {
+.tool-window .clipboard-list article:hover .clip-row-actions,
+.tool-window .clipboard-list article:focus-within .clip-row-actions {
   opacity: 1;
 }
 
