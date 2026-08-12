@@ -2958,3 +2958,246 @@ kbd {
     padding: 10px 12px;
   }
 }
+
+/* 设置页主题选择器：所有颜色最终仍映射为设计系统 token。 */
+
+.page-settings {
+  height: 100%;
+  overflow: auto;
+}
+
+.theme-section {
+  margin-bottom: 12px;
+}
+
+.theme-section > header .secondary-button {
+  white-space: nowrap;
+}
+
+.theme-preset-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  padding: 10px;
+  border-bottom: 1px solid hsl(var(--border-subtle));
+  background: hsl(var(--background) / 0.18);
+}
+
+.theme-preset-list > button {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: hsl(var(--foreground-secondary));
+  background: transparent;
+  text-align: left;
+}
+
+.theme-preset-list > button:hover {
+  background: hsl(var(--surface-hover) / 0.7);
+}
+
+.theme-preset-list > button.is-active {
+  border-color: hsl(var(--primary) / 0.35);
+  background: hsl(var(--surface-active));
+  box-shadow: inset 2px 0 0 hsl(var(--primary));
+}
+
+.theme-preset-list > button > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.theme-preset-list strong {
+  overflow: hidden;
+  font-size: 9px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-preset-list small {
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.theme-preview {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+
+.theme-preview i {
+  position: absolute;
+  display: block;
+}
+
+.theme-preview i:nth-child(1) {
+  inset: 4px 4px 4px 12px;
+  border-radius: 2px;
+}
+
+.theme-preview i:nth-child(2) {
+  right: 7px;
+  bottom: 7px;
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.theme-preview i:nth-child(3) {
+  top: 8px;
+  left: 16px;
+  width: 9px;
+  height: 2px;
+  border-radius: 2px;
+}
+
+.custom-theme-controls {
+  padding: 10px;
+}
+
+.custom-theme-heading {
+  display: flex;
+  min-height: 32px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.custom-theme-heading > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.custom-theme-heading strong {
+  color: hsl(var(--foreground-secondary));
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.custom-theme-heading small {
+  color: hsl(var(--foreground-muted));
+  font-size: 8px;
+}
+
+.active-theme-chip {
+  display: flex;
+  min-height: 22px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 99px;
+  color: hsl(var(--foreground-muted));
+  font-size: 8px;
+}
+
+.active-theme-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.color-field-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 6px;
+  border: 1px solid hsl(var(--border-subtle));
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: hsl(var(--border-subtle));
+}
+
+.color-field {
+  display: grid;
+  min-width: 0;
+  min-height: 48px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  background: hsl(var(--surface));
+  cursor: pointer;
+}
+
+.color-field:hover {
+  background: hsl(var(--surface-hover));
+}
+
+.color-field input[type="color"] {
+  width: 26px;
+  height: 26px;
+  padding: 2px;
+  border: 1px solid hsl(var(--border-strong));
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.color-field input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-field input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 50%;
+}
+
+.color-field > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.color-field strong {
+  color: hsl(var(--foreground-secondary));
+  font-size: 9px;
+  font-weight: 550;
+}
+
+.color-field small {
+  overflow: hidden;
+  color: hsl(var(--foreground-muted));
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.color-field code {
+  grid-column: 2;
+  color: hsl(var(--foreground-disabled));
+  font: 7px/1.2 "Geist Mono", "JetBrains Mono", monospace;
+}
+
+@media (max-width: 1080px) {
+  .theme-preset-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .color-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .theme-preset-list,
+  .color-field-grid {
+    grid-template-columns: 1fr;
+  }
+}

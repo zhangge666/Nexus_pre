@@ -1,6 +1,7 @@
 /** 本文件根据 Tauri 窗口查询参数挂载对应的 Muse 专用工具界面。 */
 
 import React from "react";
+import { useMuseTheme } from "../core/theme";
 import { ClipboardToolWindow } from "./ClipboardToolWindow";
 import { IdeaToolWindow } from "./IdeaToolWindow";
 import { MeetingToolWindow } from "./MeetingToolWindow";
@@ -16,6 +17,7 @@ interface ToolWindowRouterProps {
 
 /** 确保每个快捷键窗口只渲染自己的任务界面，而不是聚合主页。 */
 export function ToolWindowRouter({ type }: ToolWindowRouterProps): React.JSX.Element {
+  useMuseTheme();
   if (type === "idea") return <IdeaToolWindow />;
   if (type === "task") return <TaskToolWindow />;
   if (type === "meeting") return <MeetingToolWindow />;

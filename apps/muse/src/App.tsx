@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { Titlebar } from "./components/Titlebar";
 import { isTauriRuntime, connectService, getConnectionStatus, submitIdea, type ConnectionStatus } from "./api";
 import type { MuseView } from "./core/types";
+import { useMuseTheme } from "./core/theme";
 import { useMuseWorkspace } from "./core/workspace";
 import { ClipboardPage } from "./pages/ClipboardPage";
 import { IdeasPage } from "./pages/IdeasPage";
@@ -27,6 +28,7 @@ function errorMessage(error: unknown): string {
 
 /** 渲染 Muse 可独立运行的多页面桌面应用。 */
 export function App(): React.JSX.Element {
+  const theme = useMuseTheme();
   const [activeView, setActiveView] = useState<MuseView>("today");
   const [connection, setConnection] = useState<ConnectionStatus>(initialConnection);
   const [connecting, setConnecting] = useState(false);
@@ -117,7 +119,7 @@ export function App(): React.JSX.Element {
       );
     }
     if (activeView === "settings") {
-      return <SettingsPage connection={connection} connecting={connecting} onConnect={handleConnect} />;
+      return <SettingsPage connection={connection} connecting={connecting} onConnect={handleConnect} theme={theme} />;
     }
     return (
       <TodayPage
