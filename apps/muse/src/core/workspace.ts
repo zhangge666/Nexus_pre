@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type {
+  ClipboardSplitMode,
   MuseClipboardItem,
   MuseIdea,
   MuseMeeting,
@@ -101,11 +102,14 @@ function createInitialWorkspace(): MuseWorkspace {
     clipboard: [
       {
         id: "clip-a",
-        title: "新版报价条目",
-        content: "基础服务：￥12,800\n交付周期：10 个工作日\n数据迁移：包含 1 次\n驻场支持：2 天\n售后服务：3 个月\n付款方式：5 / 5",
+        title: "发布前核验清单",
+        content: "桌面端文案\n移动端断点\n按钮埋点\n回滚包\n发布公告\n客户通知",
         source: "Excel",
         copiedAt: now - 8 * 60_000,
         pinned: true,
+        splitMode: "lines",
+        completedIndexes: [0, 1],
+        activeIndex: 2,
       },
       {
         id: "clip-b",
@@ -114,6 +118,9 @@ function createInitialWorkspace(): MuseWorkspace {
         source: "钉钉",
         copiedAt: now - 5 * 60_000,
         pinned: true,
+        splitMode: "lines",
+        completedIndexes: [],
+        activeIndex: 0,
       },
     ],
   };
@@ -273,9 +280,23 @@ export function useMuseWorkspace() {
       source,
       copiedAt: Date.now(),
       pinned: false,
+      splitMode: "smart",
+      completedIndexes: [],
+      activeIndex: 0,
     };
     setWorkspace((current) => ({ ...current, clipboard: [item, ...current.clipboard].slice(0, 50) }));
     return item;
+  }
+
+  /** 更新某条剪贴板内容的拆分方式与逐项完成进度。 */
+  function updateClipboardProgress(
+    id: string,
+    progress: { splitMode?: ClipboardSplitMode; completedIndexes?: number[]; activeIndex?: number },
+  ): void {
+    setWorkspace((current) => ({
+      ...current,
+      clipboard: current.clipboard.map((item) => (item.id === id ? { ...item, ...progress } : item)),
+    }));
   }
 
   /** 保存一场由专用会议窗口结束的本地会议。 */
@@ -303,6 +324,7 @@ export function useMuseWorkspace() {
       toggleClipboardPin,
       clearUnpinnedClipboard,
       addClipboardItem,
+      updateClipboardProgress,
       addMeeting,
     }),
     [workspace],

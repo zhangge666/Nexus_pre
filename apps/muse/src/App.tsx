@@ -39,6 +39,7 @@ export function App(): React.JSX.Element {
     addTaskActivity,
     toggleClipboardPin,
     clearUnpinnedClipboard,
+    updateClipboardProgress,
   } = useMuseWorkspace();
 
   useEffect(() => {
@@ -111,6 +112,7 @@ export function App(): React.JSX.Element {
           items={workspace.clipboard}
           onTogglePin={toggleClipboardPin}
           onClearUnpinned={clearUnpinnedClipboard}
+          onUpdateProgress={updateClipboardProgress}
         />
       );
     }
@@ -121,7 +123,10 @@ export function App(): React.JSX.Element {
       <TodayPage
         ideas={workspace.ideas}
         tasks={workspace.tasks}
+        meetings={workspace.meetings}
+        clipboard={workspace.clipboard}
         onAddIdea={handleAddIdea}
+        onAddTaskActivity={addTaskActivity}
         onNavigate={setActiveView}
       />
     );

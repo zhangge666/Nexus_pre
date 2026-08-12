@@ -655,3 +655,196 @@
     transition: none;
   }
 }
+
+/* 参考界面视觉升级：工具窗更克制，强调当前动作而非装饰卡片。 */
+
+.tool-window {
+  grid-template-rows: 38px minmax(0, 1fr);
+  border-color: hsl(var(--border));
+  background: hsl(var(--background));
+}
+
+.tool-titlebar {
+  gap: 7px;
+  padding-left: 11px;
+  border-bottom-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.82);
+}
+
+.tool-titlebar > img {
+  width: 17px;
+  height: 17px;
+  border-radius: var(--radius-sm);
+  opacity: 0.86;
+}
+
+.tool-symbol {
+  width: auto;
+  height: auto;
+  border: 0;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+}
+
+.tool-window--recording .tool-symbol {
+  border: 0;
+  color: hsl(var(--warning));
+  background: transparent;
+}
+
+.tool-title-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tool-title-copy strong {
+  color: hsl(var(--foreground-secondary));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tool-title-copy span {
+  color: hsl(var(--foreground-disabled));
+  font-size: 8px;
+}
+
+.tool-titlebar > kbd {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tool-titlebar > button {
+  width: 38px;
+  height: 37px;
+}
+
+.tool-primary-button {
+  background: hsl(var(--primary) / 0.82);
+}
+
+.tool-secondary-button {
+  border-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.58);
+}
+
+.tool-footer {
+  min-height: 42px;
+  padding: 6px 10px;
+  border-top-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.45);
+}
+
+.idea-tool-form textarea {
+  padding: 16px 18px;
+  background: hsl(var(--background));
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.task-tool-form,
+.meeting-tool {
+  background: hsl(var(--background));
+}
+
+.tool-field input,
+.tool-field textarea,
+.meeting-title-input,
+.meeting-notes {
+  border-color: hsl(var(--border-subtle));
+  background: hsl(var(--surface) / 0.36);
+}
+
+.clipboard-tool.progress-tool {
+  grid-template-columns: 230px minmax(0, 1fr);
+}
+
+.progress-tool .clipboard-history {
+  border-right-color: hsl(var(--border));
+  background: hsl(var(--surface) / 0.42);
+}
+
+.tool-progress-panel {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 42px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.tool-progress-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px;
+}
+
+.tool-progress-body .current-clip-unit {
+  min-height: 68px;
+}
+
+.tool-progress-body .clip-unit-list {
+  margin-top: 12px;
+}
+
+.tool-progress-body > footer,
+.tool-compare-secondary > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  color: hsl(var(--foreground-disabled));
+  font-size: 8px;
+}
+
+.tool-progress-body > footer button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+  font-size: 9px;
+}
+
+.tool-compare-secondary {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.tool-compare-columns {
+  display: grid;
+  height: calc(100% - 70px);
+  min-height: 240px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid hsl(var(--border-subtle));
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tool-compare-columns pre {
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  color: hsl(var(--foreground-muted));
+  background: hsl(var(--surface) / 0.24);
+  font: 9px/1.65 "Geist Mono", "JetBrains Mono", monospace;
+  white-space: pre-wrap;
+}
+
+.tool-compare-columns pre + pre {
+  border-left: 1px solid hsl(var(--border-subtle));
+}
+
+.clip-mode-toolbar,
+.segmented-control,
+.split-modes,
+.progress-summary,
+.progress-track,
+.current-clip-unit,
+.clip-unit-list,
+.unit-check,
+.compare-selector {
+  box-sizing: border-box;
+}

@@ -5,6 +5,7 @@ import { ClipboardToolWindow } from "./ClipboardToolWindow";
 import { IdeaToolWindow } from "./IdeaToolWindow";
 import { MeetingToolWindow } from "./MeetingToolWindow";
 import { TaskToolWindow } from "./TaskToolWindow";
+import "../muse.css";
 import "./tool-windows.css";
 
 export type ToolWindowType = "idea" | "task" | "meeting" | "clipboard";

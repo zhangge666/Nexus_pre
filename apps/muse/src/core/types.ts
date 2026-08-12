@@ -3,6 +3,7 @@
 export type MuseView = "today" | "ideas" | "tasks" | "meetings" | "clipboard" | "settings";
 export type TaskStatus = "todo" | "doing" | "waiting" | "done";
 export type SyncState = "local" | "syncing" | "synced" | "error";
+export type ClipboardSplitMode = "smart" | "lines" | "spaces";
 
 /** 一条由 Muse 捕捉的灵感。 */
 export interface MuseIdea {
@@ -52,6 +53,9 @@ export interface MuseClipboardItem {
   source: string;
   copiedAt: number;
   pinned: boolean;
+  splitMode?: ClipboardSplitMode;
+  completedIndexes?: number[];
+  activeIndex?: number;
 }
 
 /** Muse 单机模式持久化的完整工作区。 */

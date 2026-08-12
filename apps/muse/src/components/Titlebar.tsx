@@ -1,7 +1,7 @@
 /** 本文件实现 Muse 无原生装饰窗口使用的自定义标题栏与窗口控制。 */
 
 import React from "react";
-import { Minus, Square, X } from "lucide-react";
+import { ChevronDown, Minus, Search, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauriRuntime } from "../api";
 import museIcon from "../assets/muse-app-icon.svg";
@@ -54,8 +54,13 @@ export function Titlebar(): React.JSX.Element {
       <div className="titlebar-brand" data-tauri-drag-region>
         <img src={museIcon} alt="" />
         <strong data-tauri-drag-region>Muse</strong>
-        <span data-tauri-drag-region>随叫随到的工作助手</span>
+        <ChevronDown size={12} aria-hidden="true" />
       </div>
+      <button className="titlebar-command" type="button" aria-label="打开搜索">
+        <Search size={13} aria-hidden="true" />
+        <span>搜索 Muse</span>
+        <kbd>Ctrl K</kbd>
+      </button>
       <div className="titlebar-status" data-tauri-drag-region>
         <span className="status-dot" />
         本地模式
